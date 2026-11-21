@@ -1,0 +1,88 @@
+namespace CreatioAutoTests.Configuration;
+
+/// <summary>Behavioural knobs for a whole run. Loaded from run.config.json, overridable from the CLI.</summary>
+public sealed class RunSettings
+{
+    /// <summary>Run the browser without a visible window.</summary>
+    public bool Headless { get; set; }
+
+    /// <summary>
+    /// When false (default) a test case stops at the first failed command.
+    /// When true the executor keeps going and reports every failure of the case.
+    /// </summary>
+    public bool ContinueOnFailure { get; set; }
+
+    /// <summary>
+    /// Width of the browser window every case runs in, pixels.
+    ///
+    /// Fixed rather than left to the machine, because Creatio's layout depends on it: in a narrow
+    /// window a side panel's hover actions come to overlap the tab headers and a tab cannot be
+    /// clicked at all, and controls further down the page are never rendered. A run that varies with
+    /// the size of somebody's desktop is not a test.
+    /// </summary>
+    public int ViewportWidth { get; set; } = 1600;
+
+    /// <summary>Height of the browser window every case runs in, pixels.</summary>
+    public int ViewportHeight { get; set; } = 950;
+
+    /// <summary>Timeout for locating a single UI element, milliseconds.</summary>
+    public int ElementTimeoutMs { get; set; } = 15_000;
+
+    /// <summary>
+    /// Budget for confirming that something is absent, milliseconds. Far shorter than
+    /// <see cref="ElementTimeoutMs"/>, because absence is the expected answer and waiting the full
+    /// element timeout for it makes negative assertions and diagnostics impractical.
+    /// </summary>
+    public int AbsenceTimeoutMs { get; set; } = 1500;
+
+    /// <summary>
+    /// Budget for 'on &lt;page&gt;' (and 'create') to see at least one element of the page it rebinds to,
+    /// milliseconds. The element timeout, so a slow form is not mistaken for the wrong page.
+    /// </summary>
+    public int PageCheckTimeoutMs { get; set; } = 15_000;
+
+    /// <summary>
+    /// Put the browser console errors and uncaught page errors of each case into the reports. They are
+    /// collected either way, for 'check console no errors'.
+    /// </summary>
+    public bool CaptureConsole { get; set; }
+
+    /// <summary>
+    /// Record a Playwright trace of every case (<c>--trace</c>): <c>&lt;reports&gt;/traces/&lt;case&gt;-&lt;user&gt;.zip</c>, opened with
+    /// <c>playwright show-trace</c>. Screenshots, DOM snapshots and the network are in it; costs a few seconds and some MB per case.
+    /// </summary>
+    public bool Trace { get; set; }
+
+    /// <summary>
+    /// Pause between two reads of 'wait-record' and 'wait-count', milliseconds. Doubled after ten seconds of waiting, so a
+    /// long wait does not hammer the site.
+    /// </summary>
+    public int PollIntervalMs { get; set; } = 1000;
+
+    /// <summary>Folder <c>upload</c> takes its files from, relative to the working directory (S34-T04).</summary>
+    public string TestDataDirectory { get; set; } = "TestData";
+
+    /// <summary>Timeout for the Creatio loading overlay to disappear, milliseconds.</summary>
+    public int PageLoadTimeoutMs { get; set; } = 60_000;
+
+    /// <summary>
+    /// Run the analysis scripts before the test cases and reload the catalog from what they wrote.
+    ///
+    /// Off by default. Once pages are described the configuration is committed and reused, so
+    /// re-analysing on every run costs a browser session per page for nothing; a pipeline wants it
+    /// on only when a page is known to have changed.
+    /// </summary>
+    public bool RunAnalysis { get; set; }
+
+    /// <summary>Directory the run report is written to.</summary>
+    public string ReportsDirectory { get; set; } = "Reports";
+
+    /// <summary>
+    /// Formats written after a run. Supported values are text, junit and html; text remains the
+    /// default so existing command lines produce the same report.
+    /// </summary>
+    public List<string> Reports { get; set; } = new() { "text" };
+
+    /// <summary>Test case files starting with this prefix are skipped.</summary>
+    public string SkipFilePrefix { get; set; } = "tmp";
+}

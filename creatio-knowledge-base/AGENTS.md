@@ -1,0 +1,233 @@
+# AGENTS.md
+
+Instructions for an AI agent working **inside this folder** of the kit. The rules for everything you write - above all **no real names** (no client, site, server, package or project name, no prefix but `Usr`, no client-specific schema, column or business value; placeholders like `UsrOrder`, `Account`, `dev`, "the test site") - are in the kit's [AGENTS.md](../AGENTS.md).
+
+If instead you are writing Creatio code in some other project and want to *consume* these
+recipes, that is a different job — see [skill/creatio-kb/SKILL.md](skill/creatio-kb/SKILL.md).
+
+## What this repository is
+
+**Python launcher.** The commands in these pages say `python`. On Windows write `py -3` instead (a bare `python` there may be the Microsoft Store stub and answer `Permission denied`); on Linux and macOS `python3`. Every command line of the toolkits writes UTF-8 to stdout and stderr by itself, so `PYTHONIOENCODING` is not needed for a Cyrillic caption. The MCP server is registered with the interpreter of its own venv (`mcp-server/.venv`), never with `python`.
+
+A knowledge base of 177 Creatio development recipes, a Python MCP server that makes them
+searchable, and - under `no-code/tools/` - the package toolkits, the describe layer and the
+environment layer the same server exposes as tools. See [README.md](README.md) for the full picture.
+
+**Nothing here is application code.** No build, no tests, no dependencies to install for
+the content itself. The `.js`, `.cs` and `.sql` files are templates that are never compiled
+or executed.
+
+This has consequences for how you work here:
+
+- Do **not** run linters, formatters or type checkers over the recipes, and do not "fix"
+  what they would report. Unused variables, undeclared globals (`Ext`, `Terrasoft`,
+  `sdk`), classes that wrap nothing, methods no one calls, placeholder GUIDs — all
+  intentional.
+- Do **not** try to make a recipe compile. A `.cs` recipe is wrapped in a bare
+  `class HowToDoTheThing { }` purely to hold the methods; it has no Creatio assemblies
+  behind it.
+- Do **not** reformat, re-wrap or re-order existing recipes as a side effect of another
+  task. The header blocks are hand-tuned prose.
+
+## The one hard contract: the header block
+
+The index parses the header to get the title and the summary that search results show. Get
+this wrong and the recipe becomes nearly unfindable — it is the single most damaging
+mistake available in this repo.
+
+**`.js` / `.ts`** — a `---` fenced comment line, then `//` lines until the first blank line:
+
+```js
+// --- How to filter a lookup field --------------------------------------------
+// Declare `lookupListConfig` on the lookup column in `attributes`. The filters
+// array holds FUNCTIONS that are called with the view model as `this` every
+// time the lookup list is opened.
+```
+
+In Classic UI recipes this sits at the top of the file. In Freedom UI recipes it sits
+*inside* the schema, above the section it documents (usually just before `handlers`) —
+both work, the parser searches the whole file. Follow whichever the neighbouring files use.
+
+**`.cs`** — an XML summary; the **first sentence becomes the title**, so make that sentence
+say what the recipe does:
+
+```csharp
+/// <summary>
+/// Demonstrates how to query records using EntitySchemaQuery (ESQ).
+/// ESQ is the primary way to read records in Creatio — it respects column and
+/// row-level permissions. Use FetchFromDB instead when you need a single record.
+/// </summary>
+```
+
+**`.sql`** — leading `--` line comments. A `/* */` block is NOT parsed: the recipe silently
+falls back to a title made from its file name and an empty summary, with no warning.
+
+Verify after any edit that touches a header:
+
+```bash
+python mcp-server/kb_index.py
+```
+
+The report must end with **no warnings** and the recipe count must be what you expect. A
+warning means a header was lost and the title fell back to the file name.
+
+## Where a new recipe goes
+
+Pick the area first, then the topic folder. Areas are fixed — they are hardcoded in
+`AREAS` in [mcp-server/kb_index.py](mcp-server/kb_index.py):
+
+| Area | Path | Suffix |
+| --- | --- | --- |
+| ClassicUI | `code/Frontend/ClassicUI` | `.js` |
+| FreedomUI | `code/Frontend/FreedomUI` | `.js` |
+| RemoteModule | `code/Frontend/RemoteModule` | `.ts` |
+| Mobile | `code/Frontend/Mobile` | `.ts` |
+| Backend | `code/Backend/C#` | `.cs` |
+| SQL | `code/Backend/SQL` | `.sql` |
+| Clio | `no-code` | `.md` (block skills `clio-*/SKILL.md`, generated `reference/<command>.md`) |
+
+Topic folders as they stand:
+
+- **Both UI areas:** `Attributes`, `Data`, `Dialogs`, `Fields`, `Lifecycle`, `Messaging`,
+  `Navigation`, `Processes`, `Services`, `Users`
+- **ClassicUI only:** `BaseMethods`, `BusinessRules`, `Details`, `Diff`, `Dom`, `Modules`,
+  `Sections`
+- **FreedomUI only:** `Grids`, `Reference`, `Validation`, `ViewConfig`
+- **RemoteModule, Mobile:** root only - one `.ts` recipe plus a copyable project folder
+- **Backend:** `API`, `ESQ`, `Events`, `Files`, `Patterns`, `SQLClasses`
+- **Clio:** `clio-<block>/SKILL.md` at the root (indexed under the folder name, so
+  `get_recipe("clio-pages")` works) and `reference/` for the generated command pages
+
+Reuse a shared name when the concept exists in both generations — the point is that the
+same task sits at the same path either side. Put a file at the **root** of an area only
+when it is foundational (`CommonPitfalls`, `HowToExtendStockSchema`) or genuinely ungroupable
+(`HowToLoadExternalJsLibrary`). Creating a new topic folder is fine when a real cluster
+appears; a one-file folder is acceptable and several already exist.
+
+Name the file `HowToDoTheThing.js|cs`. The file name is tokenized into the search terms, so
+it carries real ranking weight — name it for the task, not for the API.
+
+## Writing a recipe
+
+The header is the product; the code is the illustration. Write the header to answer what a
+developer gets wrong, not what the API is called:
+
+- state which part is counter-intuitive, and what the failure looks like — these APIs fail
+  *silently*, so "returning null breaks the lookup list" is worth more than a signature;
+- name the required dependency when there is one (`@creatio-devkit/common` in
+  `SCHEMA_DEPS`, a `using`, a mixin);
+- say where a value has to come from when it cannot be guessed (a `dataSourceName` is the
+  lookup attribute name plus `_DS`, read off the real schema).
+
+Code conventions, taken from the existing files:
+
+- **`.js` — tabs.** All 92 nested recipes use them, without exception.
+- **`.cs` — 4 spaces**, `using` directives at the top, above the summary.
+- Use placeholder names — never a schema, column or module name lifted from a real
+  project, and never a prefix other than `Usr` (`Su*`, `QS*`, `Dn*` are leaked artifacts):
+
+  | Role | Placeholder |
+  | --- | --- |
+  | the page entity / master record | `UsrMyEntity`, page `UsrMyEntity1Page`, Freedom UI `UsrMyPage_FormPage` |
+  | rows of a detail on that page | `UsrMyDetailEntity`, detail schema `UsrMyDetail` |
+  | an entity the user picks from | `UsrRelatedEntity` |
+  | a many-to-many link table | `UsrRelatedInMyEntity` |
+  | attachments of the page entity | `UsrMyEntityFile` |
+  | a configuration service and its helper | `UsrMyService`, `UsrMyServiceHelper` |
+  | a generated Freedom UI attribute | `PDS_Name_a1b2c3d` |
+
+  Stock objects (`Contact`, `Account`, `Activity`, `SysAdminUnit`, `SysSettings`, …) are
+  referenced by their real names — they are part of the product, not a leaked artifact.
+- GUIDs go in named constants (`const MethodDirectImport = "7ec276fe-…"`), and must be
+  invented, never lifted from a real database.
+- Numbered comments (`// 1. Read a collection`, `// 2. Read a single record`) are the
+  convention for multi-part recipes.
+
+## Never mix the two UI generations
+
+This is the mistake that produces plausible, broken code. Establish which generation the
+task belongs to before writing a line:
+
+| Generation | Marker in `properties.json` | Shape |
+| --- | --- | --- |
+| Freedom UI (8.x) | `"SchemaType": "AngularSchema"` | `viewConfigDiff`, `handlers`, `crt.*` requests, `sdk.*`, `request.$context` |
+| Classic UI (7.x) | `EditViewModelSchema`, `GridDetailViewModelSchema`, `ModuleViewModelSchema` | `diff`, `methods`, `attributes`, `Terrasoft.*`, `Ext.create`, `this.get/set` |
+
+`Terrasoft.FilterGroup` in a Freedom UI schema, or an `sdk.Model` in a Classic UI page, is
+always wrong. When unsure which one a recipe you are editing belongs to, the folder tells
+you.
+
+## Do not do these
+
+- **Do not add Markdown write-ups of code recipes.** Under `code/Frontend/` and `code/Backend/` the
+  index reads only `.js`, `.ts`, `.cs` and `.sql`, so a `.md` version of a recipe is
+  invisible to every search tool, and a hand-written second copy drifts from the source
+  within a commit or two. Prose that matters belongs in the header block of the source
+  file. (A local `articles/` folder is gitignored and personal to the maintainer — not a
+  pattern to extend.) Markdown is the format of `no-code/` only.
+- **`no-code/tools/` is code with tests.** The library is `no-code/tools/creatio_schemas/`
+  (its README says where a new schema type, process element kind or rule action goes);
+  `tools/<tool>/<tool>.py` are its command lines behind the front door `tools/creatio.py`, and
+  `creatio_schemas/describe/` is the describe layer (`registry.py` is where a kind joins it). After any
+  change run the fifteen `python no-code/tools/<process|rules|objects|pages|sqlscripts|dcm|usertask|data|classicui|resources|push|scaffold|env|project|describe>/tests/test_*.py`,
+  `python no-code/tools/tests/test_creatio.py` (the front door), `tests/test_sync_tool_docs.py` and, when
+  `mcp-server/server.py` changed, `python mcp-server/test_server_tools.py`; the fixtures are real 8.2.3 exports
+  with `Usr` names and must round-trip byte-identical. The files under `creatio_schemas/**/assets/` are
+  generated from a Creatio site and the platform assemblies - do not hand-edit them,
+  re-export them (`tools/process/README.md` says from where).
+- **In `no-code/`, never edit `reference/` by hand.** It is generated by
+  `no-code/tools/sync_clio_docs.py` from the clio repository checked out at the tag that
+  `clio ver` prints; a hand edit is lost on the next run. Record a trap in the block's
+  `SKILL.md` instead, and mark it **verified** only after reproducing it on an environment.
+  The command table between `<!-- commands:start -->` and `<!-- commands:end -->` in a
+  skill is generated too.
+  The same block in every `no-code/tools/<tool>/README.md` is generated by
+  `no-code/tools/sync_tool_docs.py` from the tool's `--help`; run it after changing a CLI.
+- **Do not put a real GUID in a recipe**, even one that "looks harmless". Copied lookup ids
+  silently target the wrong record in whatever project the recipe lands in.
+- **Project templates come in two forms, kept in sync.** The indexed recipe is a single
+  `.ts` with `// ===== file: <path> =====` markers (non-TypeScript files commented out);
+  next to it sits the real folder to copy (`code/Frontend/Mobile/template/`,
+  `code/Frontend/RemoteModule/template/`). Any folder with `package.json` is skipped by the
+  index, so its files never become headerless recipes. Change the code in the folder
+  first, then mirror it into the recipe.
+- **Do not duplicate a recipe across areas** to cover both generations. Two recipes with
+  the same name in `ClassicUI` and `FreedomUI` are correct and intended — searching without
+  an `area` filter is how a caller sees both and picks.
+- **Do not edit `mcp-server/` as part of a content change.** Adding recipes never requires
+  touching the server; the index discovers files on the next call.
+
+## Touching the MCP server
+
+Two files, deliberately split:
+
+- [mcp-server/kb_index.py](mcp-server/kb_index.py) — all the logic: header parsing,
+  tokenizing, BM25 ranking, the symbol index. **Pure standard library, keep it that way** —
+  it is what lets the index be exercised without the MCP SDK installed.
+- [mcp-server/server.py](mcp-server/server.py) — thin MCP transport plus the tool
+  docstrings the model reads. The docstrings are part of the interface; changing their
+  wording changes when a model reaches for a tool.
+- [mcp-server/test_kb_index.py](mcp-server/test_kb_index.py) — pins the tokenizer, the
+  ranking of a few known queries and id lookup. `python mcp-server/test_kb_index.py`
+  must stay green after any change to `kb_index.py`.
+
+[CREATIO_CODE_STYLE.md](CREATIO_CODE_STYLE.md) at the root is not a recipe: it is the C#
+style guide, served whole or by `##` section through the `get_code_style` tool. Keep its
+`## N. Heading` numbering — that is what the section lookup matches.
+
+The ranking weights near the top of `kb_index.py` (`W_TITLE_HIT`, `W_BODY_SCALE`,
+`COVERAGE_FLOOR`) are tuned and commented with the reasoning. If you change one, check the
+effect on real queries before and after:
+
+```bash
+python mcp-server/kb_index.py "make a field required conditionally"
+python mcp-server/kb_index.py "run a business process"
+```
+
+Recipe ids are derived paths (`Frontend/FreedomUI/Fields/HowToFilterLookupField`), computed
+at index time and stored nowhere, so moving a file between folders is safe.
+
+## Reporting your work
+
+When you add or change a recipe, say so explicitly in your summary to the user, and name
+the trap the recipe records. A recipe added silently is a recipe nobody knows to trust.

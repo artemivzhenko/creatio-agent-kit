@@ -1,0 +1,15 @@
+{
+  "DefInput": "static test",
+  "DefRich": "static test",
+  "DefAccount": "Our company",
+  "DefPhoneNumber": "+1 555 123-4567",
+  // Record ids the bundled cases open (the test bed of the instance they were written against).
+  // On another instance create the fixtures and give the ids with: --static UsrHiddenRecord=<id>
+  "UsrHiddenRecord": "6993bace-71b6-4be7-84b8-cf363d0113be",
+  "UsrVisibleRecord": "6652a8c8-d7ff-472d-a184-1d90533039c3",
+  "UsrOrderRulesRecord": "a1b2c3d4-0000-4000-8000-000000000001",
+  "UsrOrderTypesRecord": "a1b2c3d4-0000-4000-8000-000000000002",
+  "UsrTestRecord": "71d27c81-3d6b-41d9-9a39-c408c96173b6",
+  "ContactRecord": "c4ed336c-3e9b-40fe-8b82-5632476472b4",
+  "ClassicOrderRecord": "27bcc84f-727d-4314-8b0e-99b286253a27"
+}

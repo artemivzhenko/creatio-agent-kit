@@ -1,0 +1,145 @@
+---
+name: creatio-kb
+description: Look up the project's Creatio recipes before writing or reviewing Creatio code. Use whenever the task touches a Creatio schema - Classic UI pages, details or sections (7.x), Freedom UI pages (8.x AngularSchema), C# server code (EntitySchemaQuery, event listeners, web services, business processes), or the diff/handlers/attributes of a client schema.
+---
+
+# Creatio knowledge base
+
+This solution has a curated knowledge base of Creatio recipes, served by the
+`creatio-kb` MCP server. It holds the idioms, naming rules and known traps of THIS
+codebase — things general Creatio knowledge gets wrong or does not know.
+
+## Use it before writing Creatio code
+
+**Python launcher.** The commands in these pages say `python`. On Windows write `py -3` instead (a bare `python` there may be the Microsoft Store stub and answer `Permission denied`); on Linux and macOS `python3`. Every command line of the toolkits writes UTF-8 to stdout and stderr by itself, so `PYTHONIOENCODING` is not needed for a Cyrillic caption. The MCP server is registered with the interpreter of its own venv (`mcp-server/.venv`), never with `python`.
+
+Do not write a Creatio schema from memory. The API surface differs sharply between
+Classic UI and Freedom UI, and several details in this solution are counter-intuitive
+(`UseAdminRights` defaults to bypassing permissions; `itemType: 2` is a detail, not a
+tab panel; a delete button without the empty-selection guard deletes everything).
+
+Workflow:
+
+1. `search_recipes` with the task in plain words — "make a field required
+   conditionally", "add rows to a detail in bulk", "run a business process".
+2. `get_recipe(id, part="traps")` on the best hit FIRST - the Trap / Verified / Gap lines of the recipe, a few lines - then `get_recipe(id)`
+   (or `part="code"`) to read the full example.
+3. Write the code following that recipe's shape.
+
+When you already have a symbol in hand — from existing code, an error, a review —
+use `find_api` instead: it tells you which recipe demonstrates that exact API.
+
+`kb_overview` maps the areas and topics when you are unsure what is covered.
+
+For anything done through the **clio CLI** - installing packages, running SQL, adding
+columns, editing Freedom UI pages, rights, builds - search with `area="Clio"`:
+`get_recipe("clio-sql-and-data")` is the block's workflow with verified traps, and
+`get_recipe("execute-sql-script")` the command's full syntax and options.
+
+For **no-code artifacts built as package files** - business processes, business rules
+of objects and Freedom UI pages, objects and their columns, fields and grids on Freedom UI
+pages, package SQL scripts - use the toolkits under `no-code/tools/` instead of the designer
+or clio's write commands: `get_recipe("tools/process")`, `get_recipe("tools/rules")`,
+`python no-code/tools/creatio.py` lists them all (`creatio.py <tool> --help`); `get_recipe("tools/objects")`, `get_recipe("tools/pages")`,
+`get_recipe("tools/sqlscripts")`, `get_recipe("tools/dcm")`, `get_recipe("tools/usertask")`,
+`get_recipe("tools/data")` (data bindings), `get_recipe("tools/classicui")` (7.x client schemas, read),
+`get_recipe("tools/resources")` (captions across a package), `get_recipe("tools/scaffold")` (object + lookup +
+binding + pages in one command), `get_recipe("tools/push")` (install in one command), `get_recipe("tools/describe")`,
+`get_recipe("tools/uitests")` (the test utility for the tester) (each README: the loop, the spec format, the verified
+traps; `tools/creatio_schemas` is the library behind them). The loop is the same for all:
+edit with `--dry-run`, write, `clio push-pkg`, then the tool's `probe` on the environment.
+
+## Before reading a schema file
+
+A schema file costs 6x-40x the tokens its summary does. Never open `metadata.json`, a page
+body or a process body first. The order is:
+
+1. `describe_package(path[, kind])` - what the package holds, one line per item.
+2. `describe_schema(path, Name)` - the summary: header, counts, problems, at most 40 lines.
+3. `describe_item(path, Name, "<topic> [<name>] [k=v]")` - the one part you need: a column,
+   an element, a handler's code, a method's body, a stage, a parameter. `topics` lists what
+   the schema answers; `limit=N` cuts a list, `limit=0` shows all. On a Freedom page `where <name>` is the call
+   before touching an element: its caption, control, column and parent chain in one answer.
+4. `find_schema(path, Name)` - the files of a schema with absolute paths, what it refers to and
+   what refers to it. Open a file only for what no topic returns, and only at the path this gives.
+5. `schema_deps(path, Name[, direction, kind, via])` - the typed graph: which objects a page or
+   process builds on (and through which columns), and every process, rule, page, DCM, binding or
+   listener that builds on an object. Run it before changing an object or page; never grep for users.
+6. `schema_diff(package[, schemas, against])` - what changed against git HEAD, a revision or a pulled
+   copy, as `+` / `-` / `~` lines per item (a column, an element, a rule). Read it instead of a git diff
+   of metadata files, after your own edits as much as after a pull.
+
+A tail line `... N more` means the answer was cut: ask for the part, do not raise the limit
+to read everything.
+
+On the environment (a clio environment name, never a private script): `env_sql(env, sql)` rows
+as JSON, `env_odata(env, Entity, select, filter, top)` records, `env_call(env, method, path,
+body)` a service or OData call with login and CSRF, `schema_layers(env|project.json, Schema)`
+the copies of a schema in the order the platform applies them - run it before planning a change
+to a page or object another package already has; `Custom layer present` means a copy on the
+site overrides whatever you push. A process change is done when `run_process(env, process, params)` ends with `exit code 0` (the
+run's `SysProcessLog` row completed); `process_runs(env, record="<Entity>:<Id>")` lists what ran when a record was
+saved, `process_error(env, log_id)` the whole error and the element it stopped on.
+
+Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another
+package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
+`process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
+`resolve_uid`, which lookup holds a status - `list_lookups`; text inside schemas - `find_text`; a column's writers
+- `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
+the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`. A platform behaviour you are not
+sure of (publish, layers, `IsChanged`, roles, OData paths, Classic DOM) is in `get_recipe("platform-facts")`, one
+id per fact, with what is not verified at the end.
+
+For C# code, also read `get_code_style` (whole, or a section such as `"logging"` or
+`"review checklist"`): recipes show what to call, the style guide says how the code
+must look — tabs, `#region` layout, `[DefaultBinding]`, exception and logging rules.
+
+## Platform traps worth knowing (the ids are in `get_recipe("platform-facts")`)
+
+- **P-A3** a script task is compiled with the process's own `using` list: write `Terrasoft.Configuration.<Class>`
+  in full, or the start fails with "the process must be published" and `compile-package` hides the error (P-A4).
+- **P-1.2** a conditional flow formula is a meta path `[#[IsOwnerSchema:false]...[EntityColumn:{uid}]#]`; the
+  readable `{Element:Name...}` form fails every run with "Expression expected".
+- **P-5.1** an OData `$filter` on a lookup is the path `<Column>/Id eq <guid>`; `<Column>Id` gives a 500.
+- **P-3.5** `SetColumnValue("<Lookup>Id", ...)` in C#: the bare column name does not save.
+- **P-2.7** a `SysSettingsValue` data binding overwrites the site's value on every install: no environment-dependent
+  value in a binding.
+
+## Pick the right UI generation first
+
+Determine which one the task is about before searching, because the answers do not
+transfer:
+
+- `properties.json` says `"SchemaType": "AngularSchema"` → **Freedom UI**
+  (`viewConfigDiff`, `handlers`, `crt.*` requests). Search with `area="FreedomUI"`.
+- `"EditViewModelSchema"`, `"GridDetailViewModelSchema"`, `"ModuleViewModelSchema"`
+  → **Classic UI** (`diff`, `methods`, `Terrasoft.*`). Search with
+  `area="ClassicUI"`.
+- C# → **Backend**. Search with `area="Backend"`.
+
+**Where new C# goes** (`get_code_style("architecture")`, 3.7): plain files in
+`<Package>/Files/cs/` of an assembly package (`"Type": 1`, `"ProjectPath"` in the package
+descriptor). Only an API the platform exposes - a configuration web service
+(`ServiceModel/<Name>.svc`, `BaseService`) - is a source code schema in
+`Schemas/<Name>/`, and it stays a thin wrapper over the `Files/cs` classes. Database views,
+functions and triggers are package SQL scripts, not C#.
+
+Searching without `area` is useful on purpose when you want to see how the same task
+is solved on both sides.
+
+## The recipes are templates, not drop-ins
+
+Every example uses placeholder names. Before using generated code, replace:
+
+- schema and entity names (`UsrMyEntity`, `UsrApplication`),
+- column names,
+- the generated attribute suffixes in Freedom UI (`PDS_Name_a1b2c3d`) — these are
+  per-page and must be taken from the real schema,
+- GUID literals — never copy a lookup id from a recipe.
+
+## Keep the knowledge base current
+
+When you solve something the knowledge base did not cover — a new API, a trap that
+cost time — add a recipe in the matching area folder, following the existing header
+format (`// --- Title ---` for `.js`, `/// <summary>` for `.cs`). The index picks it
+up automatically. Say so in your summary to the user rather than adding it silently.

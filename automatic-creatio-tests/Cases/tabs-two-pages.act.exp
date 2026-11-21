@@ -1,0 +1,12 @@
+# S34-T01: two tabs of one session. The second tab opens the same record; the first card keeps its page.
+# Replace the page and the static value with ones of your site.
+use Supervisor
+open UsrOrderPage for UsrOrderRecord
+tab new as second
+open UsrOrderPage for UsrOrderRecord
+check UsrName exists
+tab 1
+check UsrName exists
+tab second
+check UsrName exists
+end

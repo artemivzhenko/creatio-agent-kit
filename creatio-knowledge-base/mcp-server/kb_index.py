@@ -1,0 +1,609 @@
+"""
+Indexing and search core for the Creatio knowledge base.
+
+Pure standard library on purpose: this module carries all the logic, so it can be
+imported, run and checked without the MCP SDK installed. server.py is only a thin
+transport wrapper around it.
+
+    python kb_index.py                 # index report
+    python kb_index.py "lookup filter" # try a search
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import re
+import sys
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# --------------------------------------------------------------------------- #
+# Layout
+# --------------------------------------------------------------------------- #
+
+# area -> (relative root, file suffixes)
+AREAS = {
+    "ClassicUI": ("code/Frontend/ClassicUI", (".js",)),
+    "FreedomUI": ("code/Frontend/FreedomUI", (".js",)),
+    "RemoteModule": ("code/Frontend/RemoteModule", (".ts",)),
+    "Mobile": ("code/Frontend/Mobile", (".ts",)),
+    "Backend": ("code/Backend/C#", (".cs",)),
+    "SQL": ("code/Backend/SQL", (".sql",)),
+    # clio CLI: one SKILL.md per functional block plus a generated reference per command.
+    "Clio": ("no-code", (".md",)),
+}
+# "Tools" has no root of its own: the READMEs under no-code/tools/<name>/ are found by the Clio walk
+# and re-labelled in _add, so the file toolkits do not count as clio commands.
+
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "how",
+    "in", "into", "is", "it", "its", "not", "of", "on", "or", "so", "that", "the",
+    "then", "there", "these", "this", "to", "use", "used", "using", "when", "which",
+    "with", "you", "your", "we", "do", "does", "can", "will", "would", "should",
+    "make", "want", "need", "way", "via",
+    # Area words: the UI generation is a filter (area=...), not a search term.
+    "creatio", "freedom", "classic", "ui",
+}
+
+# Ranking weights. BM25 runs over the code body; a query term appearing in the
+# title or in the header comment earns a flat bonus on top. Folding all three
+# fields into one term-frequency pool ranked badly: BM25 saturates quickly, so a
+# passing mention in a long file could outrank an exact title match.
+W_TITLE_HIT = 4.5
+W_DESC_HIT = 0.9
+# In a recipe collection the title states the topic and the body is only
+# supporting evidence, so the body score is scaled down rather than left to
+# dominate through sheer repetition of common words like "event" or "listener".
+W_BODY_SCALE = 0.5
+# Documents matching only one term of a multi-word query are damped by coverage.
+COVERAGE_FLOOR = 0.35
+# Without an area filter, a platform question ("upload a file") must not be
+# answered by a clio command page ("upload-file"); the CLI pages are long and
+# word-dense, so they are scaled down unless the query names clio or a command.
+W_CLIO_UNFILTERED = 0.6
+
+_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+_CAMEL_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+")
+
+
+def _split_camel(word: str) -> list[str]:
+    return [p.lower() for p in _CAMEL_RE.findall(word) if p]
+
+
+_SUFFIXES = (("ies", "y"), ("ation", "ate"), ("ing", ""), ("ed", ""), ("s", ""))
+
+
+def _stem(word: str) -> str:
+    """
+    Tiny suffix stripper so "pagination" meets "paginate" and "files" meets "file".
+    Both the index and the query go through it, so only consistency matters,
+    not linguistic accuracy ("page" and "pages" both become "page").
+    """
+    for suffix, repl in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3 and not word.endswith("ss"):
+            word = word[: -len(suffix)] + repl
+            break
+    if word.endswith("e") and len(word) > 4:
+        word = word[:-1]
+    return word
+
+
+def tokenize(text: str) -> list[str]:
+    """
+    Lexical tokens tuned for API names.
+
+    "crt.OpenLookupPageRequest" yields the whole dotted name, each dotted part,
+    and the camelCase pieces, so both "OpenLookupPageRequest" and "lookup page"
+    find it. Plain words are stemmed; dotted names are kept verbatim.
+    """
+    out: list[str] = []
+    for raw in _TOKEN_RE.findall(text):
+        parts = raw.split(".")
+        if len(parts) > 1:
+            out.append(raw.lower())
+            out.extend(_stem(p.lower()) for p in parts)
+        else:
+            out.append(_stem(raw.lower()))
+        for p in parts:
+            sub = _split_camel(p)
+            if len(sub) > 1:
+                out.extend(_stem(s) for s in sub)
+    return [t for t in out if len(t) > 1 and t not in STOPWORDS]
+
+
+def extract_symbols(text: str) -> Counter:
+    """
+    API-looking identifiers, original case preserved, for the reverse lookup:
+    dotted names (crt.X, sdk.X, Terrasoft.X) and multi-word CamelCase names.
+    """
+    found: Counter = Counter()
+    for raw in _TOKEN_RE.findall(text):
+        if "." in raw:
+            found[raw] += 1
+            continue
+        if len(raw) > 3 and len(_split_camel(raw)) > 1 and raw[0].isupper():
+            found[raw] += 1
+    return found
+
+
+# --------------------------------------------------------------------------- #
+# Header parsing
+# --------------------------------------------------------------------------- #
+
+# // --- How to filter a lookup field --------------------------------------
+_JS_TITLE_RE = re.compile(r"^[ \t]*//[ \t]*-{2,}[ \t]*(.+?)[ \t]*-{2,}[ \t]*$", re.M)
+_JS_COMMENT_RE = re.compile(r"^[ \t]*//[ \t]?(.*)$")
+
+_CS_SUMMARY_RE = re.compile(r"///\s*<summary>(.*?)///\s*</summary>", re.S)
+_SQL_COMMENT_RE = re.compile(r"^[ \t]*--[ \t]?(.*)$")
+
+
+def _humanize(stem: str) -> str:
+    """HowToRunBackgroundTask -> 'How to run background task'."""
+    words = _split_camel(stem)
+    if not words:
+        return stem
+    text = " ".join(words)
+    return text[0].upper() + text[1:]
+
+
+def _js_header(src: str) -> tuple[str, str]:
+    m = _JS_TITLE_RE.search(src)
+    if not m:
+        return "", ""
+    title = m.group(1).strip()
+    lines = src[: m.start()].count("\n") + 1
+    body: list[str] = []
+    for line in src.split("\n")[lines:]:
+        cm = _JS_COMMENT_RE.match(line)
+        if cm is None:
+            if line.strip() == "":
+                # A blank line inside the header block ends it.
+                break
+            break
+        body.append(cm.group(1).rstrip())
+    return title, "\n".join(body).strip()
+
+
+def _cs_header(src: str, stem: str) -> tuple[str, str]:
+    m = _CS_SUMMARY_RE.search(src)
+    if not m:
+        return "", ""
+    raw = m.group(1)
+    lines = [re.sub(r"^\s*///\s?", "", ln).rstrip() for ln in raw.split("\n")]
+    text = "\n".join(ln for ln in lines).strip()
+    if not text:
+        return "", ""
+    # First sentence becomes the title, the rest is the description.
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)
+    title = first[0].strip().rstrip(".")
+    if len(title) > 110:
+        title = _humanize(stem)
+    return title, text
+
+
+_MD_FRONT_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+_MD_H1_RE = re.compile(r"(?m)^# (.+?)\s*$")
+
+
+def _md_header(src: str) -> tuple[str, str]:
+    """Title from the first H1; description from frontmatter `description:` or the first paragraph."""
+    front = _MD_FRONT_RE.match(src)
+    body = src[front.end():] if front else src
+    desc = ""
+    if front:
+        m = re.search(r"(?m)^description:\s*(.+)$", front.group(1))
+        if m:
+            desc = m.group(1).strip()
+    h1 = _MD_H1_RE.search(body)
+    if not h1:
+        return "", desc
+    if not desc:
+        for para in re.split(r"\n\s*\n", body[h1.end():]):
+            para = " ".join(para.split())
+            # The generated command pages repeat the title as their first paragraph.
+            if para and para != h1.group(1).strip() and not para.startswith(("#", "```", "|", "<!--")):
+                desc = para
+                break
+    return h1.group(1).strip(), desc
+
+
+def _sql_header(src: str, stem: str) -> tuple[str, str]:
+    body: list[str] = []
+    for line in src.split("\n"):
+        cm = _SQL_COMMENT_RE.match(line)
+        if cm is None:
+            if not body:
+                continue
+            break
+        body.append(cm.group(1).rstrip())
+    text = "\n".join(body).strip()
+    title = text.split("\n")[0].strip() if text else _humanize(stem)
+    return title, text
+
+
+# --------------------------------------------------------------------------- #
+# Model
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class Recipe:
+    id: str
+    title: str
+    area: str
+    topic: str
+    path: str            # absolute
+    rel_path: str        # relative to the kb root, POSIX
+    description: str
+    source: str = field(repr=False, default="")
+    symbols: Counter = field(repr=False, default_factory=Counter)
+    tf: Counter = field(repr=False, default_factory=Counter)      # body only
+    title_terms: set = field(repr=False, default_factory=set)
+    desc_terms: set = field(repr=False, default_factory=set)
+    length: int = 0
+
+    def summary(self, width: int = 240) -> str:
+        text = " ".join(self.description.split())
+        # Plain ASCII: some MCP clients and Windows consoles mangle "…".
+        return text[: width - 3] + "..." if len(text) > width else text
+
+
+PARTS = ("summary", "code", "traps", "all")
+_TRAP_WORDS = ("trap", "do not", "don't", "verified", "gap", "never", "must not")
+
+
+def _split_header(src: str, suffix: str) -> tuple[str, str]:
+    """(header text, the source without it): the comment block that explains a recipe, and the rest. A header is the `/// <summary>` block of
+    a .cs file, the comment lines that follow the `// --- title ---` line of a .js / .ts file, the leading `--` comments of a .sql file;
+    a source that has none is all code."""
+    if suffix == ".cs":
+        m = _CS_SUMMARY_RE.search(src)
+        if not m:
+            return "", src
+        start = src.rfind("\n", 0, m.start()) + 1
+        end = src.find("\n", m.end()) + 1 or len(src)
+        block = src[start:end]
+        text = "\n".join(re.sub(r"^\s*///\s?", "", ln).rstrip() for ln in block.split("\n"))
+        return re.sub(r"</?summary>\s*", "", text).strip(), src[:start] + src[end:]
+    if suffix in (".js", ".ts"):
+        m = _JS_TITLE_RE.search(src)
+        if not m:
+            return "", src
+        lines = src.split("\n")
+        first = src[: m.start()].count("\n")
+        last = first
+        while last + 1 < len(lines) and _JS_COMMENT_RE.match(lines[last + 1]):
+            last += 1
+        head = [_JS_COMMENT_RE.match(ln).group(1).rstrip() for ln in lines[first:last + 1]]
+        return "\n".join(head).strip(), "\n".join(lines[:first] + lines[last + 1:])
+    if suffix == ".sql":
+        lines = src.split("\n")
+        n = 0
+        while n < len(lines) and (_SQL_COMMENT_RE.match(lines[n]) or not lines[n].strip()):
+            n += 1
+        return "\n".join(_SQL_COMMENT_RE.match(ln).group(1).rstrip() for ln in lines[:n] if _SQL_COMMENT_RE.match(ln)).strip(), "\n".join(lines[n:])
+    return "", src
+
+
+def _trap_lines(header: str) -> str:
+    """The bullets (and plain lines) of a header that open with Trap / Do not / Verified / Gap ..., each with its continuation lines."""
+    out: list[str] = []
+    keep = False
+    for line in header.split("\n"):
+        bullet = re.match(r"^\s*(?:[-*]\s+)?(.*)$", line).group(1)
+        starts_item = bool(re.match(r"^\s*[-*]\s+", line)) or not line.startswith((" ", "\t"))
+        if starts_item:
+            keep = bullet.lower().startswith(_TRAP_WORDS)
+        if keep and line.strip():
+            out.append(line.rstrip())
+    return "\n".join(out)
+
+
+def _md_parts(src: str) -> tuple[str, str, str]:
+    """(summary, code, traps) of a markdown recipe: the text before the first `##`; the fenced blocks; the `## ... Traps / Verified ...` sections."""
+    front = _MD_FRONT_RE.match(src)
+    body = src[front.end():] if front else src
+    first = re.search(r"(?m)^## ", body)
+    summary = (body[: first.start()] if first else body).strip()
+    code = "\n\n".join(m.group(0) for m in re.finditer(r"(?ms)^```.*?^```[ \t]*$", body))
+    sections = re.split(r"(?m)^(?=## )", body)
+    traps = "\n".join(sec.strip() + "\n" for sec in sections if re.match(r"## .*(trap|verified)", sec, re.I)).strip()
+    return summary, code, traps
+
+
+def recipe_part(recipe: "Recipe", part: str = "all") -> str:
+    """One part of a recipe: `summary` (the header block, or the text before the first `##`), `code` (without the header, or the fenced
+    blocks), `traps` (the header lines that start with Trap / Do not / Verified ..., or the Traps / Verified sections), `all` (the file)."""
+    if part not in PARTS:
+        raise ValueError(f"part must be one of {', '.join(PARTS)}")
+    if part == "all":
+        return recipe.source
+    suffix = Path(recipe.path).suffix
+    if suffix == ".md":
+        summary, code, traps = _md_parts(recipe.source)
+    else:
+        header, code = _split_header(recipe.source, suffix)
+        summary, traps = header, _trap_lines(header)
+    return {"summary": summary, "code": code, "traps": traps}[part] or f"(this recipe has no {part} part)"
+
+
+def _in_project_folder(path: Path, base: Path) -> bool:
+    """A folder holding package.json is a copyable project template, not recipes."""
+    for parent in path.parents:
+        if parent == base:
+            return False
+        if (parent / "package.json").is_file():
+            return True
+    return False
+
+
+class KnowledgeBase:
+    def __init__(self, root: Path):
+        self.root = Path(root).resolve()
+        self.recipes: dict[str, Recipe] = {}
+        self._df: Counter = Counter()
+        self._symbol_index: dict[str, dict[str, int]] = defaultdict(dict)
+        self._avg_len = 1.0
+        self.skipped: list[str] = []
+        self._load()
+
+    # -- building ----------------------------------------------------------- #
+
+    def _load(self) -> None:
+        for area, (rel_root, suffixes) in AREAS.items():
+            base = self.root / rel_root
+            if not base.is_dir():
+                continue
+            for path in sorted(base.rglob("*")):
+                if not path.is_file() or path.suffix not in suffixes:
+                    continue
+                if _in_project_folder(path, base):
+                    continue
+                self._add(area, base, path)
+        self._finalize()
+
+    def _add(self, area: str, base: Path, path: Path) -> None:
+        try:
+            src = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            self.skipped.append(f"{path}: {exc}")
+            return
+
+        stem = path.stem
+        if path.suffix in (".js", ".ts"):
+            title, desc = _js_header(src)
+        elif path.suffix == ".cs":
+            title, desc = _cs_header(src, stem)
+        elif path.suffix == ".md":
+            title, desc = _md_header(src)
+        else:
+            title, desc = _sql_header(src, stem)
+
+        if not title:
+            title = _humanize(stem)
+            self.skipped.append(f"{path}: no header block, title derived from filename")
+
+        rel = path.relative_to(self.root).as_posix().removeprefix("code/")  # ids stay Frontend/... and Backend/...
+        topic = path.parent.relative_to(base).as_posix()
+        topic = "" if topic == "." else topic
+        if stem == "SKILL" or (stem == "README" and path.parent != base):
+            # A skill or a tool README is its folder: id "no-code/clio-sql-and-data" /
+            # "no-code/tools/objects", found by the bare folder name or "tools/objects".
+            stem = path.parent.name
+            rel = path.parent.relative_to(self.root).as_posix() + ".md"
+            topic = ""
+            if stem != "SKILL" and rel.startswith("no-code/tools/"):
+                area = "Tools"  # a toolkit is not a clio command: no damping, own filter
+
+        # The file name carries real intent here - every recipe is named
+        # HowToDoTheThing - and the words in it are not always repeated in the
+        # header sentence, so fold them into the title terms.
+        title_terms = set(tokenize(title)) | set(tokenize(_humanize(stem)))
+        desc_terms = set(tokenize(desc))
+        tf = Counter(tokenize(src))
+
+        recipe = Recipe(
+            id=rel.rsplit(".", 1)[0],
+            title=title,
+            area=area,
+            topic=topic,
+            path=str(path),
+            rel_path=rel,
+            description=desc,
+            source=src,
+            symbols=extract_symbols(src),
+            tf=tf,
+            title_terms=title_terms,
+            desc_terms=desc_terms,
+            length=sum(tf.values()),
+        )
+        self.recipes[recipe.id] = recipe
+
+    def _finalize(self) -> None:
+        for r in self.recipes.values():
+            for tok in r.tf:
+                self._df[tok] += 1
+            for sym, count in r.symbols.items():
+                self._symbol_index[sym.lower()][r.id] = count
+        total = sum(r.length for r in self.recipes.values())
+        self._avg_len = (total / len(self.recipes)) if self.recipes else 1.0
+
+    # -- querying ----------------------------------------------------------- #
+
+    def search(self, query: str, area: str | None = None, limit: int = 8) -> list[tuple[Recipe, float]]:
+        """BM25 over the weighted fields."""
+        terms = tokenize(query)
+        if not terms:
+            return []
+        unique = list(dict.fromkeys(terms))
+        n = len(self.recipes) or 1
+        k1, b = 1.2, 0.75
+        damp_clio = not area and "clio" not in unique and "-" not in query
+
+        scored: list[tuple[Recipe, float]] = []
+        for r in self.recipes.values():
+            if area and r.area.lower() != area.lower():
+                continue
+
+            body = 0.0
+            matched = 0
+            for term in unique:
+                f = r.tf.get(term, 0)
+                if not f:
+                    continue
+                matched += 1
+                df = self._df.get(term, 0)
+                idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
+                denom = f + k1 * (1 - b + b * (r.length / self._avg_len))
+                body += idf * (f * (k1 + 1)) / denom
+
+            if not matched:
+                continue
+
+            title_hits = sum(1 for t in unique if t in r.title_terms)
+            desc_hits = sum(1 for t in unique if t in r.desc_terms)
+
+            # A document matching one term out of four is rarely the answer.
+            coverage = matched / len(unique)
+            damp = COVERAGE_FLOOR + (1 - COVERAGE_FLOOR) * coverage
+
+            score = (
+                W_BODY_SCALE * body
+                + W_TITLE_HIT * title_hits
+                + W_DESC_HIT * desc_hits
+            ) * damp
+            if damp_clio and r.area == "Clio":
+                score *= W_CLIO_UNFILTERED
+            scored.append((r, score))
+
+        scored.sort(key=lambda pair: (-pair[1], pair[0].id))
+        return scored[:limit]
+
+    def find_api(self, symbol: str, limit: int = 12) -> list[tuple[Recipe, int]]:
+        """Which recipes mention this API symbol, most-mentions first."""
+        key = symbol.strip().lower()
+        hits = dict(self._symbol_index.get(key, {}))
+
+        if not hits:
+            # Fall back to a suffix / substring match: "OpenLookupPageRequest"
+            # should still find "crt.OpenLookupPageRequest".
+            for indexed, refs in self._symbol_index.items():
+                if key and (indexed.endswith("." + key) or key in indexed):
+                    for rid, count in refs.items():
+                        hits[rid] = hits.get(rid, 0) + count
+
+        out = [(self.recipes[rid], c) for rid, c in hits.items() if rid in self.recipes]
+        out.sort(key=lambda pair: (-pair[1], pair[0].id))
+        return out[:limit]
+
+    def get(self, recipe_id: str) -> Recipe | None:
+        rid = recipe_id.strip().strip("/")
+        if rid in self.recipes:
+            return self.recipes[rid]
+        # Tolerate an extension, a leading slash, or just the file name.
+        rid_noext = rid.rsplit(".", 1)[0]
+        if rid_noext in self.recipes:
+            return self.recipes[rid_noext]
+        matches = self.same_name(rid_noext)
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def same_name(self, name: str) -> list[Recipe]:
+        """Recipes whose file name is `name`, e.g. the Classic and Freedom twins."""
+        name = name.strip().strip("/").rsplit(".", 1)[0]
+        return [r for r in self.recipes.values() if r.id.endswith("/" + name)]
+
+    def code_style(self, section: str = "") -> str | None:
+        """CREATIO_CODE_STYLE.md, whole or one `## ` section matched by number or words."""
+        path = self.root / "CREATIO_CODE_STYLE.md"
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+        if not section.strip():
+            return text
+        chunks = re.split(r"(?m)^(?=## )", text)
+        key = section.strip().lower().rstrip(".")
+        for chunk in chunks:
+            heading = chunk.split("\n", 1)[0].lower()
+            if heading.startswith("## ") and (heading.startswith(f"## {key}.") or key in heading):
+                return chunk.strip()
+        return ""
+
+    def list(self, area: str | None = None, topic: str | None = None) -> list[Recipe]:
+        out = [
+            r
+            for r in self.recipes.values()
+            if (not area or r.area.lower() == area.lower())
+            and (not topic or r.topic.lower() == topic.lower())
+        ]
+        out.sort(key=lambda r: r.id)
+        return out
+
+    def areas(self) -> dict[str, dict[str, int]]:
+        """area -> topic -> recipe count."""
+        tree: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for r in self.recipes.values():
+            tree[r.area][r.topic or "(root)"] += 1
+        return {a: dict(sorted(t.items())) for a, t in sorted(tree.items())}
+
+
+# --------------------------------------------------------------------------- #
+# Root resolution
+# --------------------------------------------------------------------------- #
+
+
+def default_root() -> Path:
+    env = os.environ.get("CREATIO_KB_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    # mcp-server/kb_index.py -> the knowledge base root is the parent folder.
+    return Path(__file__).resolve().parent.parent
+
+
+# --------------------------------------------------------------------------- #
+# CLI - lets the index be checked without the MCP SDK
+# --------------------------------------------------------------------------- #
+
+
+def _main(argv: list[str]) -> int:
+    root = default_root()
+    kb = KnowledgeBase(root)
+
+    if not kb.recipes:
+        print(f"No recipes found under {root}", file=sys.stderr)
+        return 1
+
+    if len(argv) > 1:
+        query = " ".join(argv[1:])
+        results = kb.search(query, limit=10)
+        print(f'search "{query}" -> {len(results)} hit(s)\n')
+        for r, score in results:
+            print(f"  {score:6.2f}  [{r.area}] {r.id}")
+            print(f"          {r.title}")
+        return 0
+
+    print(f"knowledge base: {root}")
+    print(f"recipes indexed: {len(kb.recipes)}")
+    print(f"distinct terms:  {len(kb._df)}")
+    print(f"api symbols:     {len(kb._symbol_index)}\n")
+    for area, topics in kb.areas().items():
+        total = sum(topics.values())
+        print(f"  {area} ({total})")
+        for topic, count in topics.items():
+            print(f"      {count:>3}  {topic}")
+    if kb.skipped:
+        print(f"\nwarnings ({len(kb.skipped)}):")
+        for w in kb.skipped:
+            print(f"  - {w}")
+    return 0
+
+
+if __name__ == "__main__":
+    for _stream in (sys.stdout, sys.stderr):  # S33-T09: a Cyrillic caption must not need PYTHONIOENCODING
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
+    raise SystemExit(_main(sys.argv))

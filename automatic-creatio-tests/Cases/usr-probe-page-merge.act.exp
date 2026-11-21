@@ -1,0 +1,13 @@
+# S24-T05: the proof of a page merge. Run before and after the merge of the probe layers; it must stay green.
+# Needs the S24-T05 probe layers on the test site and their page files (knowledge base agent evidence, s24-t05/evidence-pages).
+# UsrOrder_FormPage: layer A inserts UsrProbeTrace and a handler that appends "A"; B renames it and appends "B";
+# C renames it again, removes UsrWebsite and appends "C". CountryPageV2: onEntityInitialized in three layers appends A, B, C.
+use Supervisor
+open UsrProbeOrderForm for UsrOrderRulesRecord
+check UsrProbeTrace exists
+check-value UsrProbeTrace eq "CBA"
+check UsrWebsite not exists
+check UsrName exists
+open UsrProbeCountry for UsrProbeCountryRecord
+check-value Description eq "ABC"
+end

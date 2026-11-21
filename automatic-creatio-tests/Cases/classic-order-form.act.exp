@@ -1,0 +1,10 @@
+# Classic order page and detail assertions.
+use Supervisor
+open OrderClassic for ClassicOrderRecord
+check UsrType is required
+set UsrType "Spare parts"
+check-value UsrType eq "Spare parts"
+set Tabs "Products"
+check Products columns
+check-row Products Product=Pump;Quantity=2 exists
+end

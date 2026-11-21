@@ -1,0 +1,7 @@
+# S34-T05: the screen's state at a moment, for the author. Replace the page, the code and the static value with those of your site.
+use Supervisor
+open UsrOrderPage for UsrOrderRecord
+set UsrName "changed"
+click BackButton no-answer
+snapshot "unsaved-dialog"
+answer "Cancel"

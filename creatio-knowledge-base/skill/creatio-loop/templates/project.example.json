@@ -1,0 +1,43 @@
+{
+  "project": "Usr orders",
+  "environment": {
+    "clioName": "dev",
+    "url": "https://dev.example.com",
+    "login": "Supervisor",
+    "password": "change-me",
+    "platformVersion": "8.2.3",
+    "database": "PostgreSQL",
+    "mayBreak": true,
+    "customLayer": "Custom"
+  },
+  "package": {
+    "name": "UsrPkg",
+    "prefix": "Usr",
+    "workspace": "C:\\Creatio\\workspaces\\dev",
+    "dependsOn": ["CrtBase"],
+    "consumers": ["UsrTests"]
+  },
+  "paths": {
+    "tasks": "C:\\Creatio\\workspaces\\dev\\tasks",
+    "knowledgeBase": "C:\\Creatio\\workspaces\\agent_repos\\creatio-agent-kit\\creatio-knowledge-base",
+    "testFramework": "C:\\Creatio\\workspaces\\agent_repos\\creatio-agent-kit\\automatic-creatio-tests",
+    "unitTests": "C:\\Creatio\\workspaces\\dev\\tests\\UsrPkg",
+    "solution": "C:\\Creatio\\workspaces\\dev\\tests\\UsrPkg\\UsrPkg.Tests.sln"
+  },
+  "tests": {
+    "runner": "UsrRunTests_Process",
+    "categoryParameter": "Category"
+  },
+  "sandbox": {
+    "objects": ["UsrOrder", "UsrShipment"],
+    "records": { "UsrOrder": ["5d2a1c3e-0000-4000-8000-000000000001"] }
+  },
+  "readOnly": [
+    "C:\\Creatio\\workspaces\\client-prod-copy"
+  ],
+  "rules": [
+    "Before every clio push-pkg: update \"SysSchema\" set \"IsChanged\"=false",
+    "C# goes into Files/cs; a source code schema only for a BaseService API",
+    "Test data carries the prefix UsrTest_ in its name so cases can clean it up"
+  ]
+}

@@ -1,0 +1,75 @@
+# --- the kit ---
+# the working kitchen: cards, queues, feedback, surveys, the agents' scratch - never content
+dev/
+# Claude Code settings are personal: the hooks of the kitchen are registered in settings.local.json
+.claude/
+# the private name list lives above the kit, never inside it
+.private/
+
+# --- Python (the MCP servers, the toolkits, the hooks) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+# the creatio-kb server's per-call size log (mcp-server/tool_stats.py)
+creatio-knowledge-base/mcp-server/.stats/
+
+# --- written by the tools next to the packages they work on, never content ---
+# the package index (describe.py index / find_schema) and the base-object cache (objects.py)
+.creatio-index/
+.creatio-bases/
+# development helpers (hooks, scripts): local only, never content
+.helpers/
+!creatio-knowledge-base/no-code/tools/objects/tests/fixtures/.creatio-bases/
+.dev/
+# --- creatio-knowledge-base ---
+creatio-knowledge-base/**/example.*
+creatio-knowledge-base/**/test.*
+creatio-knowledge-base/articles/*
+
+# --- automatic-creatio-tests: .NET build output and IDE files ---
+automatic-creatio-tests/**/bin/
+automatic-creatio-tests/ai_helpers/
+automatic-creatio-tests/**/obj/
+automatic-creatio-tests/**/[Bb]uild/
+automatic-creatio-tests/**/artifacts/
+automatic-creatio-tests/**/.vs/
+automatic-creatio-tests/**/.idea/
+automatic-creatio-tests/**/*.user
+automatic-creatio-tests/**/*.suo
+automatic-creatio-tests/**/*.userprefs
+automatic-creatio-tests/**/*.userosscache
+automatic-creatio-tests/**/*.sln.docstates
+automatic-creatio-tests/**/*.log
+automatic-creatio-tests/**/*.tlog
+automatic-creatio-tests/**/*.tmp
+automatic-creatio-tests/**/*.bak
+automatic-creatio-tests/**/*.old
+automatic-creatio-tests/**/*.swp
+automatic-creatio-tests/**/[Ll]og/
+automatic-creatio-tests/**/[Ll]ogs/
+# run reports, test results, the browser, local folders
+automatic-creatio-tests/**/Reports/
+automatic-creatio-tests/**/TestResults/
+automatic-creatio-tests/**/.playwright/
+automatic-creatio-tests/**/playwright-report/
+automatic-creatio-tests/source/*
+automatic-creatio-tests/ai_helpers/*
+automatic-creatio-tests/backlog/*
+automatic-creatio-tests/copilot/*
+automatic-creatio-tests/internal_docs/*
+# the site connection (holds a password)
+automatic-creatio-tests/Configuration/creatio.env.config.json
+# cases and page/process files written against a private site stay local; the bundled ones are listed
+automatic-creatio-tests/**/*.act
+automatic-creatio-tests/Configuration/pages/*.json
+!automatic-creatio-tests/Configuration/pages/AccountForm.json
+!automatic-creatio-tests/Configuration/pages/ContactForm.json
+!automatic-creatio-tests/Configuration/pages/LeadForm.json
+!automatic-creatio-tests/Configuration/pages/OpportunityForm.json
+!automatic-creatio-tests/Configuration/pages/TaskForm.json
+!automatic-creatio-tests/Configuration/pages/UsrTestForm.json
+!automatic-creatio-tests/Configuration/pages/OrderClassic.json
+automatic-creatio-tests/Configuration/processes/*.json
+!automatic-creatio-tests/Configuration/processes/UsrOrder_Process.json

@@ -1,0 +1,11 @@
+# S34-T02: a confirmation read and answered. Replace the page, the code and the captions with those of your site.
+use Supervisor
+open UsrOrderPage for UsrOrderRecord
+set UsrName "changed"
+click BackButton no-answer
+check dialog count eq 1
+check dialog contains "unsaved changes"
+remember dialog as $text
+answer "Cancel"
+check dialog not shown
+check-value UsrName eq "changed"

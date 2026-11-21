@@ -1,0 +1,13 @@
+# dev-only
+# writes
+# S34-T08: data prepared behind the business logic, and a timer moved up. Needs "AllowDevOnly": true and "ClioEnvironment" in creatio.env.config.json.
+# Replace the objects, the process and the ids with those of your development site.
+use Supervisor
+insert UsrOrder as A set UsrName=Bed;UsrAmount=10
+seed UsrOrder $A set UsrStatus=0042909f-aaaa-4bbb-8ccc-ddddeeeeffff;UsrAmount=77
+check-record UsrOrder Id=$A has UsrAmount eq 77
+delete UsrOrder $A
+
+start UsrTimerProbe_Process
+fire-timer UsrTimerProbe_Process
+check-process UsrTimerProbe_Process step "Wait a day" completed within 2 minute

@@ -1,0 +1,7 @@
+# writes
+use Supervisor
+remember-record Contact Name=Supervisor as $c
+insert UsrOrder as R set UsrName=lookupfilter;UsrEmail=lf@example.com;UsrContact=$c
+check-record UsrOrder UsrContact=$c exists
+check-count UsrOrder UsrContact=$c ge 1
+delete UsrOrder $R

@@ -1,0 +1,8 @@
+# S34-T04: a file into a file list. Replace the page, the codes and the file (under TestData/) with those of your site.
+use Supervisor
+open UsrOrderPage for UsrOrderRecord
+set CardButtonToggleGroup "Attachments"
+wait 2 second
+upload AttachmentList "requisites-ok.xlsx"
+check dialog contains "loaded"
+answer "OK"

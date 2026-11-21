@@ -1,0 +1,329 @@
+{
+  "name": "LeadForm",
+  "url": "/0/Shell/#Card/Leads_FormPage",
+  "type": "FreedomUI",
+  "elements": [
+    {
+      "code": "AttachmentAddButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "AttachmentRefreshButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "BackButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "CloseButton",
+      "label": "Close",
+      "type": "Button"
+    },
+    {
+      "code": "CreateOrderButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "ExplainProbabilityScoreButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "LeadsByCustomerAddButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "LeadsByCustomerRefreshButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "LeadsByCustomerSettingsButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "OpportunitiesByCustomerAddButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "OpportunitiesByCustomerRefreshButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "OpportunitiesByCustomerSettingsButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "ProductsRefreshButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "ProductsSettingsButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "SetRecordRightsButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "SimilarLeadRefreshButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "SimilarLeadSettingsButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "StageHistoryRefreshButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "StageHistorySettingsButton",
+      "label": "",
+      "type": "Button"
+    },
+    {
+      "code": "ProgressBar",
+      "label": "",
+      "type": "CasesBar",
+      "values": [
+        "Marketing qualified lead",
+        "Sales qualified lead",
+        "Converted"
+      ]
+    },
+    {
+      "code": "LeadsByCustomerList",
+      "label": "Leads by customer",
+      "type": "DataGrid",
+      "columns": [
+        "Name",
+        "Customer need",
+        "Stage",
+        "Owner",
+        "Created on"
+      ]
+    },
+    {
+      "code": "OpportunitiesByCustomerList",
+      "label": "Opportunities by customer",
+      "type": "DataGrid",
+      "columns": [
+        "Name",
+        "Stage",
+        "Total contract value",
+        "Owner",
+        "Expected close date"
+      ]
+    },
+    {
+      "code": "ProductsList",
+      "label": "Products",
+      "type": "DataGrid",
+      "columns": [
+        "Product",
+        "Price"
+      ]
+    },
+    {
+      "code": "SimilarLeadList",
+      "label": "Similar leads",
+      "type": "DataGrid",
+      "columns": [
+        "Name",
+        "Stage",
+        "Created on",
+        "Owner",
+        "Account",
+        "Contact"
+      ]
+    },
+    {
+      "code": "StageHistoryList",
+      "label": "Stage history",
+      "type": "DataGrid",
+      "columns": [
+        "Stage",
+        "Start",
+        "Due",
+        "Modified by"
+      ]
+    },
+    {
+      "code": "DecisionDate",
+      "label": "Expected close date",
+      "type": "Date"
+    },
+    {
+      "code": "CreatedOn",
+      "label": "Created on",
+      "type": "DateTime"
+    },
+    {
+      "code": "Budget",
+      "label": "Potential value",
+      "type": "Decimal"
+    },
+    {
+      "code": "Web",
+      "label": "Web",
+      "type": "Link"
+    },
+    {
+      "code": "AnnualRevenue",
+      "label": "Annual revenue",
+      "type": "Lookup"
+    },
+    {
+      "code": "ContactChannel",
+      "label": "Channel",
+      "type": "Lookup"
+    },
+    {
+      "code": "ContactRegisterMethod",
+      "label": "Registration method",
+      "type": "Lookup"
+    },
+    {
+      "code": "ContactSource",
+      "label": "Source",
+      "type": "Lookup"
+    },
+    {
+      "code": "EmployeesNumber",
+      "label": "No. of employees",
+      "type": "Lookup"
+    },
+    {
+      "code": "Group",
+      "label": "Assignees group",
+      "type": "Lookup"
+    },
+    {
+      "code": "Industry",
+      "label": "Industry",
+      "type": "Lookup"
+    },
+    {
+      "code": "LeadType",
+      "label": "Customer need",
+      "type": "Lookup"
+    },
+    {
+      "code": "LeadTypeDetails",
+      "label": "Lead type",
+      "type": "Lookup"
+    },
+    {
+      "code": "Opportunity",
+      "label": "Opportunity",
+      "type": "Lookup"
+    },
+    {
+      "code": "Owner",
+      "label": "Owner",
+      "type": "Lookup"
+    },
+    {
+      "code": "QualifiedAccount",
+      "label": "Account",
+      "type": "Lookup"
+    },
+    {
+      "code": "QualifiedContact",
+      "label": "Contact",
+      "type": "Lookup"
+    },
+    {
+      "code": "SalesChannel",
+      "label": "Sales channel",
+      "type": "Lookup"
+    },
+    {
+      "code": "SalesOwner",
+      "label": "Opportunity owner",
+      "type": "Lookup"
+    },
+    {
+      "code": "Status",
+      "label": "Status",
+      "type": "Lookup"
+    },
+    {
+      "code": "Type",
+      "label": "Type",
+      "type": "Lookup"
+    },
+    {
+      "code": "HistoryTab",
+      "label": "History",
+      "type": "Tab"
+    },
+    {
+      "code": "OverviewTab",
+      "label": "Overview",
+      "type": "Tab"
+    },
+    {
+      "code": "ProcessingTab",
+      "label": "Processing",
+      "type": "Tab"
+    },
+    {
+      "code": "SalesTab",
+      "label": "Sales",
+      "type": "Tab"
+    },
+    {
+      "code": "BusinessCase",
+      "label": "Business case",
+      "type": "Text"
+    },
+    {
+      "code": "Commentary",
+      "label": "Comments",
+      "type": "Text"
+    },
+    {
+      "code": "JobTitle",
+      "label": "Full job title",
+      "type": "Text"
+    },
+    {
+      "code": "LeadName",
+      "label": "Name",
+      "type": "Text"
+    },
+    {
+      "code": "ProductSuggestions",
+      "label": "Product suggestions",
+      "type": "Text"
+    },
+    {
+      "code": "CardButtonToggleGroup",
+      "label": "",
+      "type": "ToggleTab",
+      "tabs": [
+        "Next steps",
+        "Feed",
+        "Attachments"
+      ]
+    }
+  ]
+}

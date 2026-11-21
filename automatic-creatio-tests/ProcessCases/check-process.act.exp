@@ -1,0 +1,8 @@
+# S34-T07: a process started by a signal, read from the process log. Replace the object, the process and the captions with those of your site.
+# writes
+use Supervisor
+insert UsrOrder as B set UsrName=Bed;UsrAmount=10
+update UsrOrder $B set UsrAmount=500
+check-process UsrOrder_Process for $B started within 30 second
+check-process UsrOrder_Process for $B step "Mark big" completed within 30 second
+delete UsrOrder $B

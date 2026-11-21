@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "creatio-kb-mcp"
+version = "0.2.0"
+description = "MCP server exposing the Creatio development knowledge base (Classic UI, Freedom UI, C# backend)"
+requires-python = ">=3.10"
+
+# The search core (kb_index.py) is pure standard library on purpose - only the
+# MCP transport needs a dependency.
+dependencies = [
+    "mcp>=2.0",
+    "tzdata; sys_platform == 'win32'",  # IANA zone names (Europe/Kyiv) for the time_zone arguments
+]
+
+[project.scripts]
+creatio-kb-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server", "kb_index", "tool_stats"]

@@ -1,0 +1,260 @@
+using CreatioAutoTests.Commands;
+using CreatioAutoTests.Configuration;
+using CreatioAutoTests.Execution;
+using CreatioAutoTests.Tests.Support;
+using CreatioAutoTests.Validation;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace CreatioAutoTests.Tests;
+
+[TestFixture]
+public class ScriptValidatorTests
+{
+    private ScriptValidator _validator = null!;
+    private ScriptParser _parser = null!;
+    private ElementCatalog _catalog = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ValueCompatibilityPolicy>();
+
+        _catalog = CatalogBuilder.Default();
+        _parser = new ScriptParser();
+        _validator = new ScriptValidator(CommandRegistry.Discover(), services.BuildServiceProvider());
+    }
+
+    private ExecutionPlan Validate(params string[] lines)
+    {
+        var context = new ValidationContext(
+            _catalog,
+            new Dictionary<string, string> { ["DefaultName"] = "Contoso" },
+            new[] { "tester" },
+            new Dictionary<string, ObjectDefinition>());
+
+        return _validator.Validate("case", "case.act", _parser.Parse(lines), context);
+    }
+
+    [Test]
+    public void A_correct_script_produces_one_step_per_command()
+    {
+        var plan = Validate("use tester", "open TestPage", "set Name \"abc\"", "click SaveButton");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Steps, Has.Count.EqualTo(4));
+    }
+
+    [Test]
+    public void Open_for_takes_a_guid_a_quoted_id_or_a_static_value_name()
+    {
+        foreach (var id in new[] { "0c48c818-08f0-4f70-9b58-be512227f3bf", "\"any text\"", "DefaultName" })
+        {
+            var plan = Validate("use tester", "open TestPage for " + id);
+            Assert.That(plan.IsValid, Is.True, id + ": " + plan.DescribeIssues());
+        }
+    }
+
+    [Test]
+    public void Open_for_an_unknown_word_names_the_static_values_and_the_flag()
+    {
+        var plan = Validate("use tester", "open TestPage for ShipmentId");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("ShipmentId").And.Contain("DefaultName").And.Contain("--static ShipmentId=<id>"));
+    }
+
+    [Test]
+    public void A_script_must_start_by_naming_its_user()
+    {
+        var plan = Validate("open TestPage");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("must start with 'use"));
+    }
+
+    [Test]
+    public void An_element_cannot_be_addressed_before_a_page_is_open()
+    {
+        var plan = Validate("use tester", "set Name \"abc\"");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("no page is open"));
+    }
+
+    [Test]
+    public void An_unknown_element_is_reported_with_the_codes_that_do_exist()
+    {
+        var plan = Validate("use tester", "open TestPage", "set Nmae \"abc\"");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].LineNumber, Is.EqualTo(3));
+        Assert.That(plan.Issues[0].Message, Does.Contain("Nmae"));
+        Assert.That(plan.Issues[0].Message, Does.Contain("Name"));
+    }
+
+    [Test]
+    public void Every_problem_in_a_file_is_reported_in_one_pass()
+    {
+        var plan = Validate("use tester", "open TestPage", "set Nope \"a\"", "click AlsoNope");
+
+        Assert.That(plan.Issues, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void Clicking_something_that_is_not_clickable_is_caught_before_the_run()
+    {
+        var plan = Validate("use tester", "open TestPage", "click Name");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("IClickable"));
+    }
+
+    [Test]
+    public void An_incompatible_copy_is_caught_before_the_run()
+    {
+        var plan = Validate("use tester", "open TestPage", "set Started Name");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("cannot be copied"));
+    }
+
+    [Test]
+    public void An_ordering_operator_on_text_is_caught_before_the_run()
+    {
+        var plan = Validate("use tester", "open TestPage", "check-value Name gt \"5\"");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("does not apply"));
+    }
+
+    [Test]
+    public void A_static_value_is_accepted_where_a_literal_is_expected()
+    {
+        var plan = Validate("use tester", "open TestPage", "set Name DefaultName");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+    }
+
+    [Test]
+    public void An_unknown_keyword_lists_the_commands_that_exist()
+    {
+        var plan = Validate("use tester", "opne TestPage");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("Unknown command"));
+        Assert.That(plan.Issues[0].Message, Does.Contain("open"));
+    }
+
+    [Test]
+    public void Tab_warnings_follow_tab_switches_and_do_not_block_validation()
+    {
+        var field = CatalogBuilder.Element("Name", "Text");
+        field.Tab = "GeneralInfoTab";
+        _catalog = CatalogBuilder.Build(field,
+            CatalogBuilder.Element("GeneralInfoTab", "Tab", label: "General"),
+            CatalogBuilder.Element("OtherTab", "Tab", label: "Other"));
+
+        var plan = Validate("use tester", "open TestPage", "set Name \"one\"",
+            "click GeneralInfoTab", "set Name \"two\"", "click OtherTab", "set Name \"three\"");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 3, 7 }));
+        Assert.That(plan.Warnings[0].Message, Does.Contain("Name lies on tab GeneralInfoTab"));
+    }
+
+    private void ConditionalPage()
+    {
+        var comment = CatalogBuilder.Element("Comment", "Text");
+        comment.Conditional = true;
+        _catalog = CatalogBuilder.Build(comment, CatalogBuilder.Element("Name", "Text"), CatalogBuilder.Element("SaveButton", "Button"));
+    }
+
+    [Test]
+    public void Check_shown_is_accepted_on_every_element_and_clears_the_set_warning()
+    {
+        ConditionalPage();
+        var plan = Validate("use tester", "open TestPage", "check Comment is not shown", "check Comment is shown",
+            "set Comment \"x\"", "check SaveButton is shown");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Warnings, Is.Empty);
+    }
+
+    [Test]
+    public void Check_not_shown_does_not_confirm_the_element_for_set()
+    {
+        ConditionalPage();
+        var plan = Validate("use tester", "open TestPage", "check Comment is not shown", "set Comment \"x\"",
+            "check Comment is shown", "check Comment is not shown", "set Comment \"y\"");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 4, 7 }));
+    }
+
+    [Test]
+    public void Exists_on_a_conditional_element_warns_and_points_to_shown()
+    {
+        ConditionalPage();
+        var plan = Validate("use tester", "open TestPage", "check Comment exists", "check Comment not exists", "check Name exists");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 3, 4 }));
+        Assert.That(plan.Warnings[0].Message, Does.Contain("check Comment is [not] shown"));
+    }
+
+    [Test]
+    public void Set_and_check_value_on_a_conditional_element_warn_until_a_shown_line_and_again_after_open()
+    {
+        ConditionalPage();
+        var plan = Validate("use tester", "open TestPage", "set Comment \"a\"", "check-value Comment eq \"a\"",
+            "check Comment is shown", "set Comment \"b\"", "open TestPage", "set Comment \"c\"");
+
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 3, 4, 8 }));
+    }
+
+    [Test]
+    public void An_unknown_code_in_check_shown_is_refused_with_the_two_ways_to_add_it()
+    {
+        ConditionalPage();
+        var plan = Validate("use tester", "open TestPage", "check Missing is shown");
+
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Issues[0].Message, Does.Contain("pages.py from-schema").And.Contain("analyse --include-hidden"));
+    }
+
+    [Test]
+    public void Warnings_are_retained_even_when_another_line_is_invalid()
+    {
+        var field = CatalogBuilder.Element("Name", "Text");
+        field.Tab = "GeneralInfoTab";
+        _catalog = CatalogBuilder.Build(field, CatalogBuilder.Element("GeneralInfoTab", "Tab"));
+        var plan = Validate("use tester", "open TestPage", "set Name \"one\"", "set Missing \"two\"");
+        Assert.That(plan.IsValid, Is.False);
+        Assert.That(plan.Warnings, Has.Count.EqualTo(1));
+        Assert.That(plan.Issues, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void Classic_tab_panel_caption_opens_the_corresponding_tab()
+    {
+        var field = CatalogBuilder.Element("Name", "Text");
+        field.Tab = "GeneralInfoTab";
+        _catalog = CatalogBuilder.BuildPages(new PageDefinition
+        {
+            Name = "TestPage", Url = "/0/Shell/#CardModuleV2/UsrPage", Type = "ClassicUI", Schema = "UsrPage",
+            Elements = new List<ElementDefinition>
+            {
+                field, CatalogBuilder.Element("GeneralInfoTab", "Tab", label: "General"),
+                CatalogBuilder.Element("OtherTab", "Tab", label: "Other"),
+                CatalogBuilder.Element("Tabs", "TabPanel"),
+            },
+        });
+
+        var plan = Validate("use tester", "open TestPage", "set Tabs \"General\"", "set Name \"one\"",
+            "set Tabs \"Other\"", "set Name \"two\"", "open TestPage", "set Name \"three\"");
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 6, 8 }));
+    }
+}

@@ -1,0 +1,6 @@
+# S34-T03: wait for a process instead of a fixed pause. Replace the objects, columns and values with those of your site.
+use Supervisor
+open UsrOrderPage for UsrOrderRecord
+click CloseButton
+wait-record UsrOrder Id=UsrOrderRecord has UsrStatus eq Done within 30 second
+wait-count UsrOrderLog UsrOrder/Id=UsrOrderRecord ge 1 within 60 second

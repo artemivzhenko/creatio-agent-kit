@@ -1,0 +1,5 @@
+# S34-T06: from one card to another through the Shell hash. Replace the pages and the static values with those of your site.
+use Supervisor
+open UsrOrderPage for UsrOrderRecordA
+navigate UsrOrderPage for UsrOrderRecordB
+check UsrName exists
