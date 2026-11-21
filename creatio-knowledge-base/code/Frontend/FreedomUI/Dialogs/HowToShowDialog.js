@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_ShowDialog_caption".
 			{
 				"operation": "insert",
-				"name": "ShowDialogButton",
+				"name": "Button_ShowDialog",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Show info",
+					"caption": "#ResourceString(Button_ShowDialog_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.ShowInfoRequest",
@@ -33,25 +34,28 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//   key           - identifier returned when the button is clicked
 		//   config.caption - button label
 		//   config.color   - "primary" | "default" | "danger"
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "usr.ShowInfoRequest",
 				handler: async (request, next) => {
 					const name = await request.$context.PDS_Name_someAttr;
+					// Texts are page resource strings: RecordNameMessage, OkButtonCaption.
+					const message = await request.$context.Resources.Strings.RecordNameMessage;
 
 					await request.$context.executeRequest({
 						type: "crt.ShowDialogRequest",
 						$context: request.$context,
 						dialogConfig: {
 							data: {
-								message: "Record name: " + name,
+								message: message + name,
 								actions: [
 									{
 										key: "OK",
 										config: {
 											color: "primary",
-											caption: "OK"
+											caption: await request.$context.Resources.Strings.OkButtonCaption
 										}
 									}
 								]

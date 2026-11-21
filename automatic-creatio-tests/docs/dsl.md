@@ -10,7 +10,7 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 
 | Command | Syntax | Target | Example |
 | --- | --- | --- | --- |
-| use | `use <user>` | none | `use testUser` |
+| use | `use <user>` (a browser opens at the first page, never for a backend case) | none | `use testUser` |
 | open | `open <page> [for <record>]` | none | `open ContactForm for ContactRecord` |
 | check | `check <code> [not] exists` \| `check <code> is [not] required\|readonly\|editable\|shown` \| `check <code> columns` \| `check console\|network no errors [except "<regex>"]` \| `check dialog [not] shown\|contains "<text>"\|matches "<regex>"\|count <op> <n>` | `IExistable`; `required`/`readonly` need `IStateAware`, `editable` needs `IEditableAware`, `shown` needs `IVisibilityAware`, `columns` needs `IColumned`; `console` none | `check Input_Text is required` |
 | check-value | `check-value <code> eq|ne|gt|ge|lt|le|contains|startswith|endswith <value>` | `IValueElement` | `check-value Input_Text eq "Sample Name 123"` |
@@ -212,6 +212,8 @@ page file: an unknown code is a validation error naming `pages.py from-schema <p
 Both generations answer from the control's root element with Playwright's visibility rule: a control a Freedom
 rule drops is "not shown" (measured). A Classic control hidden with `display:none` would read "not shown", one
 moved off-screen (`x-hide-offsets`) would still read "shown"; neither was measured on a Classic bed yet.
+`check X not exists` has the short `absenceTimeoutMs` budget, except within `elementTimeoutMs` after a line that changed the page (`set`, `clear`, `click`,
+`answer`, `upload`): the rule that hides X runs a moment later, so absence is awaited for the full element budget (a pass still returns at once). No `wait` is needed between the change and the check.
 
 `check <code> columns` compares the columns the element renders -- names and left-to-right order --
 with the `columns` listed for it in its page file. The expectation lives in configuration rather than
@@ -265,7 +267,7 @@ argument it describes the page `open` left on screen.
 Analysis and testing belong in separate scripts, in separate folders. A script is validated in full
 before any of it runs, so elements `analyse` discovers are not addressable on the line below it --
 but they are addressable by the test cases, because the run has two phases. See "Analysis phase"
-below. The same work is available without a script as `creatio-tests analyse "<path>"`.
+below. The same work is available without a script as `creatio-tests analyse "<path>"`; its output has a `tabs:` line (`none` for a page without a tab panel, which analyses like any other). In Git Bash a `/0/Shell/...` argument is rewritten to `C:/Program Files/Git/0/Shell/...` (0 controls, no error): set `MSYS_NO_PATHCONV=1` for the command.
 
 `create` follows its configured section, New button, form, fields, and Save button. `end` logs readable values from the current page without changing the outcome. `analyse` describes a live page and writes its page configuration; it can also be run as the CLI subcommand `analyse`.
 
@@ -275,7 +277,7 @@ The backend tier: cases with no page. Two kinds share it - a process case (below
 processes and reads their results, a case that writes ("Cases that write") inserts, updates and deletes
 records over OData with aliases and cleanup and asserts what a listener, a trigger of a SQL script or a
 default did (`check-record ... has`, `check-count`). That is how an entity event listener and a SQL
-script are proved - `ProcessCases/ia-order-backend.act` is one, run on the test site.
+script are proved - `ProcessCases/usr-order-backend.act` is one, run on the test site.
 
 A process case starts business processes over the process engine service, reads their result
 parameters back and checks the records they left behind over OData. No page is opened, and a run made only of process cases never launches a browser - the case above runs
@@ -478,6 +480,10 @@ share the DSL, the commands and the type names, and nothing else: a Classic page
 by predictable DOM ids rather than `element-name`. The page's generation decides which `Text` or
 `Lookup` an element is, so a Freedom-only type on a Classic page is refused when the configuration
 loads, with the message naming the generation it does exist for.
+
+A control that is not there fails its line with `'<code>' was not found on the page.` (no stack trace, in both generations). A Classic field
+that is in the page at zero width fails at once with `<code> is in the page but invisible (zero width)` instead of running out the timeout. A Classic toolbar button
+is found by `[data-item-marker="<Name>Button"]` first, then by the ids `{prefix}{Name}Button-wrapperEl` and `-textEl`.
 
 A Classic page needs its `schema`, the page schema name. Every control id on the page starts with it:
 `ContactPageV2NameTextEdit-el` is the input of the element named `Name` on `ContactPageV2`, rendered

@@ -12,6 +12,7 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent.parent
 KB = TOOLS.parent.parent
+KIT = KB.parent  # agent_setup.py is at the kit root
 FIXTURE = TOOLS / "pages" / "tests" / "fixtures" / "UsrPkg"
 # entry scripts other roles own are listed in the S33-T09 card (push/push.py, classicui/classicui.py); the MCP server speaks the protocol on stdout
 NOT_HERE = {"push/push.py", "classicui/classicui.py"}
@@ -31,17 +32,17 @@ def test_a_cyrillic_caption_survives_a_pipe_without_pythonioencoding():
 
 
 def test_every_entry_script_carries_the_guard():
-    candidates = list(TOOLS.rglob("*.py")) + [KB / "agent_setup.py"] + list((KB / "mcp-server").glob("*.py"))
+    candidates = list(TOOLS.rglob("*.py")) + [KIT / "agent_setup.py"] + list((KB / "mcp-server").glob("*.py"))
     entries, missing = [], []
     for p in candidates:
-        rel = p.relative_to(KB).as_posix()
+        rel = p.relative_to(KIT).as_posix()
         if any(part in rel.split("/") for part in ("tests", "fixtures", "__pycache__", ".venv")) or p.name.startswith("test_") or p.name == "server.py":
             continue
         text = p.read_text(encoding="utf-8")
         if 'if __name__ == "__main__":' not in text:
             continue
         entries.append(rel)
-        if "S33-T09" not in text and rel.removeprefix("no-code/tools/") not in NOT_HERE:
+        if "S33-T09" not in text and rel.removeprefix("creatio-knowledge-base/no-code/tools/") not in NOT_HERE:
             missing.append(rel)
     assert len(entries) >= 25 and not missing, missing
 

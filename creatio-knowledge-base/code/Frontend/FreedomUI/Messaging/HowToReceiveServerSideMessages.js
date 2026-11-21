@@ -40,6 +40,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// fires on simple navigation away from the page - use
 		// HandleViewModelPauseRequest/HandleViewModelResumeRequest instead if
 		// the page can be paused/resumed rather than fully destroyed.
+		// Style: frontend guide 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

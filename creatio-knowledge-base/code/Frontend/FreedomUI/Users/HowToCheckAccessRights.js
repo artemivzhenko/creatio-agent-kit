@@ -21,15 +21,16 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// server as well - in the business process, the web service, or the
 		// entity event listener that does the actual work. See
 		// Backend/C#/HowToManageRecordAccessRights.cs.
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 			{
 				// The button appears only when the operation is granted.
 				"operation": "insert",
-				"name": "ApproveCalculationButton",
+				"name": "Button_ApproveCalculation",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(ApproveCalculationButton_caption)#",
+					"caption": "#ResourceString(Button_ApproveCalculation_caption)#",
 					"iconPosition": "only-text",
 					"visible": "$IsAccessRightsGranted",
 					"clicked": { "request": "usr.ApproveCalculationRequest", "params": {} }
@@ -41,7 +42,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			{
 				// Or keep it visible but disabled.
 				"operation": "merge",
-				"name": "AmountInput",
+				"name": "Amount",
 				"values": {
 					"readonly": "$IsAccessRightsGranted | crt.InvertBooleanValue"
 				}

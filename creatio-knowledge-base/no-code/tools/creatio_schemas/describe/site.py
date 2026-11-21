@@ -66,7 +66,7 @@ order by 1"""
 
 
 def prefixes_of(path: Path, own_names) -> set[str]:
-    """project.json `prefixes`, else the prefixes two or more of the workspace's own schema names share (`Usr`, `ia`)."""
+    """project.json `prefixes`, else the prefixes two or more of the workspace's own schema names share (`Usr`, `Abc`)."""
     root = path if (path / "packages").is_dir() else path.parent.parent if path.parent.name == "packages" else path.parent
     try:
         given = json.loads((root / "project.json").read_text(encoding="utf-8-sig")).get("prefixes")

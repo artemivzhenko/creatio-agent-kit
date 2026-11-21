@@ -22,12 +22,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// getPrimaryModelMode() tells you "create" (new record) vs "update"
 		// (existing record) - the two need different handling below.
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "crt.HandleViewModelInitRequest",
 				handler: async (request, next) => {
-					await next?.handle(request);
+					const result = await next?.handle(request);
 
 					request.$context.events$.subscribe(async (evt) => {
 						const modelMode = await request.$context.getPrimaryModelMode();
@@ -45,6 +46,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 							request.$context.UsrName = "New record";
 						}
 					});
+					return result;
 				}
 			}
 		]/**SCHEMA_HANDLERS*/,

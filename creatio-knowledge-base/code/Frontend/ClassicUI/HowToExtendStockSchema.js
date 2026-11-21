@@ -27,6 +27,7 @@
 // HIDING rather than removing a stock field is safer: "visible": false keeps the
 // element in the view tree, so other stock code that references it by name
 // still works, while a "remove" can break a base method that expects it.
+// Style: frontend guide 2.1, 2.4, 2.5
 
 define("SystemNotificationsSchema", ["css!UsrSystemNotificationsSchemaCss"], function() {
 	return {
@@ -54,7 +55,7 @@ define("SystemNotificationsSchema", ["css!UsrSystemNotificationsSchemaCss"], fun
 			},
 
 			updateRemindingIsRead: function(callback, scope) {
-				var update = Ext.create("Terrasoft.UpdateQuery", {
+				const update = Ext.create("Terrasoft.UpdateQuery", {
 					rootSchemaName: this.entitySchemaName
 				});
 				// Reuse the base filter set, then narrow to this record.
@@ -73,7 +74,7 @@ define("SystemNotificationsSchema", ["css!UsrSystemNotificationsSchemaCss"], fun
 			onRemindingUpdated: function() {}
 		},
 
-		diff: [
+		diff: /**SCHEMA_DIFF*/[
 			{
 				// Insert into a STOCK container of the stock schema.
 				"operation": "insert",
@@ -104,6 +105,6 @@ define("SystemNotificationsSchema", ["css!UsrSystemNotificationsSchemaCss"], fun
 					"visible": false
 				}
 			}
-		]
+		]/**SCHEMA_DIFF*/
 	};
 });

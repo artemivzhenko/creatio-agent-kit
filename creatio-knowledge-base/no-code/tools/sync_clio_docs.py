@@ -30,7 +30,17 @@ _NUMBERED_SITE = re.compile(r"\b([Dd]ev)(\d+)\b")
 
 def placeholder_sites(text: str) -> str:
     """Dev plus 2 -> `DevSecond`, Dev plus another number -> `DevOther`: no environment-like name in the reference."""
-    return _NUMBERED_SITE.sub(lambda m: m.group(1) + ("Second" if m.group(2) == "2" else "Other"), text)
+    text = _NUMBERED_SITE.sub(lambda m: m.group(1) + ("Second" if m.group(2) == "2" else "Other"), text)
+    for real, placeholder in _REAL_HOSTS:  # the upstream docs name real sites in their examples
+        text = real.sub(placeholder, text)
+    return text
+
+
+_REAL_HOSTS = [
+    (re.compile(r"\b\d+-crm-bundle(-is)?\.creatio\.com\b"), lambda m: f"mysite{m.group(1) or ''}.creatio.com"),
+    (re.compile(r"\bc-dev-is\.creatio\.com\b"), "mysite-is.creatio.com"),
+    (re.compile(r"\bcreatio\.ghe\.com/[\w./-]+"), "github.com/your-org/clio-feedback"),
+]
 
 # command -> block folder. Every doc file must be mapped; an unmapped one fails the run.
 BLOCKS: dict[str, tuple[str, ...]] = {

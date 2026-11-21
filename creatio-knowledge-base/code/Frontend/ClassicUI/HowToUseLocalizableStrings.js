@@ -31,6 +31,7 @@
 //
 // Add the same Item to EVERY culture file in the package, otherwise the string
 // falls back to the primary culture and shows untranslated text.
+// Style: frontend guide 2.1, 2.3
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -39,7 +40,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			onShowMessageClick: function() {
 				// Imperative read of a localizable string.
-				var message = this.get("Resources.Strings.NoDataFoundMessage");
+				const message = this.get("Resources.Strings.NoDataFoundMessage");
 				this.showInformationDialog(message);
 			}
 		},
@@ -47,6 +48,8 @@ define("UsrMyEntity1Page", [], function() {
 			{
 				"operation": "insert",
 				"name": "CreateComplexKPButton",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"itemType": 5,   // Terrasoft.ViewItemType.BUTTON
 					"layout": { "colSpan": 6, "rowSpan": 1, "column": 17, "row": 10, "layoutName": "Header" },
@@ -55,8 +58,6 @@ define("UsrMyEntity1Page", [], function() {
 					"click":   { "bindTo": "onCreateComplexKPButtonClick" },
 					"style":   "green"
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 26
 			},
 			{

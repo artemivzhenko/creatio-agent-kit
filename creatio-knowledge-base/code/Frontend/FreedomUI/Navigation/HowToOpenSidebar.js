@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_OpenSidebar_caption".
 			{
 				"operation": "insert",
-				"name": "OpenSidebarButton",
+				"name": "Button_OpenSidebar",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Open sidebar",
+					"caption": "#ResourceString(Button_OpenSidebar_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.OpenSidebarRequest",
@@ -31,6 +32,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// sidebarCode must match the schema code of the sidebar page registered
 		// in the application (AppPage or AppSidebarPage schema).
 		// $context passes data to the sidebar for binding - can be left empty.
+		// Style: frontend guide 3.2, 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

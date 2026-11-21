@@ -16,13 +16,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//   - Set initial attribute values
 		//   - Read loaded entity data and drive UI state
 		//   - Inject startup data or configuration
+		// Style: frontend guide 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "crt.HandleViewModelInitRequest",
 				handler: async (request, next) => {
 					// Let the platform finish its initialization first
-					await next?.handle(request);
+					const result = await next?.handle(request);
 
 					// DataSource attributes are populated after next resolves
 					const name = await request.$context.PDS_Name_h9kddsb;
@@ -30,6 +31,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					// Set boolean attributes to control initial UI state
 					request.$context.IsFormReadonly  = false;
 					request.$context.IsButtonVisible = Boolean(name);
+					return result;
 				}
 			}
 		]/**SCHEMA_HANDLERS*/,

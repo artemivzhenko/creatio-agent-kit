@@ -1,0 +1,77 @@
+# Creatio package pipeline for GitLab CI. Copy to .gitlab-ci.yml of the package repository.
+#
+# Merge request: the package rules, the packages built, the C# unit tests of the package test project.
+# main: the packages installed on the site, the configuration compiled, the site restarted, Redis cleared, the unit
+# tests inside Creatio and the UI cases run against it.
+#
+# Repository layout assumed: packages/<Package>/ (clio workspace), tests/ (optional C# unit tests), uitests/ with
+# Cases/ and Configuration/ (optional .act cases). CI/CD variables: CREATIO_URL, CREATIO_LOGIN, CREATIO_PASSWORD
+# (masked), UNIT_RUNNER (the test runner process or service, optional), KIT_REPO (the kit's clone URL).
+# The image needs Python 3.10+, the .NET 8 SDK and clio; the one below is a .NET SDK image with Python added.
+
+stages: [verify, build, deploy, test]
+
+variables:
+  PACKAGES: ""   # comma-separated, in install order; empty = every package, dependencies first
+  GIT_DEPTH: "0"
+
+default:
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq python3 python3-pip git > /dev/null
+    - dotnet tool install -g clio && export PATH="$PATH:/root/.dotnet/tools"
+    - git clone --depth 1 "$KIT_REPO" kit
+    - 'PKG_ARG=""; if [ -n "$PACKAGES" ]; then PKG_ARG="--package $PACKAGES"; fi'
+
+verify:
+  stage: verify
+  script:
+    - python3 kit/ci-cd/pipeline.py check packages $PKG_ARG
+    - 'if ls tests/**/*.csproj > /dev/null 2>&1; then dotnet test tests; fi'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+build:
+  stage: build
+  script:
+    - python3 kit/ci-cd/pipeline.py build packages --out Build $PKG_ARG
+  artifacts:
+    paths: [Build/Pkg.zip]
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+deploy:
+  stage: deploy
+  environment: dev
+  script:
+    - python3 kit/ci-cd/pipeline.py register ci --url "$CREATIO_URL" --login "$CREATIO_LOGIN" --password "$CREATIO_PASSWORD"
+    - python3 kit/ci-cd/pipeline.py deploy packages -e ci $PKG_ARG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+unit:
+  stage: test
+  script:
+    - python3 kit/ci-cd/pipeline.py register ci --url "$CREATIO_URL" --login "$CREATIO_LOGIN" --password "$CREATIO_PASSWORD"
+    - python3 kit/ci-cd/pipeline.py unit -e ci --runner "$UNIT_RUNNER" --evidence unit-results.json
+  artifacts:
+    when: always
+    paths: [unit-results.json]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" && $UNIT_RUNNER
+
+ui:
+  stage: test
+  script:
+    - dotnet build kit/automatic-creatio-tests
+    - pwsh kit/automatic-creatio-tests/src/CreatioAutoTests.Cli/bin/Debug/net8.0/playwright.ps1 install --with-deps chromium
+    - python3 kit/ci-cd/pipeline.py ui --root uitests
+  artifacts:
+    when: always
+    paths: [uitests/Reports/]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      exists: [uitests/Cases/*.act]

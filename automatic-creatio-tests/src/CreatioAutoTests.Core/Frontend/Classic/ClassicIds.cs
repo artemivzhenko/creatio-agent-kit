@@ -20,6 +20,9 @@ public static class ClassicIds
     /// <summary>Id of the caption; it carries the required marker.</summary>
     public static string Label(string schema, string name) => schema + name + "Label";
 
+    /// <summary>The marker Classic puts on a toolbar button, whatever its id looks like: <c>[data-item-marker="AddButton"]</c>.</summary>
+    public static string ButtonMarker(string name) => "[data-item-marker=\"" + name + "Button\"]";
+
     /// <summary>Id of a button's text span. A text-only button has only this node.</summary>
     public static string ButtonText(string prefix, string name) => prefix + name + "Button-textEl";
 

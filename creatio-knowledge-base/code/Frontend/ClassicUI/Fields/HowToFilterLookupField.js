@@ -26,6 +26,7 @@
 // ComparisonType values used most: EQUAL, NOT_EQUAL, IS_NULL, IS_NOT_NULL,
 // GREATER, LESS, CONTAIN, START_WITH.
 // Column paths may traverse references: "UsrService.UsrProductType".
+// Style: frontend guide 1.1, 2.1, 2.3
 
 define("UsrMyEntity1Page", [], function() {
 
@@ -39,13 +40,13 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Filter that depends on another column of the same page.
 			"UsrSalesOwner": {
-				"dataValueType": Terrasoft.DataValueType.LOOKUP,
-				"lookupListConfig": {
-					"filters": [function() {
-						var filters = Ext.create("Terrasoft.FilterGroup");
+				dataValueType: Terrasoft.DataValueType.LOOKUP,
+				lookupListConfig: {
+					filters: [function() {
+						const filters = Ext.create("Terrasoft.FilterGroup");
 						filters.logicalOperation = Terrasoft.LogicalOperatorType.AND;
 
-						var method = this.get("UsrRegistrationMethod");
+						const method = this.get("UsrRegistrationMethod");
 						if (method && method.value === MethodDirectImport) {
 							filters.add("NonResidentOnly",
 								Terrasoft.createColumnFilterWithParameter(
@@ -69,26 +70,26 @@ define("UsrMyEntity1Page", [], function() {
 			// Whitelist of allowed ids, built from an array. Note the OR group
 			// and the unique key per iteration.
 			"UsrPackageType": {
-				"dataValueType": Terrasoft.DataValueType.LOOKUP,
-				"dependencies": [
-					{ "columns": ["UsrLoadType"], "methodName": "onDownloadTypeChanged" }
+				dataValueType: Terrasoft.DataValueType.LOOKUP,
+				dependencies: [
+					{ columns: ["UsrLoadType"], methodName: "onDownloadTypeChanged" }
 				],
-				"lookupListConfig": {
-					"filters": [function() {
-						var filters = Ext.create("Terrasoft.FilterGroup");
-						var downloadType = this.get("UsrLoadType");
+				lookupListConfig: {
+					filters: [function() {
+						const filters = Ext.create("Terrasoft.FilterGroup");
+						const downloadType = this.get("UsrLoadType");
 
 						// No driver value yet -> show the full list.
 						if (!downloadType || !downloadType.value) {
 							return filters;
 						}
 
-						var allowedIds = ["bb5a4641-7e1f-443f-bd9e-037529edca3d",
+						const allowedIds = ["bb5a4641-7e1f-443f-bd9e-037529edca3d",
 							"b086dbde-084f-4b15-80fa-7ff6204b4441",
 							"7ba595be-0394-40d5-a5b3-d17e75adff57"];
 
 						filters.logicalOperation = Terrasoft.LogicalOperatorType.OR;
-						allowedIds.forEach(function(id, index) {
+						allowedIds.forEach((id, index) => {
 							filters.add("Allowed" + index,
 								Terrasoft.createColumnFilterWithParameter(
 									Terrasoft.ComparisonType.EQUAL, "Id", id));

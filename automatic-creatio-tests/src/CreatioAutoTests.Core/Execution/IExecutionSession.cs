@@ -56,6 +56,12 @@ public interface IExecutionSession
     /// <summary>Moves the current tab to a configured page through the Shell address, without loading the application again.</summary>
     Task NavigatePageAsync(string pageName, string? recordId, CancellationToken cancellationToken = default);
 
+    /// <summary>Called by the executor after a line that changes the page (set, clear, click, answer, upload).</summary>
+    void MarkChange();
+
+    /// <summary>When the last such line finished (UTC); <see cref="DateTime.MinValue"/> before the first.</summary>
+    DateTime LastChangeUtc { get; }
+
     /// <summary>Called by the executor as each line begins; 'check-process' reads when the line before it began.</summary>
     void MarkLineStart();
 

@@ -17,6 +17,7 @@ define("UsrMyEntity_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHE
 		// Use Object.assign to copy the FilterGroup so the structure is preserved.
 		//
 		// Requires: @creatio-devkit/common in SCHEMA_DEPS (sdk argument).
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
@@ -42,7 +43,7 @@ define("UsrMyEntity_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHE
 						});
 					}
 
-					return await next?.handle(request);
+					return next?.handle(request);
 				}
 			}
 		]/**SCHEMA_HANDLERS*/,

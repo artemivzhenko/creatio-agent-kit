@@ -35,6 +35,7 @@
 // Rows are NOT auto-packed. Two controls with the same column/row overlap, and a
 // gap in `row` renders as empty space. When inserting into a stock page, read the
 // existing layout first and pick free coordinates.
+// Style: frontend guide 2.1, 2.3
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -44,13 +45,13 @@ define("UsrMyEntity1Page", [], function() {
 				// INSERT: a new field in the page header.
 				"operation": "insert",
 				"name": "UsrDeliveryDate",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"layout": { "colSpan": 8, "rowSpan": 1, "column": 0, "row": 4, "layoutName": "Header" },
 					"bindTo": "UsrDeliveryDate",
 					"enabled": true
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 12
 			},
 			{

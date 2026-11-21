@@ -23,6 +23,7 @@
 // detached callbacks (DOM handlers, server messages) can then reach the view
 // model. Prefer passing scope explicitly where you can - module-level state
 // leaks between records opened in the same session.
+// Style: frontend guide 2.1, 2.4
 
 define("UsrMyEntity1Page",
 	["ProcessModuleUtilities", "ConfigurationEnums", "LookupUtilities", "css!UsrMyEntity1PageCSS"],

@@ -25,6 +25,7 @@
 //
 // Old-style `rules` (keyed by a readable rule name, not by UId) are overridden
 // the same way under `rules`, by that name.
+// Style: frontend guide 2.1, 2.5
 
 define("ContactPageV2", [], function() {
 	// The UId of the parent's rule, read off the parent schema - invented here.

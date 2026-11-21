@@ -40,7 +40,7 @@
 //    Fix: add the Id filter before execute(), always.
 //
 // 7. BODY MASK LEAKED ON AN ERROR PATH
-//    ShowBodyMask() with HideBodyMask() only in the success branch locks the
+//    showBodyMask() with hideBodyMask() only in the success branch locks the
 //    page whenever the query fails.
 //    Fix: hide it on every exit path, and hide it BEFORE showing a dialog.
 //
@@ -83,10 +83,12 @@
 // 15. getGridData() TREATED AS THE WHOLE DETAIL
 //     It returns the rows currently LOADED. With paging on that is one page.
 //     Fix: query the entity with an ESQ when you need all rows.
+// Style: frontend guide 2.4, 2.5, 2.6, 8
 
 define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUtilities) {
 
-	const StatusInWork = "f6c25e34-63f3-4b6d-9769-db0f37d42f0e";
+	// Id of the "In work" value of the UsrStatus lookup.
+	const StatusInWork ="f6c25e34-63f3-4b6d-9769-db0f37d42f0e";
 
 	return {
 		entitySchemaName: "UsrMyEntity",
@@ -101,7 +103,7 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 
 			applyStatusRules: function() {
 				// 4: optional chaining, no throw on an empty lookup
-				var isInWork = this.get("UsrStatus")?.value === StatusInWork;
+				const isInWork =this.get("UsrStatus")?.value === StatusInWork;
 				this.set("UsrOwnerRequired", isInWork);
 			},
 
@@ -111,32 +113,31 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 			},
 
 			runProcess: function() {
-				var self = this;
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask();
 
 				ProcessModuleUtilities.executeProcess({
 					sysProcessName: "UsrProcess_2da82f9",
 					parameters: { orderId: this.get("Id") },
 					// 2: callback inside the config
 					callback: function(request, success) {
-						Terrasoft.MaskHelper.HideBodyMask();   // 7: every path
+						this.hideBodyMask();   // 7: every path
 						if (!success) {
-							self.showInformationDialog(
-								self.get("Resources.Strings.ProcessFailedMessage"));
+							this.showInformationDialog(
+								this.get("Resources.Strings.ProcessFailedMessage"));
 							return;
 						}
 						// 9: the page may be gone by now
-						if (self.destroyed) {
+						if (this.destroyed) {
 							return;
 						}
-						self.reloadEntity();
+						this.reloadEntity();
 					},
 					scope: this
 				});
 			},
 
 			updateService: function(serviceId, stateId) {
-				var update = Ext.create("Terrasoft.UpdateQuery", {
+				const update = Ext.create("Terrasoft.UpdateQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				update.setParameterValue("UsrState", stateId, Terrasoft.DataValueType.GUID);
@@ -147,9 +148,9 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 			},
 
 			buildRoleFilter: function(esq, roleIds) {
-				var group = Terrasoft.createFilterGroup();
+				const group = Terrasoft.createFilterGroup();
 				group.logicalOperation = Terrasoft.LogicalOperatorType.OR;
-				roleIds.forEach(function(roleId, index) {
+				roleIds.forEach((roleId, index) => {
 					// 8: unique key per iteration
 					group.add("RoleFilter" + index,
 						Terrasoft.createColumnFilterWithParameter(

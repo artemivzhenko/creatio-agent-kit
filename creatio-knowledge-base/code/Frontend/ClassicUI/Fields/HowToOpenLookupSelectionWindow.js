@@ -35,6 +35,7 @@
 // the page (adding a row to a custom detail, picking a target for an action).
 // For a normal lookup column, do not open the window yourself: bind the control
 // and filter it with lookupListConfig instead.
+// Style: frontend guide 1.1, 2.1, 2.4
 
 define("UsrMyEntity1Page", ["LookupUtilities"], function(LookupUtilities) {
 	return {
@@ -43,7 +44,7 @@ define("UsrMyEntity1Page", ["LookupUtilities"], function(LookupUtilities) {
 
 			// Pick a single account.
 			onAddFactoryClick: function() {
-				var config = {
+				const config = {
 					entitySchemaName: "Account",
 					hideActions: true,
 					multiSelect: false
@@ -53,11 +54,11 @@ define("UsrMyEntity1Page", ["LookupUtilities"], function(LookupUtilities) {
 			},
 
 			onFactorySelected: function(result) {
-				var items = result.selectedRows.getItems();
+				const items = result.selectedRows.getItems();
 				if (!items.length) {
 					return;
 				}
-				var account = items[0];
+				const account = items[0];
 				this.set("UsrPlant", {
 					value: account.get("Id"),
 					displayValue: account.get("Name")
@@ -66,11 +67,11 @@ define("UsrMyEntity1Page", ["LookupUtilities"], function(LookupUtilities) {
 
 			// Multi-select with a pre-applied filter.
 			onAddContactsClick: function() {
-				var filters = Ext.create("Terrasoft.FilterGroup");
+				const filters = Ext.create("Terrasoft.FilterGroup");
 				filters.add("ActiveOnly", Terrasoft.createColumnFilterWithParameter(
 					Terrasoft.ComparisonType.EQUAL, "UsrIsActive", true));
 
-				var config = {
+				const config = {
 					entitySchemaName: "Contact",
 					multiSelect: true,
 					columns: ["Name", "Email"],
@@ -82,9 +83,7 @@ define("UsrMyEntity1Page", ["LookupUtilities"], function(LookupUtilities) {
 			},
 
 			onContactsSelected: function(result) {
-				var contactIds = result.selectedRows.getItems().map(function(item) {
-					return item.get("Id");
-				});
+				const contactIds = result.selectedRows.getItems().map((item) => item.get("Id"));
 				this.linkContacts(contactIds);
 			},
 

@@ -17,20 +17,21 @@
 //
 // If the button needs a saved record, check this.get("Id") first and tell the
 // user to save instead of failing silently.
+// Style: frontend guide 2.1, 2.3, 8
 
 define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUtilities) {
 	return {
 		entitySchemaName: "UsrMyEntity",
 		attributes: {
 			"CreateQuoteButtonEnabled": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN,
-				"value": false
+				dataValueType: Terrasoft.DataValueType.BOOLEAN,
+				value: false
 			}
 		},
 		methods: {
 
 			onCreateComplexKPButtonClick: function() {
-				var recordId = this.get("Id");
+				const recordId =this.get("Id");
 				if (!recordId) {
 					this.showInformationDialog(this.get("Resources.Strings.SaveRecordFirstMessage"));
 					return;
@@ -52,6 +53,8 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 			{
 				"operation": "insert",
 				"name": "CreateComplexKPButton",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"itemType": 5,
 					"layout": { "colSpan": 6, "rowSpan": 1, "column": 17, "row": 10, "layoutName": "Header" },
@@ -59,14 +62,14 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 					"click":   { "bindTo": "onCreateComplexKPButtonClick" },
 					"style":   "green"
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 26
 			},
 			{
 				// Same button, availability driven by page logic.
 				"operation": "insert",
 				"name": "CreateQuoteButton",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"itemType": 5,
 					"layout": { "colSpan": 6, "rowSpan": 1, "column": 17, "row": 13, "layoutName": "Header" },
@@ -76,8 +79,6 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 					"markerValue": "create-quote",
 					"style":   "green"
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 33
 			}
 		]/**SCHEMA_DIFF*/

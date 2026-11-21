@@ -25,6 +25,7 @@
 //    @creatio-devkit/common so Freedom UI pages can use it by type name. The
 //    example below is the iframe wrapper from this package. This is Freedom UI
 //    interop: a Classic UI page cannot place such an element through diff.
+// Style: frontend guide 1.1, 2.1, 3.1
 
 define("UsrCustomComponent", ["@creatio-devkit/common"], function(sdk) {
 

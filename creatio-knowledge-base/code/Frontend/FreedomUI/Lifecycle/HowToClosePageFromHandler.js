@@ -33,6 +33,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// By default, Creatio checks for unsaved changes before closing and shows
 		// a "Save changes?" dialog. To skip that dialog, set HasUnsavedData = false
 		// on the attributes object before dispatching the close request.
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

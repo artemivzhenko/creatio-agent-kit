@@ -9,7 +9,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//    - button captions, tab captions, expansion panel titles, grid column
 		//    captions. The platform substitutes the string at render time.
 		//
-		//      "caption": "#ResourceString(ExportButton_caption)#"
+		//      "caption": "#ResourceString(Button_Export_caption)#"
 		//      "title":   "#ResourceString(ExpansionPanel_7ecjlq7_title)#"
 		//
 		// 2. "$Resources.Strings.<Key>"
@@ -30,19 +30,20 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// ships, otherwise the page falls back to the primary culture.
 		//
 		// NAMING. The designer generates keys from the element name, so
-		// "ExportButton_caption" belongs to the element named "ExportButton".
+		// "Button_Export_caption" belongs to the element named "Button_Export".
 		// Hand-written keys are fine; keep the element-name prefix so the key is
 		// findable from the view config.
+		// Style: frontend guide 3.2, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
 			// Form 1: caption of a button.
 			{
 				"operation": "insert",
-				"name": "ExportButton",
+				"name": "Button_Export",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(ExportButton_caption)#",
+					"caption": "#ResourceString(Button_Export_caption)#",
 					"iconPosition": "only-text",
 					"clicked": { "request": "usr.ExportRequest", "params": {} }
 				},
@@ -54,10 +55,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Form 1: title of a collapsible block.
 			{
 				"operation": "insert",
-				"name": "AdditionalInfoPanel",
+				"name": "ExpansionPanel_AdditionalInfo",
 				"values": {
 					"type": "crt.ExpansionPanel",
-					"title": "#ResourceString(AdditionalInfoPanel_title)#",
+					"title": "#ResourceString(ExpansionPanel_AdditionalInfo_title)#",
 					"expanded": true,
 					"items": [],
 					"tools": []
@@ -70,7 +71,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Form 2: label of an input.
 			{
 				"operation": "insert",
-				"name": "NameInput",
+				"name": "Name",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Input",
@@ -78,7 +79,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					"labelPosition": "auto",
 					"control": "$PDS_Name_a1b2c3d"
 				},
-				"parentName": "AdditionalInfoPanel",
+				"parentName": "ExpansionPanel_AdditionalInfo",
 				"propertyName": "items",
 				"index": 0
 			}
@@ -101,7 +102,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 						$context: request.$context,
 						message: message,
 						actions: [
-							{ key: "OK", config: { color: "primary", caption: "OK" } }
+							{
+								key: "OK",
+								config: {
+									color: "primary",
+									caption: await request.$context.Resources.Strings.OkButtonCaption
+								}
+							}
 						]
 					});
 

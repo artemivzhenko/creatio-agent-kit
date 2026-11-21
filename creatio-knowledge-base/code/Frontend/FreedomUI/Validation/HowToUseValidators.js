@@ -15,11 +15,12 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// "async": false - synchronous validator.
 		// "async": true  - async validator (return a Promise).
+		// Style: frontend guide 3.3, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 			{
 				"operation": "insert",
-				"name": "NameField",
+				"name": "Name",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Input",
@@ -40,13 +41,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 						"modelConfig": {
 							"path": "PDS.Name"
 						},
-						// Attach one or more validators to this attribute
+						// Attach one or more validators to this attribute.
+						// The message is the page resource string "NameNotAllowedMessage".
 						"validators": {
 							"ValidateName": {
 								"type": "usr.ValidateFieldValue",
 								"params": {
 									"invalidValue": "Request",
-									"message": "This name is not allowed."
+									"message": "#ResourceString(NameNotAllowedMessage)#"
 								}
 							}
 						}

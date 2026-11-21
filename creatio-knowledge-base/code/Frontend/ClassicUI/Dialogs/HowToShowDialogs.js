@@ -28,6 +28,7 @@
 // Reporting a server error: passing result.errorInfo.message into a
 // single-button confirmation is the common idiom for failures,
 // because it renders long messages better than the information dialog.
+// Style: frontend guide 2.4, 2.6, 8
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -42,12 +43,11 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Yes / No question.
 			confirmDeletion: function(itemCaption, onConfirmed) {
-				var self = this;
 				this.showConfirmationDialog(
 					Ext.String.format(this.get("Resources.Strings.ConfirmDeleteMessage"), itemCaption),
-					function(returnCode) {
+					(returnCode) => {
 						if (returnCode === Terrasoft.MessageBoxButtons.YES.returnCode) {
-							onConfirmed.call(self);
+							onConfirmed.call(this);
 						}
 					},
 					["yes", "no"]);

@@ -45,6 +45,7 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// The collection itself is wired in viewModelConfigDiff - see
 		// HowToWorkWithCollectionAttributes.js. Selection-driven actions use the
 		// "<GridName>_SelectionState" attribute - see StockConvertersReference.js.
+		// Style: frontend guide 3.2
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
@@ -95,14 +96,14 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Aggregate row under the grid.
 			{
 				"operation": "insert",
-				"name": "Summaries_invoices",
+				"name": "Summaries_Invoices",
 				"values": {
 					"type": "crt.Summaries",
 					"items": "$GridDetail_wttbyhd",
 					"columns": [
 						{
 							"code": "GridDetail_wttbyhdDS_UsrAmount",
-							"caption": "#ResourceString(Summaries_invoices_total)#",
+							"caption": "#ResourceString(Summaries_Invoices_total)#",
 							"column": {
 								"orderDirection": 0,
 								"orderPosition": -1,

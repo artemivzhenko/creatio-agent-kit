@@ -27,12 +27,13 @@ define("UsrMyEntity_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHE
 		//   ComparisonType are re-exported from @creatio/base as private types, and @creatio/base is not shipped with the devkit,
 		//   so the shape of a sortingConfig / pagingConfig for model.load is not in the typings and no call with them is
 		//   verified here; test one on a page before relying on it.
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "crt.HandleViewModelInitRequest",
 				handler: async (request, next) => {
-					await next?.handle(request);
+					const result = await next?.handle(request);
 
 					const typeId  = await request.$context.PDS_Type_someAttr;
 					const thisId  = await request.$context.PDS_Id_someAttr;
@@ -57,11 +58,12 @@ define("UsrMyEntity_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHE
 						}]
 					});
 
-					records.forEach(item => {
-						if (item.Id !== thisId) {
-							console.log(item.Id, item.Name);
-						}
-					});
+					request.$context.OtherContactNames = records
+						.filter(item => item.Id !== thisId)
+						.map(item => item.Name)
+						.join(", ");
+
+					return result;
 				}
 			}
 		]/**SCHEMA_HANDLERS*/,

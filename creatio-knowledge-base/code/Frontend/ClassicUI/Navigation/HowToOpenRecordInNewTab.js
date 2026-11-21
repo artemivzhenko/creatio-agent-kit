@@ -21,6 +21,7 @@
 // the tab at once and navigate it when the answer comes.
 //
 // A new record has no Id until it is saved: check isNewMode() first.
+// Style: frontend guide 1.1, 2.4
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -29,11 +30,11 @@ define("UsrMyEntity1Page", [], function() {
 
 			// 1. New browser tab with the related record's card.
 			onOpenRelatedInNewTabClick: function() {
-				var related = this.get("UsrRelatedEntity");
+				const related = this.get("UsrRelatedEntity");
 				if (!related) {
 					return;
 				}
-				var url = Terrasoft.workspaceBaseUrl + "/Nui/ViewModule.aspx#CardModuleV2/UsrRelatedEntity1Page/edit/" + related.value;
+				const url = Terrasoft.workspaceBaseUrl + "/Nui/ViewModule.aspx#CardModuleV2/UsrRelatedEntity1Page/edit/" + related.value;
 				window.open(url, "_blank");
 			},
 

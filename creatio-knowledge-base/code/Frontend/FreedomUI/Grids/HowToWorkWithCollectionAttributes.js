@@ -41,6 +41,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Reading a collection in a handler gives an array of plain objects keyed
 		// by the ATTRIBUTE names, not by the column names.
+		// Style: frontend guide 1.1, 3.3, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 			{
@@ -120,9 +121,8 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					// by the ATTRIBUTE names declared above.
 					const rows = await request.$context.GridDetail_3ywno5n;
 
-					const total = (rows || []).reduce(function(sum, row) {
-						return sum + (row.GridDetail_3ywno5nDS_UsrTargetCurrency || 0);
-					}, 0);
+					const total = (rows || []).reduce(
+						(sum, row) => sum + (row.GridDetail_3ywno5nDS_UsrTargetCurrency || 0), 0);
 
 					request.$context.PDS_Total_x1y2z3 = total;
 					return next?.handle(request);

@@ -13,6 +13,7 @@
 //   If the library makes requests to external domains, add those domains to the
 //   relevant CSP directives (connect-src, frame-src, etc.) in System settings.
 //   Docs: https://academy.creatio.com/docs/8.x/setup-and-administration/administration/security-settings/content-security-policy
+// Style: frontend guide 1.1, 3.1
 
 requirejs.config({
 	paths: {

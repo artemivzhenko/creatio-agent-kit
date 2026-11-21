@@ -42,6 +42,7 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Custom converters are declared in the `converters` section and used by
 		// their key name - see HowToUseConverters.js.
+		// Style: frontend guide 3.2
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
@@ -49,10 +50,10 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// is empty.
 			{
 				"operation": "insert",
-				"name": "DeleteSelectedButton",
+				"name": "Button_DeleteSelected",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(DeleteSelectedButton_caption)#",
+					"caption": "#ResourceString(Button_DeleteSelected_caption)#",
 					"clicked": {
 						"request": "crt.DeleteRecordsRequest",
 						"params": {
@@ -69,10 +70,10 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Tag the selected rows - the same selection chain.
 			{
 				"operation": "insert",
-				"name": "AddTagsButton",
+				"name": "Button_AddTags",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(AddTagsButton_caption)#",
+					"caption": "#ResourceString(Button_AddTags_caption)#",
 					"clicked": {
 						"request": "crt.AddTagsInRecordsRequest",
 						"params": {
@@ -89,7 +90,7 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Invert a boolean to drive readonly.
 			{
 				"operation": "merge",
-				"name": "NameInput",
+				"name": "Name",
 				"values": {
 					"readonly": "$IsEditable | crt.InvertBooleanValue"
 				}

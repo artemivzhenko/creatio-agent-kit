@@ -174,7 +174,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    for _stream in (sys.stdout, sys.stderr):  # a Cyrillic path must not need PYTHONIOENCODING
+    for _stream in (sys.stdout, sys.stderr):  # S33-T09: a Cyrillic path must not need PYTHONIOENCODING
         if hasattr(_stream, "reconfigure"):
             _stream.reconfigure(encoding="utf-8")
     main()

@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_CallService_caption".
 			{
 				"operation": "insert",
-				"name": "CallServiceButton",
+				"name": "Button_CallService",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Call service",
+					"caption": "#ResourceString(Button_CallService_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.CallServiceRequest",
@@ -39,6 +40,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// (WCF wraps the return value in a property named "<MethodName>Result").
 		//
 		// Requires: @creatio-devkit/common in SCHEMA_DEPS (sdk argument).
+		// Style: frontend guide 3.2, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

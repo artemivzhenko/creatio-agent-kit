@@ -93,6 +93,9 @@ id per fact, with what is not verified at the end.
 For C# code, also read `get_code_style` (whole, or a section such as `"logging"` or
 `"review checklist"`): recipes show what to call, the style guide says how the code
 must look — tabs, `#region` layout, `[DefaultBinding]`, exception and logging rules.
+For client code read `get_code_style(guide="frontend")` the same way: the Classic schema
+skeleton and JSDoc tags, the Freedom UI handler and request rules, the remote module and
+mobile conventions, each with its review checklist.
 
 ## Platform traps worth knowing (the ids are in `get_recipe("platform-facts")`)
 

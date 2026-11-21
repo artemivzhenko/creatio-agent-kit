@@ -49,6 +49,7 @@
 // schema regeneration. Reach for JS (attributes + dependencies) when the
 // condition needs a query, arithmetic, or more than a couple of columns.
 // Do not implement the same rule in both places: they will fight.
+// Style: frontend guide 2.1, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {

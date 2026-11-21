@@ -42,7 +42,7 @@
 //     Asynchronous validation - the hook for checks that need a server round
 //     trip. Contract: this.callParent([wrapper, scope]); inside the wrapper
 //     check this.validateResponse(response), run your own checks, then call
-//     callback.call(scope, response). Reject by calling back with
+//     Ext.callback(callback, scope, [response]). Reject by calling back with
 //     { success: false, message: "..." }.
 //
 // setValidationConfig()                                            [ACADEMY]
@@ -125,6 +125,7 @@
 // destroy()                                                        [OBSERVED]
 //     Detach everything init attached: server-channel listeners, observers,
 //     timers, DOM handlers. Call this.callParent(arguments) LAST.
+// Style: frontend guide 2.1, 2.4, 2.5
 
 define("UsrMyEntity1Page", ["ConfigurationEnums"], function(enums) {
 	return {
@@ -148,7 +149,7 @@ define("UsrMyEntity1Page", ["ConfigurationEnums"], function(enums) {
 				if (this.isAddMode() || this.isCopyMode()) {
 					this.getIncrementCode(function(response) {
 						this.set("UsrNumber", response);
-					});
+					}, this);
 				}
 				this.setActiveTab("NotesAndFilesTab");
 			},

@@ -2,7 +2,7 @@
 // EntitySchemaQuery (ESQ) is the client-side read API. It is asynchronous and
 // callback-based; there is no promise wrapper in Classic UI.
 //
-//   var esq = Ext.create("Terrasoft.EntitySchemaQuery", { rootSchemaName: "X" });
+//   const esq = Ext.create("Terrasoft.EntitySchemaQuery", { rootSchemaName: "X" });
 //   esq.addColumn("ColumnName");
 //   esq.addColumn("Lookup.Name", "LookupName");   // joined column with an alias
 //   esq.filters.add("Key", <filter>);             // see HowToFilterESQ.js
@@ -27,6 +27,7 @@
 //
 // Single record by id: esq.getEntity(recordId, callback, scope) - convenient
 // when you already know the primary key.
+// Style: frontend guide 1.1, 2.5, 8
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -35,15 +36,14 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Read one record and its joined captions.
 			loadShipmentInfo: function() {
-				var self = this;
-				var recordId = this.get("Id");
+				const recordId = this.get("Id");
 
 				if (!recordId) {
 					this.showInformationDialog(this.get("Resources.Strings.SaveRecordFirstMessage"));
 					return;
 				}
 
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq =Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyEntity"
 				});
 
@@ -59,29 +59,29 @@ define("UsrMyEntity1Page", [], function() {
 
 				esq.getEntityCollection(function(result) {
 					if (!result.success) {
-						self.showInformationDialog(result.errorInfo.message);
+						this.showInformationDialog(result.errorInfo.message);
 						return;
 					}
-					var items = result.collection.getItems();
+					const items = result.collection.getItems();
 					if (!items.length) {
-						self.showInformationDialog(self.get("Resources.Strings.NoDataFoundMessage"));
+						this.showInformationDialog(this.get("Resources.Strings.NoDataFoundMessage"));
 						return;
 					}
-					var record = items[0];
+					const record = items[0];
 					// Aliased join column -> plain string.
-					var documentType = record.get("DocumentTypeName") || "";
+					const documentType = record.get("DocumentTypeName") || "";
 					// Direct lookup column -> object.
-					var service = record.get("UsrDescription");
+					const service = record.get("UsrDescription");
 
-					self.set("UsrInfoText",
+					this.set("UsrInfoText",
 						"Document type: " + documentType + "\n" +
 						"Service: " + (service ? service.displayValue : ""));
 				}, this);
 			},
 
 			// Count related records; a common gate before allowing an action.
-			countServicesInOrder: function(callback) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+			countServicesInOrder: function(callback, scope) {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");
@@ -89,13 +89,17 @@ define("UsrMyEntity1Page", [], function() {
 					Terrasoft.ComparisonType.EQUAL, "UsrMyEntity", this.get("Id")));
 
 				esq.getEntityCollection(function(result) {
-					callback.call(this, result.success ? result.collection.getCount() : 0);
+					if (!result.success) {
+						Ext.callback(callback, scope || this, [0]);
+						return;
+					}
+					Ext.callback(callback, scope || this, [result.collection.getCount()]);
 				}, this);
 			},
 
 			// Iterate with each().
-			collectServiceIds: function(callback) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+			collectServiceIds: function(callback, scope) {
+				const esq =Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("UsrService");
@@ -104,16 +108,16 @@ define("UsrMyEntity1Page", [], function() {
 					Terrasoft.ComparisonType.EQUAL, "UsrMyEntity", this.get("Id")));
 
 				esq.getEntityCollection(function(result) {
-					var ids = [];
+					const ids = [];
 					if (result.success) {
-						result.collection.each(function(item) {
-							var service = item.get("UsrService");
+						result.collection.each((item) => {
+							const service = item.get("UsrService");
 							if (service) {
 								ids.push(service.value);
 							}
 						});
 					}
-					callback.call(this, ids);
+					Ext.callback(callback, scope || this, [ids]);
 				}, this);
 			}
 		},

@@ -32,6 +32,7 @@
 //
 // A validator is synchronous. If the check needs a server round trip, do it in
 // asyncValidate instead; a validator cannot wait for an ESQ.
+// Style: frontend guide 1.1, 2.4, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -48,8 +49,8 @@ define("UsrMyEntity1Page", [], function() {
 
 			// String validator: a message means invalid, an empty string means OK.
 			phoneValidator: function() {
-				var invalidMessage = "";
-				var value = this.get("UsrPhone");
+				let invalidMessage = "";
+				const value = this.get("UsrPhone");
 
 				if (value && !/^\+?[0-9\s\-()]{7,20}$/.test(value)) {
 					invalidMessage = this.get("Resources.Strings.WrongPhoneFormatMessage");
@@ -60,9 +61,9 @@ define("UsrMyEntity1Page", [], function() {
 			// Cross-field validator: the same function is bound to BOTH columns
 			// so editing either one re-runs the check.
 			dueDateValidator: function() {
-				var invalidMessage = "";
-				var dueDate = this.get("UsrDueDate");
-				var createdOn = this.get("UsrCreatedOn");
+				let invalidMessage = "";
+				const dueDate = this.get("UsrDueDate");
+				const createdOn = this.get("UsrCreatedOn");
 
 				if (dueDate && createdOn && dueDate < createdOn) {
 					invalidMessage = this.get("Resources.Strings.DueDateBeforeCreatedOnMessage");
@@ -74,11 +75,11 @@ define("UsrMyEntity1Page", [], function() {
 			// bound `required` property; use a validator only when the condition
 			// is more than "not empty".
 			amountValidator: function() {
-				var invalidMessage = "";
-				var amount = this.get("UsrAmount");
-				var hasDiscount = this.get("UsrHasDiscount");
+				let invalidMessage = "";
+				const amount = this.get("UsrAmount");
+				const hasDiscount = this.get("UsrHasDiscount");
 
-				if (hasDiscount && (amount == null || amount <= 0)) {
+				if (hasDiscount && (Ext.isEmpty(amount) || amount <= 0)) {
 					invalidMessage = this.get("Resources.Strings.AmountRequiredWithDiscountMessage");
 				}
 				return { invalidMessage: invalidMessage };

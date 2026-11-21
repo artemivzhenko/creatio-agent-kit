@@ -85,6 +85,9 @@ namespace Terrasoft.Configuration.MyFeature
 }
 ```
 
+The recipes of the knowledge base are bare classes without a namespace, `#region`s or tabs on purpose (their
+folder's rule in `AGENTS.md`: they hold methods, not files); the skeleton above is for the package's own code.
+
 ### 1.3 `using` directives
 
 - Placed **inside** the namespace block.

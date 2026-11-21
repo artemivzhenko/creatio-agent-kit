@@ -50,6 +50,7 @@
 // this.Terrasoft / this.Ext also work inside a view model and are equivalent to
 // the globals; the prefixed form is the safer habit in code that may run in an
 // isolated context.
+// Style: frontend guide 1.1, 2.4, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -58,7 +59,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Optional callback without an if().
 			loadData: function(callback, scope) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");
@@ -90,7 +91,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Guarding against the empty guid, which is not the same as null.
 			hasRealValue: function(columnName) {
-				var value = this.get(columnName);
+				const value = this.get(columnName);
 				return !Ext.isEmpty(value) && value.value !== Terrasoft.GUID_EMPTY;
 			},
 
@@ -102,9 +103,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Numeric data type -> its name, via lodash.
 			getTypeNameByNumber: function(number) {
-				var key = _.findKey(Terrasoft.DataValueType, function(value) {
-					return value === number;
-				});
+				const key = _.findKey(Terrasoft.DataValueType, (value) => value === number);
 				return key ? key : "";
 			},
 

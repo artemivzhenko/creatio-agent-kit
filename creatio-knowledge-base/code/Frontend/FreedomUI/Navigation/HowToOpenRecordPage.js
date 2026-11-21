@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_OpenRecord_caption".
 			{
 				"operation": "insert",
-				"name": "OpenRecordButton",
+				"name": "Button_OpenRecord",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Open record",
+					"caption": "#ResourceString(Button_OpenRecord_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.OpenRecordRequest",
@@ -37,6 +38,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		//   defaultValues - array of { attributeName, value } to pre-fill fields
 		//
 		// Requires: @creatio-devkit/common in SCHEMA_DEPS (sdk argument).
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

@@ -1,0 +1,81 @@
+# Creatio package pipeline for GitHub Actions. Copy to .github/workflows/creatio.yml of the package repository.
+#
+# Before a merge (pull request): the package rules, the packages built, the C# unit tests of the package test project.
+# After a merge (push to main): the packages installed on the site, the configuration compiled, the site restarted,
+# Redis cleared, the unit tests inside Creatio and the UI cases run against it.
+#
+# Repository layout assumed: packages/<Package>/ (clio workspace), tests/<Package>.Tests/ (optional C# unit tests),
+# uitests/ with Cases/ and Configuration/ (optional .act cases). The kit is checked out next to it.
+# Secrets: CREATIO_URL, CREATIO_LOGIN, CREATIO_PASSWORD. Variables: UNIT_RUNNER (the test runner process or service).
+
+name: creatio
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  KIT_REPO: <org>/creatio-agent-kit   # the kit repository
+  PACKAGES: ""                         # comma-separated, in install order; empty = every package, dependencies first
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KIT_REPO }}
+          path: kit
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet tool install -g clio
+      - name: package rules
+        run: python kit/ci-cd/pipeline.py check packages ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
+      - name: build packages
+        run: python kit/ci-cd/pipeline.py build packages --out Build ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
+      - uses: actions/upload-artifact@v4
+        with: { name: packages, path: Build/Pkg.zip }
+      - name: C# unit tests (no site)
+        if: hashFiles('tests/**/*.csproj') != ''
+        run: dotnet test tests
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest   # a self-hosted runner when the site is not reachable from GitHub
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KIT_REPO }}
+          path: kit
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet tool install -g clio
+      - name: register the site
+        run: python kit/ci-cd/pipeline.py register ci --url "${{ secrets.CREATIO_URL }}" --login "${{ secrets.CREATIO_LOGIN }}" --password "${{ secrets.CREATIO_PASSWORD }}"
+      - name: install, compile, restart, clear Redis
+        run: python kit/ci-cd/pipeline.py deploy packages -e ci ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
+      - name: unit tests inside Creatio
+        if: vars.UNIT_RUNNER != ''
+        run: python kit/ci-cd/pipeline.py unit -e ci --runner "${{ vars.UNIT_RUNNER }}" --evidence unit-results.json
+      - name: UI cases
+        if: hashFiles('uitests/Cases/*.act') != ''
+        env:
+          CREATIO_URL: ${{ secrets.CREATIO_URL }}
+          CREATIO_LOGIN: ${{ secrets.CREATIO_LOGIN }}
+          CREATIO_PASSWORD: ${{ secrets.CREATIO_PASSWORD }}
+        run: |
+          dotnet build kit/automatic-creatio-tests
+          pwsh kit/automatic-creatio-tests/src/CreatioAutoTests.Cli/bin/Debug/net8.0/playwright.ps1 install --with-deps chromium
+          python kit/ci-cd/pipeline.py ui --root uitests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: test-results, path: "unit-results.json\nuitests/Reports/" }

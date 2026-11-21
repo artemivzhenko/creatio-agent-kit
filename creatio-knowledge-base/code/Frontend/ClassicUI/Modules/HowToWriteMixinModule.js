@@ -24,6 +24,7 @@
 // Package files: `python scaffold.py module <pkg> UsrMyMixin --mixin` writes
 // this module; `python classicui.py add-mixin <pkg> <Page> UsrMyMixin` adds 2 and
 // 3 to a page (no-code/tools).
+// Style: frontend guide 2.2, 2.3, 2.5
 
 // ======================= THE MIXIN (schema UsrMyMixin, type Module) =========
 define("UsrMyMixin", ["UsrMyMixinResources"], function(resources) {
@@ -32,7 +33,7 @@ define("UsrMyMixin", ["UsrMyMixinResources"], function(resources) {
 
 		// Runs with the page's view model as `this`.
 		usrMyMixinPrint: function() {
-			var recordId = this.get("Id");
+			const recordId = this.get("Id");
 			if (!recordId) {
 				this.showInformationDialog(resources.localizableStrings.UsrSaveFirstMessage);
 				return;

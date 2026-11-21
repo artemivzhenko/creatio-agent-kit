@@ -37,6 +37,7 @@
 // The converter runs with the view model as `this`, so it can read other
 // columns. Keep it pure and cheap - it is called on every change. Anything
 // heavier belongs in a virtual attribute recomputed by a dependency.
+// Style: frontend guide 2.1, 2.3
 
 define("UsrMyEntity1Page", ["UsrExtendableLookupEdit"], function() {
 	return {
@@ -50,6 +51,8 @@ define("UsrMyEntity1Page", ["UsrExtendableLookupEdit"], function() {
 				// Field rendered by a CUSTOM control, with right and clear icons.
 				"operation": "insert",
 				"name": "UsrColumnCaption",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"layout": { "colSpan": 12, "rowSpan": 1, "column": 0, "row": 0, "layoutName": "Header" },
 					"bindTo": "UsrColumnCaption",
@@ -62,8 +65,6 @@ define("UsrMyEntity1Page", ["UsrExtendableLookupEdit"], function() {
 						"cleariconclick": { "bindTo": "clearField" }
 					}
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 0
 			},
 			{
@@ -99,6 +100,8 @@ define("UsrMyEntity1Page", ["UsrExtendableLookupEdit"], function() {
 				// Full-width rich text notes with image support.
 				"operation": "insert",
 				"name": "Notes",
+				"parentName": "NotesControlGroup",
+				"propertyName": "items",
 				"values": {
 					"bindTo": "UsrNotes",
 					"dataValueType": 1,   // TEXT
@@ -110,8 +113,6 @@ define("UsrMyEntity1Page", ["UsrExtendableLookupEdit"], function() {
 						"images": { "bindTo": "NotesImagesCollection" }
 					}
 				},
-				"parentName": "NotesControlGroup",
-				"propertyName": "items",
 				"index": 0
 			}
 		]/**SCHEMA_DIFF*/

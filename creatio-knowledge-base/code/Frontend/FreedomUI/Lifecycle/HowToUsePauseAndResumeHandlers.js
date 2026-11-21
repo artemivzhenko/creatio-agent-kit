@@ -29,6 +29,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Related: HowToReceiveServerSideMessages.js covers the message payload
 		// itself; this file is about the attach/release discipline.
+		// Style: frontend guide 3.4, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/,
 
@@ -58,7 +59,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 								type: "crt.ShowDialogRequest",
 								$context: request.$context,
 								message: await request.$context.Resources.Strings.UsrImportStartMsg,
-								actions: [{ key: "OK", config: { color: "primary", caption: "OK" } }]
+								actions: [{
+									key: "OK",
+									config: {
+										color: "primary",
+										caption: await request.$context.Resources.Strings.OkButtonCaption
+									}
+								}]
 							});
 						}
 					};

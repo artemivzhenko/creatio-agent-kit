@@ -22,6 +22,7 @@
 //
 // Prefer shape 1. Reach for shape 2 only when a plain module return value
 // cannot travel where you need it.
+// Style: frontend guide 2.1, 2.2
 
 // ======================= 1. CONSTANTS MODULE =================================
 define("UsrJSConstants", [], function() {

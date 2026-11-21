@@ -27,20 +27,21 @@
 //       practice, so controls use "colSpan": 24
 //   "visible": { "bindTo": "isAddMode" } is the usual way to show a field only
 //   while the record is being created from the mini page.
+// Style: frontend guide 2.1
 
 // ============================ SECTION SCHEMA =================================
 define("UsrMyEntitySection", [], function() {
 	return {
 		entitySchemaName: "UsrMyEntity",
 		details: /**SCHEMA_DETAILS*/{}/**SCHEMA_DETAILS*/,
+		methods: {},
 		diff: /**SCHEMA_DIFF*/[
 			{
 				// Drop the stock add button of the separate (full-screen) mode.
 				"operation": "remove",
 				"name": "SeparateModeAddRecordButton"
 			}
-		]/**SCHEMA_DIFF*/,
-		methods: {}
+		]/**SCHEMA_DIFF*/
 	};
 });
 

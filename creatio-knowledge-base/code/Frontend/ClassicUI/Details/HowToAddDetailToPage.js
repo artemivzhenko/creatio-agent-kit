@@ -22,6 +22,7 @@
 // The detail is filtered automatically: detailColumn = masterColumn value. For
 // an unsaved master record Id is empty, so the detail shows nothing until the
 // first save - that is expected, not a bug.
+// Style: frontend guide 2.1, 2.3
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -55,12 +56,12 @@ define("UsrMyEntity1Page", [], function() {
 				// Render the detail inside a tab.
 				"operation": "insert",
 				"name": "UsrSchema2d707869Detailacdf157e",
+				"parentName": "UsrExtraTab",
+				"propertyName": "items",
 				"values": {
 					"itemType": 2,                 // Terrasoft.ViewItemType.DETAIL
 					"markerValue": "added-detail"
 				},
-				"parentName": "UsrExtraTab",
-				"propertyName": "items",
 				"index": 0
 			},
 			{

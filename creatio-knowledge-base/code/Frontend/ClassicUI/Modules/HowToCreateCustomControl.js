@@ -38,6 +38,7 @@
 //
 // Consider this a last resort: a custom control is unsupported surface that
 // breaks on upgrades. Try controlConfig on a stock control first.
+// Style: frontend guide 1.1, 2.2, 2.4
 
 define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 
@@ -100,15 +101,15 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 
 		// --- binding: forward the mixin contributions -----------------------
 		getBindConfig: function() {
-			var bindConfig = this.callParent(arguments);
+			const bindConfig = this.callParent(arguments);
 			Ext.apply(bindConfig, this.mixins.expandableList.getBindConfig());
 			Ext.apply(bindConfig, this.mixins.leftIcon.getBindConfig());
 			return bindConfig;
 		},
 
 		initBinding: function(configItem, bindingRule, bindConfig) {
-			var binding = this.callParent(arguments);
-			var lookupBinding = this.mixins.expandableList.initBinding.call(
+			const binding = this.callParent(arguments);
+			const lookupBinding = this.mixins.expandableList.initBinding.call(
 				this, configItem, bindingRule, bindConfig);
 			return Ext.apply(binding, lookupBinding);
 		},
@@ -126,8 +127,8 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 		// changeValue decides whether anything actually changed and raises
 		// "change"; setValue additionally updates the DOM.
 		changeValue: function(item) {
-			var value = this.value;
-			var isChanged = (value && item)
+			const value = this.value;
+			const isChanged = (value && item)
 				? value !== (item.displayValue || item)
 				: value !== item;
 
@@ -143,7 +144,7 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 		},
 
 		setValue: function(value) {
-			var isChanged = this.changeValue(value);
+			const isChanged = this.changeValue(value);
 			if (!isChanged || !this.rendered) {
 				return;
 			}
@@ -156,8 +157,8 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 
 		// Always encode what you push into the DOM.
 		getInitValue: function() {
-			var value = this.value;
-			var displayValue = value
+			const value = this.value;
+			const displayValue = value
 				? Terrasoft.getTypedStringValue(value, Terrasoft.DataValueType.TEXT)
 				: "";
 			return displayValue ? Terrasoft.encodeHtml(displayValue) : "";
@@ -198,7 +199,7 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 			}
 			this.clearTimer("timerId");
 
-			var typedValue = this.getTypedValue();
+			const typedValue = this.getTypedValue();
 			if (!e.isNavKeyPress() && e.getKey() !== e.ENTER && typedValue !== this.typedValue) {
 				this.typedValue = typedValue;
 				if (this.list) {
@@ -232,8 +233,8 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 		},
 
 		onMouseDownCollapse: function(e) {
-			var isInWrap = e.within(this.getWrapEl());
-			var isInList = Ext.isEmpty(this.listView) || e.within(this.listView.getWrapEl());
+			const isInWrap = e.within(this.getWrapEl());
+			const isInList = Ext.isEmpty(this.listView) || e.within(this.listView.getWrapEl());
 			if (!isInWrap && !isInList) {
 				this.collapseList();
 			}

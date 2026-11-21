@@ -603,6 +603,31 @@ def test_history_and_timer_tools_answer_refuse_and_write_only_on_a_dev_project()
     assert names is None or {"record_history", "column_transitions", "process_timers", "fire_timer"} <= names
 
 
+def test_ci_tools_run_the_pipeline_in_process_and_capture_its_output():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "packages"
+        for name, deps in (("UsrBase", []), ("UsrApp", ["UsrBase"])):
+            schema = root / name / "Schemas" / f"{name}Page"
+            schema.mkdir(parents=True)
+            (root / name / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": name, "UId": f"uid-{name}",
+                                                                                      "DependsOn": [{"Name": d} for d in deps]}}), encoding="utf-8")
+            (schema / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": "same-uid"}}), encoding="utf-8")
+            (schema / f"{name}Page.js").write_text("debugger;\n", encoding="utf-8")
+        out = server.ci_check(str(root))
+        assert "UsrApp" in out and "debugger" in out and "duplicate schema UId" in out and "metadata.json not found" in out, out
+        assert out.endswith("exit code 1"), out
+        assert server.ci_check(str(root), package="UsrNone").endswith("exit code 1")  # sys.exit("not under ...") captured
+        out = server.ci_hierarchy(str(root))
+        assert "--- level 1 (1) ---" in out and "UsrApp" in out and out.endswith("exit code 0"), out
+        out = server.ci_lint(str(root))
+        assert "missing localization" in out and "Read Data" in out and out.count("exit code") == 2, out
+        with patch.object(server, "_ci", side_effect=lambda script, argv: " ".join(argv)):
+            assert server.ci_deploy(str(root), "dev", package="UsrApp", restart=False) == f"deploy {root} -e dev --package UsrApp --no-restart"
+            assert server.ci_build(str(root), "Build") == f"build {root} --out Build"
+            assert server.ci_push_all(str(root), "dev", retry=True) == f"push-all -p {root} -e dev --list {root.parent / 'error-pkg.txt'}"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

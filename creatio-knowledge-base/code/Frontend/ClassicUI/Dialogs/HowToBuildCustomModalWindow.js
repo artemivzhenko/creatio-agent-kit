@@ -23,6 +23,7 @@
 //
 // Block the underlying page while the modal is open by covering it with the
 // overlay element, not with MaskHelper - the mask would grey out your modal too.
+// Style: frontend guide 1.1, 2.4, 8
 
 define("UsrMyDetail", [], function() {
 	return {
@@ -30,27 +31,27 @@ define("UsrMyDetail", [], function() {
 		methods: {
 
 			openCalculationsModal: function(config) {
-				var self = this;
+				const self = this;
 
 				this.addModalStyles();
 
-				var modalHtml =
-					'<div id="usr-calculations-modal" class="usr-modal-overlay">' +
-						'<div class="usr-modal-content">' +
-							'<div class="usr-modal-header">' +
-								'<h3 class="usr-modal-title">Preliminary calculations</h3>' +
-								'<div class="usr-modal-buttons">' +
-									'<button type="button" class="usr-modal-cancel">Cancel</button>' +
-									'<button type="button" class="usr-modal-create">Create</button>' +
-								'</div>' +
-							'</div>' +
-							'<div class="usr-modal-body"><div id="usr-calculations-table"></div></div>' +
-						'</div>' +
-					'</div>';
+				const modalHtml =
+					"<div id='usr-calculations-modal' class='usr-modal-overlay'>" +
+						"<div class='usr-modal-content'>" +
+							"<div class='usr-modal-header'>" +
+								"<h3 class='usr-modal-title'>Preliminary calculations</h3>" +
+								"<div class='usr-modal-buttons'>" +
+									"<button type='button' class='usr-modal-cancel'>Cancel</button>" +
+									"<button type='button' class='usr-modal-create'>Create</button>" +
+								"</div>" +
+							"</div>" +
+							"<div class='usr-modal-body'><div id='usr-calculations-table'></div></div>" +
+						"</div>" +
+					"</div>";
 
-				var wrapper = document.createElement("div");
+				const wrapper = document.createElement("div");
 				wrapper.innerHTML = modalHtml;
-				var modal = wrapper.firstElementChild;
+				const modal =wrapper.firstElementChild;
 				document.body.appendChild(modal);
 
 				this.renderCalculationsTable(config);
@@ -72,7 +73,7 @@ define("UsrMyDetail", [], function() {
 			},
 
 			closeCalculationsModal: function() {
-				var modal = document.getElementById("usr-calculations-modal");
+				const modal = document.getElementById("usr-calculations-modal");
 				if (modal) {
 					modal.remove();
 				}
@@ -86,7 +87,7 @@ define("UsrMyDetail", [], function() {
 				if (document.getElementById("usr-modal-styles")) {
 					return;
 				}
-				var style = document.createElement("style");
+				const style =document.createElement("style");
 				style.id = "usr-modal-styles";
 				style.textContent =
 					".usr-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);" +

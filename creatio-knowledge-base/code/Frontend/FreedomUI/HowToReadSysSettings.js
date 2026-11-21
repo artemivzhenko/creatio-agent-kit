@@ -13,18 +13,20 @@ define("UsrMyEntity_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHE
 		// The result object has a .value property with the setting's value.
 		//
 		// Requires: @creatio-devkit/common in SCHEMA_DEPS (sdk argument).
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "crt.HandleViewModelInitRequest",
 				handler: async (request, next) => {
-					await next?.handle(request);
+					const result = await next?.handle(request);
 
 					const sysSettingsService = new sdk.SysSettingsService();
 					const setting = await sysSettingsService.getByCode("MySysSettingCode");
 
-					const value = setting.value;
+					const value = setting?.value;
 					request.$context.MyAttribute = value;
+					return result;
 				}
 			}
 		]/**SCHEMA_HANDLERS*/,

@@ -13,12 +13,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// sysValues.userAccount - { value: Guid, displayValue: Name } of the user's Account
 		//
 		// Requires: @creatio-devkit/common in SCHEMA_DEPS (sdk argument).
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "crt.HandleViewModelInitRequest",
 				handler: async (request, next) => {
-					await next?.handle(request);
+					const result = await next?.handle(request);
 
 					const sysValuesService = new sdk.SysValuesService();
 					const sysValues = await sysValuesService.loadSysValues();
@@ -32,6 +33,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 
 					// Use userContact.value to filter records by current user
 					// e.g. pass to sdk.FilterGroup.addSchemaColumnFilterWithParameter
+					return result;
 				}
 			}
 		]/**SCHEMA_HANDLERS*/,

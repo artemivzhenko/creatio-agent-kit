@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_Run_caption".
 			{
 				"operation": "insert",
-				"name": "ActionButton",
+				"name": "Button_Run",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Run",
+					"caption": "#ResourceString(Button_Run_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.DemoRequest",
@@ -31,6 +32,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// Lookup fields return { value: guid, displayValue: string }.
 		// Grid detail attributes live on request.$context.attributes, not directly
 		// on $context, and contain a keyed object where numeric keys are row indexes.
+		// Style: frontend guide 3.2, 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

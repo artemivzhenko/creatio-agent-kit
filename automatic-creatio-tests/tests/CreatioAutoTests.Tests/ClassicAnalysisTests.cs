@@ -91,6 +91,16 @@ public sealed class ClassicTypeResolutionTests
     }
 
     [Test]
+    public void A_page_without_an_active_tab_or_without_tabs_has_no_active_index_instead_of_throwing()
+    {
+        static System.Text.Json.JsonElement[] Items(string json) => System.Text.Json.JsonDocument.Parse(json).RootElement.EnumerateArray().ToArray();
+
+        Assert.That(ClassicPageAnalyzer.ActiveTabIndex(Items("[]")), Is.EqualTo(-1));
+        Assert.That(ClassicPageAnalyzer.ActiveTabIndex(Items("[{\"index\":0,\"active\":false},{\"index\":1,\"active\":false}]")), Is.EqualTo(-1));
+        Assert.That(ClassicPageAnalyzer.ActiveTabIndex(Items("[{\"index\":0,\"active\":false},{\"index\":1,\"active\":true}]")), Is.EqualTo(1));
+    }
+
+    [Test]
     public void The_code_is_the_column_unless_taken_then_the_schema_name()
     {
         var taken = new HashSet<string>(StringComparer.Ordinal) { "UsrName" };

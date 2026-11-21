@@ -25,6 +25,7 @@
 //
 // Never write values into the DOM to change data. Write to the view model with
 // this.set(...) and let the binding update the control.
+// Style: frontend guide 1.1, 2.1, 2.4, 8
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -33,8 +34,8 @@ define("UsrMyEntity1Page", [], function() {
 		attributes: {
 			// Somewhere to keep the observer so destroy() can reach it.
 			"CurrentObserver": {
-				"dataValueType": Terrasoft.DataValueType.CUSTOM_OBJECT,
-				"value": null
+				dataValueType: Terrasoft.DataValueType.CUSTOM_OBJECT,
+				value: null
 			}
 		},
 
@@ -47,15 +48,14 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Rule 1: poll until the node appears, then wire it.
 			waitForDetailAndAttach: function() {
-				var self = this;
-				var attempt = function() {
-					var node = document.querySelector("#UsrMyDetailDetailControlGroup");
+				const attempt = () => {
+					const node = document.querySelector("#UsrMyDetailDetailControlGroup");
 					if (!node) {
 						setTimeout(attempt, 500);
 						return;
 					}
-					self.attachDetailObserver(node);
-					self.attachAddButtonHandler();
+					this.attachDetailObserver(node);
+					this.attachAddButtonHandler();
 				};
 				attempt();
 			},
@@ -63,19 +63,18 @@ define("UsrMyEntity1Page", [], function() {
 			// Observe a container for re-renders and re-apply the customisation.
 			attachDetailObserver: function(targetNode) {
 				// Replace an earlier observer instead of stacking them.
-				var previous = this.get("CurrentObserver");
+				const previous = this.get("CurrentObserver");
 				if (previous) {
 					previous.disconnect();
 				}
 
-				var self = this;
-				var observer = new MutationObserver(function(mutations) {
+				const observer = new MutationObserver(() => {
 					// Debounce: a single expand produces a burst of mutations.
-					if (self._domTimeout) {
-						clearTimeout(self._domTimeout);
+					if (this._domTimeout) {
+						clearTimeout(this._domTimeout);
 					}
-					self._domTimeout = setTimeout(function() {
-						self.applyDetailCustomisation();
+					this._domTimeout = setTimeout(() => {
+						this.applyDetailCustomisation();
 					}, 100);
 				});
 
@@ -90,7 +89,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Rule 2: idempotent wiring, marked on the node itself.
 			attachAddButtonHandler: function() {
-				var button = document.querySelector("#UsrMyDetailAddRecordButtonButton-wrapperEl");
+				const button = document.querySelector("#UsrMyDetailAddRecordButtonButton-wrapperEl");
 				if (!button) {
 					setTimeout(this.attachAddButtonHandler.bind(this), 100);
 					return;
@@ -100,12 +99,11 @@ define("UsrMyEntity1Page", [], function() {
 				}
 				button.setAttribute("data-usr-handler-setup", "true");
 
-				var self = this;
-				button.addEventListener("click", function(e) {
-					if (!self.get("IsAddAllowed")) {
+				button.addEventListener("click", (e) => {
+					if (!this.get("IsAddAllowed")) {
 						e.stopPropagation();
-						self.showInformationDialog(
-							self.get("Resources.Strings.CannotAddRecordMessage"));
+						this.showInformationDialog(
+							this.get("Resources.Strings.CannotAddRecordMessage"));
 					}
 				}, { capture: true });
 			},
@@ -114,7 +112,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Rule 3: tear everything down.
 			destroy: function() {
-				var observer = this.get("CurrentObserver");
+				const observer = this.get("CurrentObserver");
 				if (observer) {
 					observer.disconnect();
 					this.set("CurrentObserver", null);

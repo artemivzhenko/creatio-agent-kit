@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_RunProcess_caption".
 			{
 				"operation": "insert",
-				"name": "RunProcessButton",
+				"name": "Button_RunProcess",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Run process",
+					"caption": "#ResourceString(Button_RunProcess_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.RunProcessRequest",
@@ -36,6 +37,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// result.resultParameterValues.ParamName - value of an output parameter
 		//
 		// Requires: @creatio-devkit/common in SCHEMA_DEPS (sdk argument).
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

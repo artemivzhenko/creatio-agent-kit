@@ -25,6 +25,7 @@
 //
 // Section-level data methods: this.reloadGridData() re-reads the list after you
 // write records directly with an InsertQuery.
+// Style: frontend guide 2.1, 2.3, 2.6
 
 define("BaseLookupSection", ["BaseLookupSectionResources", "StructureExplorerUtilities"],
 	function(resources) {
@@ -43,7 +44,7 @@ define("BaseLookupSection", ["BaseLookupSectionResources", "StructureExplorerUti
 						this.set("UsrAddColumnsButtonVisible", isTargetLookup);
 						this.set("UsrBaseAddButtonVisible", !isTargetLookup);
 					} catch (e) {
-						console.error("BaseLookupSection: init failed.", e);
+						this.error("BaseLookupSection: init failed. " + e);
 					}
 				},
 

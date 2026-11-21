@@ -39,6 +39,8 @@ folder.
    with the toolkits); it refuses an existing schema. C# goes into
    `Files/cs` per `get_code_style("architecture")` 3.7 and gets a unit test per 3.8
    (`clio new-test-project` once per package, `dotnet test` green before you say done).
+   Client code (a Classic schema, a Freedom UI page, a remote module) follows
+   `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push.
 4. **Push.** `python no-code/tools/push/push.py <package> -e <clioName> --probe` does the whole sequence: clears
    the modified flag, `push-pkg`, reads the compilation log, runs `compile-configuration` when a process has a
    script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects

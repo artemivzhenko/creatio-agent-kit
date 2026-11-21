@@ -32,7 +32,8 @@ mcp = _Server(
         "Search this knowledge base BEFORE writing Creatio code - it carries the "
         "project's idioms, naming rules and known traps that general knowledge "
         "does not have. Start with search_recipes, then get_recipe for the full "
-        "example. For C# code, read get_code_style before writing: it holds the "
+        "example. Before writing code read get_code_style: guide='csharp' for C#, "
+        "guide='frontend' for Classic UI, Freedom UI, remote modules and mobile - the "
         "formatting, naming and architecture rules of Creatio platform code. "
         "The Clio area covers the clio CLI (packages, SQL, schemas, pages, apps, "
         "rights, its own MCP server): search_recipes(query, area='Clio') finds the "
@@ -272,21 +273,25 @@ def list_recipes(area: str = "", topic: str = "") -> str:
 
 
 @mcp.tool()
-def get_code_style(section: str = "") -> str:
+def get_code_style(section: str = "", guide: str = "csharp") -> str:
     """
-    The C# code style and architecture guide for Creatio back-end code.
+    The code style and architecture guides of Creatio code, derived from the platform's own sources.
 
-    Read it BEFORE writing or reviewing C# for Creatio: formatting (tabs, CRLF,
-    #region layout), naming, DI via [DefaultBinding], error handling, logging,
-    concurrency, XML docs, and a review checklist. Recipes show WHAT to call;
-    this guide says how the code must look.
+    guide="csharp" (default): back-end C# - formatting (tabs, CRLF, #region layout), naming, DI via
+    [DefaultBinding], error handling, logging, concurrency, XML docs, a review checklist.
+    guide="frontend": client code - Classic UI schemas (define, attributes, messages, methods, diff,
+    business rules, JSDoc tags), Freedom UI schemas (viewConfigDiff, handlers, requests, validators,
+    converters), the Angular remote modules and the mobile handler modules, a review checklist.
+
+    Read the right guide BEFORE writing or reviewing Creatio code: recipes show WHAT to call;
+    the guide says how the code must look.
 
     section: optional - a section number ("4") or words from its heading
              ("logging", "review checklist"). Empty returns the whole guide.
     """
-    text = kb().code_style(section)
+    text = kb().code_style(section, guide)
     if text is None:
-        return "No CREATIO_CODE_STYLE.md next to the knowledge base."
+        return f"No {guide} guide next to the knowledge base (csharp = CREATIO_CODE_STYLE.md, frontend = CREATIO_FRONTEND_CODE_STYLE.md)."
     if not text:
         return f'No section matches "{section}". Call get_code_style() with no argument to see the headings.'
     return text
@@ -1074,6 +1079,99 @@ def precommit_check(workspace: str) -> str:
     except (FileNotFoundError, RuntimeError) as e:
         return f"error: {e}"
     return "\n".join(problems + [f"note: {n}" for n in notes] + ["exit code 1"]) if problems else "\n".join([f"note: {n}" for n in notes] + ["ok"])
+
+
+def _ci(script: str, argv: list[str]) -> str:
+    """Run a ci-cd command line (pipeline.py or clio-ext/clio-ext.py) in-process, its output captured; ends with `exit code N`."""
+    import importlib.util
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+    path = _ROOT.parent / "ci-cd" / script
+    if not path.is_file():
+        return f"error: {path} not found (the kit's ci-cd folder is not next to the knowledge base)"
+    spec = importlib.util.spec_from_file_location(path.stem.replace("-", "_"), path)
+    module = importlib.util.module_from_spec(spec)
+    out = io.StringIO()
+    try:
+        with redirect_stdout(out), redirect_stderr(out):
+            spec.loader.exec_module(module)
+            code = module.main(argv)
+    except SystemExit as e:  # sys.exit("message") inside a stage, or argparse
+        code = e.code if isinstance(e.code, int) else 1
+        if e.code and not isinstance(e.code, int):
+            out.write(f"{e.code}\n")
+    return out.getvalue().rstrip() + f"\nexit code {code}"
+
+
+def _names(package: str) -> list[str]:
+    return ["--package", package.strip()] if package.strip() else []
+
+
+@mcp.tool()
+def ci_check(packages: str, package: str = "", cyrillic: bool = False) -> str:
+    """The package rules of the CI pipeline (`ci-cd/pipeline.py check`), the stage that runs before a merge: every schema folder has
+    `metadata.json`, `descriptor.json`, `properties.json`; no duplicate schema UId across the packages; no `alert(` or `debugger`
+    in a `.js` schema; one `.sql` per `SqlScripts/<Name>/` named after its folder; one `.dll` per `Assemblies/<Name>/`; with
+    `cyrillic` also no Cyrillic outside comments. `packages` is the folder that holds the package folders, `package` a
+    comma-separated subset. One line per problem, `package rules: ok` when there is none; ends with `exit code` 0/1. Read-only."""
+    return _ci("pipeline.py", ["check", packages] + _names(package) + (["--cyrillic"] if cyrillic else []))
+
+
+@mcp.tool()
+def ci_hierarchy(packages: str) -> str:
+    """The install order of the packages of a folder and their dependency report (`clio-ext.py hierarchy`): levels from
+    `descriptor.json` DependsOn (level 0 depends on nothing inside the folder), per package what it depends on, what lies outside
+    the folder and who uses it, then PROBLEMS (a descriptor `Name` that differs from its folder, a `ProjectPath` that does not
+    exist). Read it before a deploy of several packages or a dependency change. Read-only (the files go to a temp folder)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        report = Path(tmp) / "report.txt"
+        text = _ci("clio-ext/clio-ext.py", ["hierarchy", "-p", packages, "--out", str(Path(tmp) / "order.txt"), "--report", str(report)])
+        if report.is_file():
+            return report.read_text(encoding="utf-8").rstrip() + "\n" + text.splitlines()[-1]
+    return text
+
+
+@mcp.tool()
+def ci_lint(packages: str, locale: str = "uk-UA", package: str = "") -> str:
+    """The two content checks of clio-ext on a packages folder: schemas without `resource.<locale>.xml` (`find-missing-loc`) and
+    Read Data elements of business processes that read every column of their object (`validate-processes`, `package` limits it
+    to one package). Each part ends with its own `exit code`; both 0 when the folder is clean. Read-only."""
+    loc = _ci("clio-ext/clio-ext.py", ["find-missing-loc", "-p", packages, "-l", locale])
+    processes = _ci("clio-ext/clio-ext.py", ["validate-processes", "-p", packages] + (["-k", package.strip()] if package.strip() else []))
+    return f"--- missing localization ({locale}) ---\n{loc}\n--- process Read Data elements ---\n{processes}"
+
+
+@mcp.tool()
+def ci_build(packages: str, out: str, package: str = "") -> str:
+    """The build stage of the CI pipeline (`pipeline.py build`): `clio compress` per package into `out`/<Package>.gz and one
+    `out`/Pkg.zip, the artifact the deploy takes; the packages in dependency order (or `package`, comma-separated, in that order).
+    Needs clio on the PATH. Writes into `out` only; ends with `exit code` 0/1."""
+    return _ci("pipeline.py", ["build", packages, "--out", out] + _names(package))
+
+
+@mcp.tool()
+def ci_deploy(packages: str, env: str, package: str = "", restart: bool = True, redis: bool = True, compile_all: bool = False) -> str:
+    """The deploy stage of the CI pipeline (`pipeline.py deploy`) on the clio environment `env`: `IsChanged` cleared in
+    `SysSchema`, `SysPackageSchemaData` and `SysPackageSqlScript`, `clio push-pkg` per package in dependency order (or `package`,
+    comma-separated, in that order), `compile-configuration` (`compile_all` for a full rebuild), `restart-web-app --wait-ready`
+    unless `restart` is false, `clear-redis-db` unless `redis` is false, `healthcheck`. For ONE package with probes of the changed
+    items use `push_package`. WRITES to the site; stops at the first failed command; ends with `exit code` 0/1."""
+    flags = (["--no-restart"] if not restart else []) + (["--no-redis"] if not redis else []) + (["--all"] if compile_all else [])
+    return _ci("pipeline.py", ["deploy", packages, "-e", env] + _names(package) + flags)
+
+
+@mcp.tool()
+def ci_push_all(packages: str, env: str, package: str = "", retry: bool = False, continue_on_error: bool = False) -> str:
+    """Only the push of several packages (`clio-ext.py push-all`), one `clio push-pkg` at a time in dependency order (or `package`,
+    comma-separated, in that order) after `IsChanged` is cleared; stops at the first failure, or with `continue_on_error` pushes
+    the rest. The failed ones go to `error-pkg.txt` next to the packages folder and `retry` pushes exactly that list again.
+    One log line per step in `logs/<date>.log` next to the packages folder. No compile, restart or Redis: `ci_deploy` does the
+    whole stage. WRITES to the site; ends with `exit code` 0/1."""
+    argv = ["push-all", "-p", packages, "-e", env] + _names(package) + (["--continue-on-error"] if continue_on_error else [])
+    if retry:
+        argv += ["--list", str(Path(packages).resolve().parent / "error-pkg.txt")]
+    return _ci("clio-ext/clio-ext.py", argv)
 
 
 @mcp.tool()

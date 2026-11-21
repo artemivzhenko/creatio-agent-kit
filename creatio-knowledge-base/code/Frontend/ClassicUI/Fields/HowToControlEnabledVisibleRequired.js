@@ -20,6 +20,7 @@
 //
 // A field hidden with `visible: false` still takes part in validation. If a
 // mandatory field must be skipped in some scenario, clear its required flag too.
+// Style: frontend guide 1.1, 2.1, 2.3, 2.4
 
 define("UsrMyEntity1Page", [], function() {
 
@@ -29,18 +30,18 @@ define("UsrMyEntity1Page", [], function() {
 		entitySchemaName: "UsrMyEntity",
 		attributes: {
 			"CreateFreightKPButtonEnabled": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN, "value": false
+				dataValueType: Terrasoft.DataValueType.BOOLEAN, value: false
 			},
 			"ShipmentInfoVisible": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN, "value": false
+				dataValueType: Terrasoft.DataValueType.BOOLEAN, value: false
 			},
 			"UsrOwnerRequired": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN, "value": false
+				dataValueType: Terrasoft.DataValueType.BOOLEAN, value: false
 			},
 			// Host attribute: recompute the flags whenever the driving columns move.
 			"FieldRequirementsManager": {
-				"dependencies": [
-					{ "columns": ["UsrStatus", "UsrRegistrationMethod"], "methodName": "setFieldRequirements" }
+				dependencies: [
+					{ columns: ["UsrStatus", "UsrRegistrationMethod"], methodName: "setFieldRequirements" }
 				]
 			}
 		},
@@ -52,8 +53,8 @@ define("UsrMyEntity1Page", [], function() {
 			},
 
 			setFieldRequirements: function() {
-				var status = this.get("UsrStatus");
-				var isInWork = !!status && status.value === StatusInWork;
+				const status = this.get("UsrStatus");
+				const isInWork = !!status && status.value === StatusInWork;
 
 				// Required only after the record reaches the working status.
 				this.set("UsrOwnerRequired", isInWork);

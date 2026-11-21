@@ -15,7 +15,7 @@
 //   - call this.callParent([wrapperFunction, scope])
 //   - inside the wrapper, first check the response from the base validation with
 //     this.validateResponse(response); if it is false, stop.
-//   - when your own checks pass, call callback.call(scope, response)
+//   - when your own checks pass, call Ext.callback(callback, scope, [response])
 //   - to REJECT the save, call back with { success: false, message: "..." }
 //
 // Chaining several async checks: Terrasoft.chain runs functions in sequence,
@@ -28,6 +28,7 @@
 // A question to the user inside asyncValidate: the save's body mask is up, so
 // hide it first (this.hideBodyMask()) or the dialog renders behind it - see
 // Dialogs/HowToConfirmWithCustomButtons for the dialog and both answers.
+// Style: frontend guide 2.4, 2.5, 2.6
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -42,8 +43,8 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Synchronous check. Returning false stops the save immediately.
 			validate: function() {
-				var weight = this.get("UsrWeight");
-				if (weight != null && weight <= 0) {
+				const weight = this.get("UsrWeight");
+				if (!Ext.isEmpty(weight) && weight <= 0) {
 					this.showInformationDialog(
 						this.get("Resources.Strings.WeightMustBePositiveMessage"));
 					return false;
@@ -75,7 +76,7 @@ define("UsrMyEntity1Page", [], function() {
 						},
 						function() {
 							// Every check passed - let the save continue.
-							callback.call(scope, response);
+							Ext.callback(callback, scope, [response]);
 						},
 						this);
 				}, this]);
@@ -84,7 +85,7 @@ define("UsrMyEntity1Page", [], function() {
 			// A single async check. Report failure through the response object,
 			// never by throwing.
 			validateTrademarkDetail: function(callback, scope) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");
@@ -92,25 +93,29 @@ define("UsrMyEntity1Page", [], function() {
 					Terrasoft.ComparisonType.EQUAL, "UsrMyEntity", this.get("Id")));
 
 				esq.getEntityCollection(function(result) {
-					if (result.success && result.collection.getCount() === 0) {
-						callback.call(scope, {
-							success: false,
-							message: this.get("Resources.Strings.TrademarkRequiredMessage")
-						});
+					if (!result.success) {
+						Ext.callback(callback, scope, [{ success: true }]);
 						return;
 					}
-					callback.call(scope, { success: true });
+					if (result.collection.getCount() === 0) {
+						Ext.callback(callback, scope, [{
+							success: false,
+							message: this.get("Resources.Strings.TrademarkRequiredMessage")
+						}]);
+						return;
+					}
+					Ext.callback(callback, scope, [{ success: true }]);
 				}, this);
 			},
 
 			validateContainerFields: function(callback, scope) {
-				callback.call(scope, { success: true });
+				Ext.callback(callback, scope, [{ success: true }]);
 			},
 
 			// Inspect the server answer to the save request.
 			validateSaveEntityResponse: function(response, callback, scope) {
 				if (response && !response.success) {
-					console.error("save failed", response.errorInfo);
+					this.error("Save failed: " + Ext.encode(response.errorInfo));
 				}
 				this.callParent(arguments);
 			}

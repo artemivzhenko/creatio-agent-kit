@@ -33,6 +33,7 @@
 // `getMessages` so a legacy module can live inside a Freedom UI page. In a plain
 // Classic UI schema you call the same sandbox methods directly from init and
 // destroy, without the web-component wrapper.
+// Style: frontend guide 2.1, 2.4
 
 define("UsrFilterEditModule",
 	["@creatio-devkit/common", "Base7xViewElement", "ckeditor-base"],

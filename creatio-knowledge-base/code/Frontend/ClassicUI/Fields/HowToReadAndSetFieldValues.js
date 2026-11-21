@@ -31,6 +31,7 @@
 //   "Id"          - primary key of the record (empty until first save).
 //   "CardState"   - ConfigurationEnums.CardStateV2.ADD / EDIT / COPY.
 //   "IsChanged"   - marks the record dirty so the Save button lights up.
+// Style: frontend guide 1.1, 2.3
 
 define("UsrMyEntity1Page", [], function() {
 
@@ -43,18 +44,18 @@ define("UsrMyEntity1Page", [], function() {
 
 			readValues: function() {
 				// Scalars.
-				var name   = this.get("UsrName");          // string
-				var weight = this.get("UsrWeight");  // number
-				var isPaid = this.get("UsrIsPaid");        // boolean
-				var date   = this.get("UsrMyEntityDate");     // Date
+				const name   = this.get("UsrName");          // string
+				const weight = this.get("UsrWeight");  // number
+				const isPaid = this.get("UsrIsPaid");        // boolean
+				const date   = this.get("UsrMyEntityDate");     // Date
 
 				// Lookups: object or null.
-				var status = this.get("UsrStatus");
-				var statusId = status ? status.value : null;
-				var statusCaption = status ? status.displayValue : "";
+				const status = this.get("UsrStatus");
+				const statusId = status ? status.value : null;
+				const statusCaption = status ? status.displayValue : "";
 
 				// Record id: empty string / undefined for an unsaved record.
-				var recordId = this.get("Id");
+				const recordId = this.get("Id");
 
 				return { name: name, weight: weight, isPaid: isPaid, date: date,
 					statusId: statusId, statusCaption: statusCaption, recordId: recordId };
@@ -80,7 +81,7 @@ define("UsrMyEntity1Page", [], function() {
 			// caption. Never assign the object by reference if the source may be
 			// mutated later - clone it.
 			copyLookup: function(fromColumn, toColumn) {
-				var source = this.get(fromColumn);
+				const source = this.get(fromColumn);
 				this.set(toColumn, source
 					? { value: source.value, displayValue: source.displayValue }
 					: null);

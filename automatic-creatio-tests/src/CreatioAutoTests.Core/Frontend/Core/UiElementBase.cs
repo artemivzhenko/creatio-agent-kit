@@ -1,4 +1,5 @@
 using CreatioAutoTests.Configuration;
+using CreatioAutoTests.Execution;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 
@@ -61,7 +62,7 @@ public abstract class UiElementBase : IUiElement, IExistable, ILabeled, IVisibil
     protected abstract ILocator LabelLocator { get; }
 
     /// <summary>Checks presence using the normal configured element timeout.</summary>
-    public Task<bool> ExistsAsync(CancellationToken cancellationToken = default) =>
+    public virtual Task<bool> ExistsAsync(CancellationToken cancellationToken = default) =>
         ExistsAsync(TimeoutMs, cancellationToken);
 
     /// <summary>Checks presence using a caller-provided budget, primarily for expected absence.</summary>
@@ -149,12 +150,18 @@ public abstract class UiElementBase : IUiElement, IExistable, ILabeled, IVisibil
                && !string.Equals(attributeValue, "false", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Creates the consistent error used when an expected configured control is absent.</summary>
-    protected InvalidOperationException NotFound()
+    /// <summary>
+    /// The error for an expected control that is absent. It is the test's claim that is wrong, not the framework, so it is a
+    /// <see cref="CommandFailedException"/>: a failed line with this one sentence, no stack trace.
+    /// </summary>
+    protected CommandFailedException NotFound()
     {
-        return new InvalidOperationException(
-            "Element '" + Code + "' (" + LocatorDescription + ") was not found on page '" + Definition.Page + "'.");
+        Logger.LogDebug("Element {Code} ({Where}) was not found on page {Page}.", Code, LocatorDescription, Definition.Page);
+        return new CommandFailedException(NotFoundMessage(Code));
     }
+
+    /// <summary>The sentence of <see cref="NotFound"/>; 'check X exists' says the same.</summary>
+    public static string NotFoundMessage(string code) => "'" + code + "' was not found on the page.";
 
     /// <summary>
     /// Timeout for probing an attribute. These calls ask "is this flag set", so a control that has

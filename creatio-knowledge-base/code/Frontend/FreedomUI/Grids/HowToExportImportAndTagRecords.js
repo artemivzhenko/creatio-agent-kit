@@ -35,16 +35,17 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Note the asymmetry, it is a common source of mistakes: export takes
 		// viewName, delete and tagging take dataSourceName.
+		// Style: frontend guide 3.2, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
 			// Export the grid as it is displayed.
 			{
 				"operation": "insert",
-				"name": "ExportToExcelButton",
+				"name": "Button_ExportToExcel",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(ExportToExcelButton_caption)#",
+					"caption": "#ResourceString(Button_ExportToExcel_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "crt.ExportDataGridToExcelRequest",
@@ -59,10 +60,10 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Open the import wizard.
 			{
 				"operation": "insert",
-				"name": "ImportDataButton",
+				"name": "Button_ImportData",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(ImportDataButton_caption)#",
+					"caption": "#ResourceString(Button_ImportData_caption)#",
 					"clicked": {
 						"request": "crt.ImportDataRequest",
 						"params": {}
@@ -76,10 +77,10 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Delete only the selected rows.
 			{
 				"operation": "insert",
-				"name": "DeleteSelectedButton",
+				"name": "Button_DeleteSelected",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(DeleteSelectedButton_caption)#",
+					"caption": "#ResourceString(Button_DeleteSelected_caption)#",
 					"clicked": {
 						"request": "crt.DeleteRecordsRequest",
 						"params": {
@@ -96,10 +97,10 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Tag / untag the selected rows.
 			{
 				"operation": "insert",
-				"name": "AddTagsButton",
+				"name": "Button_AddTags",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(AddTagsButton_caption)#",
+					"caption": "#ResourceString(Button_AddTags_caption)#",
 					"clicked": {
 						"request": "crt.AddTagsInRecordsRequest",
 						"params": {
@@ -114,10 +115,10 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			},
 			{
 				"operation": "insert",
-				"name": "RemoveTagsButton",
+				"name": "Button_RemoveTags",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(RemoveTagsButton_caption)#",
+					"caption": "#ResourceString(Button_RemoveTags_caption)#",
 					"clicked": {
 						"request": "crt.RemoveTagsInRecordsRequest",
 						"params": {

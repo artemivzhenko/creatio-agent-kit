@@ -26,10 +26,13 @@ public sealed class Button : ClassicElementBase, IClickable
         _prefix = string.IsNullOrWhiteSpace(options.Detail) ? Schema : options.Detail.Trim();
     }
 
-    /// <summary>The wrapper when there is one, else the text span.</summary>
-    protected override string BuildSelector() =>
-        ClassicIds.Selector(ClassicIds.ButtonWrapper(_prefix, Name)) + ", " +
-        ClassicIds.Selector(ClassicIds.ButtonText(_prefix, Name));
+    /// <summary>The marker (reliable where the id forms are not), else the wrapper, else the text span.</summary>
+    protected override string BuildSelector() => ButtonSelector(_prefix, Name);
+
+    /// <summary>The three ways to find a button, the marker first.</summary>
+    public static string ButtonSelector(string prefix, string name) =>
+        ClassicIds.ButtonMarker(name) + ", " + ClassicIds.Selector(ClassicIds.ButtonWrapper(prefix, name)) + ", " +
+        ClassicIds.Selector(ClassicIds.ButtonText(prefix, name));
 
     /// <inheritdoc />
     protected override string LocatorDescription => _prefix + Name + "Button";

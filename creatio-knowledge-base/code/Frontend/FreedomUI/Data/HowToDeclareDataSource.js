@@ -32,6 +32,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// Both `"path": []` with "dataSources" inside `values` and
 		// `"path": ["dataSources"]` with the sources directly in `values` are
 		// valid; the designer emits the second form.
+		// Style: frontend guide 3.3
 
 		modelConfigDiff: /**SCHEMA_MODEL_CONFIG_DIFF*/[
 			{

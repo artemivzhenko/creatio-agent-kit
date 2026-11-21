@@ -32,7 +32,8 @@ knowledge base, the test framework, the unit-test project), the read-only worksp
 project's own rules; since v2.1 also `package.consumers` (packages pushed and compiled with this
 one, the test package among them), `environment.customLayer` (the customisation package, `Custom`
 by default), `tests.runner` (the process or service that runs in-Creatio tests and its category
-parameter) and `sandbox` (the objects and record ids a case may write to). Credentials live here
+parameter), `sandbox` (the objects and record ids a case may write to) and `environment.kind` (`dev` on a site an
+agent may change behind the business logic: `fire_timer` and the framework's `# dev-only` cases refuse without it). Credentials live here
 only; the test framework's own config is produced from it by `project.py sync`. Every agent reads it before touching anything; values from it are never
 copied into a repository file.
 

@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_OpenSection_caption".
 			{
 				"operation": "insert",
-				"name": "OpenSectionButton",
+				"name": "Button_OpenSection",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Open section",
+					"caption": "#ResourceString(Button_OpenSection_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.OpenSectionRequest",
@@ -34,6 +35,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// "_blank" opens in a new tab; use "_self" to navigate in the current tab.
 		// .focus() brings the new tab to the foreground (browser may block it).
+		// Style: frontend guide 3.2, 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

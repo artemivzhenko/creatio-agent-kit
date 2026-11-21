@@ -29,6 +29,7 @@
 // Alternative without ServiceHelper: Terrasoft.AjaxProvider.request({ url, ... })
 // for a raw HTTP call. Prefer ServiceHelper - it handles the CSRF header and
 // the base URL for you.
+// Style: frontend guide 1.1, 2.5, 2.6, 8
 
 define("UsrMyEntity1Page", ["ServiceHelper"], function(ServiceHelper) {
 	return {
@@ -37,13 +38,12 @@ define("UsrMyEntity1Page", ["ServiceHelper"], function(ServiceHelper) {
 
 			// Call with a payload and write the answer back into a column.
 			loadPartnerDiscount: function() {
-				var self = this;
-				var parentAccount = this.get("UsrParentAccount");
+				const parentAccount = this.get("UsrParentAccount");
 
 				if (!parentAccount || !parentAccount.value) {
 					return;
 				}
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask({ timeout: 0 });
 
 				ServiceHelper.callService({
 					serviceName: "UsrMyService",
@@ -52,15 +52,15 @@ define("UsrMyEntity1Page", ["ServiceHelper"], function(ServiceHelper) {
 						accountId: parentAccount.value
 					},
 					callback: function(response) {
-						Terrasoft.MaskHelper.HideBodyMask();
+						this.hideBodyMask();
 
-						var discount = response && response.GetPartnerDiscountResult;
-						if (discount == null) {
-							self.showInformationDialog(
-								self.get("Resources.Strings.ServiceCallFailedMessage"));
+						const discount = response && response.GetPartnerDiscountResult;
+						if (discount === null || discount === undefined) {
+							this.showInformationDialog(
+								this.get("Resources.Strings.ServiceCallFailedMessage"));
 							return;
 						}
-						self.set("UsrDiscount", discount);
+						this.set("UsrDiscount", discount);
 					},
 					scope: this
 				});
@@ -68,17 +68,15 @@ define("UsrMyEntity1Page", ["ServiceHelper"], function(ServiceHelper) {
 
 			// Call with no payload; the service creates a record and returns its id.
 			createRelatedRecord: function(methodName) {
-				var self = this;
-
 				ServiceHelper.callService({
 					serviceName: "UsrMyService",
 					methodName: methodName,
 					callback: function(response) {
-						var newId = response && response[methodName + "Result"];
+						const newId = response && response[methodName + "Result"];
 						if (!newId) {
 							return;
 						}
-						console.log("created record", newId);
+						this.log("created record " + newId);
 					},
 					scope: this
 				});

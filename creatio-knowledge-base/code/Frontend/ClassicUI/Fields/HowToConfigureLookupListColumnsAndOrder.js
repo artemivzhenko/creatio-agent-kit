@@ -23,6 +23,7 @@
 // Sorting a lookup by a technical column (a position or weight column) is the
 // usual way to control the order of a short dictionary without renaming its
 // records.
+// Style: frontend guide 1.1, 2.1, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -31,11 +32,11 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Sort the currency list by a position column, descending.
 			"UsrCurrency": {
-				"lookupListConfig": {
-					"orders": [
+				lookupListConfig: {
+					orders: [
 						{
-							"columnPath": "CurrecySymbolPosition",
-							"direction": Terrasoft.OrderDirection.desc
+							columnPath: "CurrecySymbolPosition",
+							direction: Terrasoft.OrderDirection.desc
 						}
 					]
 				}
@@ -43,23 +44,23 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Filter + sort + preload extra columns.
 			"UsrService": {
-				"dataValueType": Terrasoft.DataValueType.LOOKUP,
-				"dependencies": [
-					{ "columns": ["UsrService"], "methodName": "onServiceChanged" }
+				dataValueType: Terrasoft.DataValueType.LOOKUP,
+				dependencies: [
+					{ columns: ["UsrService"], methodName: "onServiceChanged" }
 				],
-				"lookupListConfig": {
-					"filters": [function() {
-						var filters = Ext.create("Terrasoft.FilterGroup");
+				lookupListConfig: {
+					filters: [function() {
+						const filters = Ext.create("Terrasoft.FilterGroup");
 						filters.add("ActiveOnly", Terrasoft.createColumnFilterWithParameter(
 							Terrasoft.ComparisonType.EQUAL, "UsrIsActive", true));
 						return filters;
 					}],
-					"orders": [
-						{ "columnPath": "UsrPosition", "direction": Terrasoft.OrderDirection.asc },
-						{ "columnPath": "Name", "direction": Terrasoft.OrderDirection.asc }
+					orders: [
+						{ columnPath: "UsrPosition", direction: Terrasoft.OrderDirection.asc },
+						{ columnPath: "Name", direction: Terrasoft.OrderDirection.asc }
 					],
 					// Loaded with the row, readable after selection.
-					"columns": ["UsrProductType", "UsrDefaultCurrency"]
+					columns: ["UsrProductType", "UsrDefaultCurrency"]
 				}
 			}
 		},
@@ -67,13 +68,13 @@ define("UsrMyEntity1Page", [], function() {
 		methods: {
 
 			onServiceChanged: function() {
-				var service = this.get("UsrService");
+				const service = this.get("UsrService");
 				if (!service || !service.value) {
 					return;
 				}
 				// The selected value carries only { value, displayValue }, so
 				// read the related column with an ESQ.
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrService"
 				});
 				esq.addColumn("UsrDefaultCurrency");
@@ -81,7 +82,7 @@ define("UsrMyEntity1Page", [], function() {
 					if (!result.success || !result.entity) {
 						return;
 					}
-					var defaultCurrency = result.entity.get("UsrDefaultCurrency");
+					const defaultCurrency = result.entity.get("UsrDefaultCurrency");
 					if (defaultCurrency) {
 						this.set("UsrCurrency", defaultCurrency);
 					}

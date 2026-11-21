@@ -114,6 +114,9 @@ public sealed class CommandExecutor
         }
     }
 
+    /// <summary>Lines after which a page rule may still be hiding or showing controls: 'check X not exists' waits for it (S11-T13).</summary>
+    private static readonly HashSet<string> ChangingKeywords = new(new[] { "set", "clear", "click", "answer", "upload" }, StringComparer.OrdinalIgnoreCase);
+
     private async Task<CommandOutcome> ExecuteStepAsync(
         ExecutionStep step,
         IExecutionSession session,
@@ -140,6 +143,11 @@ public sealed class CommandExecutor
             _logger.LogDebug("line {Line}: {Text}", step.Command.LineNumber, step.Command.RawText);
 
             await command.ExecuteAsync(context, cancellationToken).ConfigureAwait(false);
+
+            if (ChangingKeywords.Contains(step.Registration.Keyword))
+            {
+                session.MarkChange();
+            }
 
             stopwatch.Stop();
             return new CommandOutcome(step, true, null, stopwatch.Elapsed);

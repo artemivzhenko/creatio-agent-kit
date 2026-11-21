@@ -1,0 +1,63 @@
+// Creatio package pipeline for Jenkins (declarative). Copy to Jenkinsfile of the package repository.
+//
+// Pull request / any branch: the package rules, the packages built, the C# unit tests of the package test project.
+// main: the packages installed on the site, the configuration compiled, the site restarted, Redis cleared, the unit
+// tests inside Creatio and the UI cases run against it.
+//
+// The agent needs Python 3.10+, the .NET 8 SDK, clio (dotnet tool install -g clio) and git. Credentials: a
+// username/password credential 'creatio-ci' and a secret text 'creatio-url'. The kit is cloned next to the checkout.
+
+pipeline {
+  agent any
+  options { timestamps() }
+  environment {
+    KIT_REPO = '<the kit clone URL>'
+    PACKAGES = ''                 // comma-separated, in install order; empty = every package, dependencies first
+    UNIT_RUNNER = ''              // the test runner process or service inside Creatio; empty = skip
+    PKG_ARG = "${env.PACKAGES ? '--package ' + env.PACKAGES : ''}"
+    PY = "${isUnix() ? 'python3' : 'py -3'}"
+  }
+  stages {
+    stage('kit') {
+      steps { sh 'rm -rf kit && git clone --depth 1 "$KIT_REPO" kit' }
+    }
+    stage('verify') {
+      steps {
+        sh "$PY kit/ci-cd/pipeline.py check packages $PKG_ARG"
+        sh "$PY kit/ci-cd/pipeline.py build packages --out Build $PKG_ARG"
+        archiveArtifacts artifacts: 'Build/Pkg.zip', fingerprint: true
+        sh 'if ls tests/*/*.csproj >/dev/null 2>&1; then dotnet test tests; fi'
+      }
+    }
+    stage('deploy') {
+      when { branch 'main' }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'creatio-ci', usernameVariable: 'CREATIO_LOGIN', passwordVariable: 'CREATIO_PASSWORD'),
+                         string(credentialsId: 'creatio-url', variable: 'CREATIO_URL')]) {
+          // single quotes: the shell expands the secrets, Groovy would interpolate them into the logged command
+          sh '$PY kit/ci-cd/pipeline.py register ci --url "$CREATIO_URL" --login "$CREATIO_LOGIN" --password "$CREATIO_PASSWORD"'
+          sh "$PY kit/ci-cd/pipeline.py deploy packages -e ci $PKG_ARG"
+        }
+      }
+    }
+    stage('unit tests in Creatio') {
+      when { allOf { branch 'main'; expression { env.UNIT_RUNNER } } }
+      steps {
+        sh "$PY kit/ci-cd/pipeline.py unit -e ci --runner \"$UNIT_RUNNER\" --evidence unit-results.json"
+      }
+      post { always { archiveArtifacts artifacts: 'unit-results.json', allowEmptyArchive: true } }
+    }
+    stage('UI cases') {
+      when { allOf { branch 'main'; expression { fileExists('uitests/Cases') } } }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'creatio-ci', usernameVariable: 'CREATIO_LOGIN', passwordVariable: 'CREATIO_PASSWORD'),
+                         string(credentialsId: 'creatio-url', variable: 'CREATIO_URL')]) {
+          sh 'dotnet build kit/automatic-creatio-tests'
+          sh 'pwsh kit/automatic-creatio-tests/src/CreatioAutoTests.Cli/bin/Debug/net8.0/playwright.ps1 install --with-deps chromium'
+          sh "$PY kit/ci-cd/pipeline.py ui --root uitests"
+        }
+      }
+      post { always { archiveArtifacts artifacts: 'uitests/Reports/**', allowEmptyArchive: true } }
+    }
+  }
+}

@@ -16,6 +16,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// To cancel the save: do not call next?.handle (page stays open,
 		// nothing is persisted).
+		// Style: frontend guide 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 
@@ -27,7 +28,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					const name = await request.$context.PDS_Name_h9kddsb;
 					if (!name) {
 						// Cancel save - do not call next
-						return;
+						return false;
 					}
 
 					// Keep the page open after save (do not navigate back)
@@ -35,8 +36,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 
 					const result = await next?.handle(request);
 
-					// After save: post-save logic (notifications, refresh, etc.)
-					console.log("Record saved successfully");
+					// After save: post-save logic (notifications, refresh, etc.).
+					// The text is the page resource string RecordSavedMessage.
+					await request.$context.executeRequest({
+						type: "crt.NotificationRequest",
+						$context: request.$context,
+						message: await request.$context.Resources.Strings.RecordSavedMessage
+					});
 
 					return result;
 				}

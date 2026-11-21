@@ -66,7 +66,19 @@ public sealed class CheckCommand : ICommand
                 return;
 
             case ["not", "exists"]:
-                // Absence is the expected answer here, so it gets the short budget.
+                // Absence is the expected answer here, so it gets the short budget - unless the line before changed a value: the page
+                // rule that hides the control runs a moment later, so absence is awaited for the element budget (a pass returns at once).
+                var settings = context.Session.Settings;
+                if (element is IVisibilityAware visibility && IsAfterChange(context.Session))
+                {
+                    if (!await visibility.IsShownAsync(false, settings.ElementTimeoutMs, cancellationToken).ConfigureAwait(false))
+                    {
+                        throw new CommandFailedException("'" + element.Code + "' is on the page but was expected to be absent.");
+                    }
+
+                    return;
+                }
+
                 if (await element
                         .ExistsAsync(context.Session.Settings.AbsenceTimeoutMs, cancellationToken)
                         .ConfigureAwait(false))
@@ -120,6 +132,10 @@ public sealed class CheckCommand : ICommand
     /// Presence also confirms the caption, so that a renamed field fails with a message naming both
     /// captions instead of a bare "not found".
     /// </summary>
+    /// <summary>True while a changing line finished no longer ago than the element budget.</summary>
+    internal static bool IsAfterChange(IExecutionSession session) =>
+        (DateTime.UtcNow - session.LastChangeUtc).TotalMilliseconds < session.Settings.ElementTimeoutMs;
+
     private static async Task AssertExistsAsync(IExistable element, CancellationToken cancellationToken)
     {
         if (!await element.ExistsAsync(cancellationToken).ConfigureAwait(false))

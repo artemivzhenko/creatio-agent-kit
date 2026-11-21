@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_Notify_caption".
 			{
 				"operation": "insert",
-				"name": "NotifyButton",
+				"name": "Button_Notify",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Notify",
+					"caption": "#ResourceString(Button_Notify_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.ShowToastRequest",
@@ -33,17 +34,20 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Available since Creatio 8.0.10.
 		// No SDK dependency required - dispatched via executeRequest like any other request.
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "usr.ShowToastRequest",
 				handler: async (request, next) => {
 					const name = await request.$context.PDS_Name_someAttr;
+					// The text is the page resource string RecordSavedMessage.
+					const message = await request.$context.Resources.Strings.RecordSavedMessage;
 
-					request.$context.executeRequest({
+					await request.$context.executeRequest({
 						type: "crt.NotificationRequest",
 						$context: request.$context,
-						message: "Record saved: " + name
+						message: message + name
 					});
 
 					return next?.handle(request);

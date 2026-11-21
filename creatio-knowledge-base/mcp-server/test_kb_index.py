@@ -90,6 +90,10 @@ def test_code_style_whole_and_section():
     assert KB.code_style("5").startswith("## 5. Logging")
     assert KB.code_style("review checklist").startswith("## 9.")
     assert KB.code_style("nonsense") == ""
+    if (Path(KB.root) / "CREATIO_FRONTEND_CODE_STYLE.md").is_file():
+        assert KB.code_style(guide="frontend").startswith("# Creatio Front-End Code Style")
+        assert KB.code_style("review checklist", "frontend").startswith("## ")
+    assert KB.code_style(guide="cobol") is None
 
 
 def test_a_recipe_comes_in_parts():

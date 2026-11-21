@@ -98,7 +98,7 @@ public sealed class FrameworkConfiguration
 
     /// <summary>Folders scanned for process cases, defaulting to ProcessCases when nothing is configured.</summary>
     public IReadOnlyList<string> ProcessCasesFolders =>
-        Environment.ProcessCasesFolders.Count > 0 ? Environment.ProcessCasesFolders : new List<string> { "ProcessCases" };
+        Rooted(Environment.ProcessCasesFolders.Count > 0 ? Environment.ProcessCasesFolders : new List<string> { "ProcessCases" });
 
     /// <summary>Names a script may write after <c>use</c>: each user's alias, or its login when it has none.</summary>
     public IReadOnlyCollection<string> UserNames =>
@@ -106,13 +106,16 @@ public sealed class FrameworkConfiguration
 
     /// <summary>Folders scanned for test cases, defaulting to Cases when nothing is configured.</summary>
     public IReadOnlyList<string> CasesFolders =>
-        Environment.CasesFolders.Count > 0 ? Environment.CasesFolders : new List<string> { "Cases" };
+        Rooted(Environment.CasesFolders.Count > 0 ? Environment.CasesFolders : new List<string> { "Cases" });
 
     /// <summary>
     /// Folders scanned for analysis scripts. Empty when none are configured: analysis is opt-in,
     /// so a project that never describes pages automatically needs no such folder.
     /// </summary>
-    public IReadOnlyList<string> AnalysisFolders => Environment.AnalysisFolders;
+    public IReadOnlyList<string> AnalysisFolders => Rooted(Environment.AnalysisFolders);
+
+    // A folder written relative is relative to --root, not to wherever the process was started (a CI job runs from elsewhere).
+    private IReadOnlyList<string> Rooted(IEnumerable<string> folders) => folders.Select(f => Path.GetFullPath(f, _rootDirectory)).ToArray();
 
     /// <summary>Loads and validates all framework configuration rooted at the supplied working directory.</summary>
     public static FrameworkConfiguration Load(
@@ -136,6 +139,8 @@ public sealed class FrameworkConfiguration
 
         var site = loader.Load<SiteConfig>(paths.Site);
         var runSettings = loader.LoadOrDefault<RunSettings>(paths.RunSettings);
+        runSettings.ReportsDirectory = Path.GetFullPath(runSettings.ReportsDirectory, rootDirectory);
+        runSettings.TestDataDirectory = Path.GetFullPath(runSettings.TestDataDirectory, rootDirectory);
         var staticValues = loader.LoadStaticValues(paths.StaticValues)
             .Concat(paths.StaticOverrides)
             .GroupBy(p => p.Key, StringComparer.Ordinal)

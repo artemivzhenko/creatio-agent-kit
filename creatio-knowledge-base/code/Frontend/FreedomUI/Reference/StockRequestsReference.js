@@ -70,16 +70,17 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		//   usr.*  the default Creatio prefix
 		// Pick one prefix per package and keep it - a name collision between two
 		// packages silently routes the request to the wrong handler.
+		// Style: frontend guide 3.2, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
 			// Declarative: open another page and pass a bound value.
 			{
 				"operation": "insert",
-				"name": "OpenChatButton",
+				"name": "Button_OpenChat",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(OpenChatButton_caption)#",
+					"caption": "#ResourceString(Button_OpenChat_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "crt.OpenPageRequest",
@@ -97,10 +98,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			// Declarative: export the rows of a named grid to Excel.
 			{
 				"operation": "insert",
-				"name": "ExportButton",
+				"name": "Button_Export",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(ExportButton_caption)#",
+					"caption": "#ResourceString(Button_Export_caption)#",
 					"clicked": {
 						"request": "crt.ExportDataGridToExcelRequest",
 						"params": { "viewName": "GridDetail_jyzmfof" }
@@ -114,10 +115,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			// Declarative: attach a file into a named FileList element.
 			{
 				"operation": "insert",
-				"name": "UploadButton",
+				"name": "Button_Upload",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(UploadButton_caption)#",
+					"caption": "#ResourceString(Button_Upload_caption)#",
 					"clicked": {
 						"request": "crt.UploadFileRequest",
 						"params": { "viewElementName": "FileList_9ko9jdd" }

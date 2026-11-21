@@ -5,6 +5,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// When you add ANY item to rowToolbarItems, Creatio removes all defaults
 		// (Open, Copy, Delete). You must re-declare them explicitly if you want
 		// to keep them alongside your custom actions.
+		// Style: frontend guide 3.2, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 			{
@@ -68,12 +69,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 							}
 						},
 
-						// Custom actions
+						// Custom actions. Their captions are page resource strings
+						// (DataTable_RunProcess_caption, DataTable_RowAction_caption).
 
 						// Run a business process for the selected record
 						{
 							"type": "crt.MenuItem",
-							"caption": "Run process",
+							"caption": "#ResourceString(DataTable_RunProcess_caption)#",
 							"icon": "process-button-icon",
 							"clicked": {
 								"request": "crt.RunBusinessProcessRequest",
@@ -89,7 +91,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 						// "useRelativeContext": true passes the row's own context to the handler.
 						{
 							"type": "crt.MenuItem",
-							"caption": "Do something",
+							"caption": "#ResourceString(DataTable_RowAction_caption)#",
 							"icon": "open-button-icon",
 							"clicked": {
 								"request": "usr.RowActionRequest",

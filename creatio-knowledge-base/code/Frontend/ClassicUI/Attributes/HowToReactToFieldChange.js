@@ -19,6 +19,7 @@
 // Important: dependencies fire on EVERY change, including the ones your own
 // code makes with this.set(). Guard against recursion when a handler writes
 // back into a watched column.
+// Style: frontend guide 2.1, 2.3, 2.4, 2.6
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -27,10 +28,10 @@ define("UsrMyEntity1Page", [], function() {
 
 			// One watched column -> one handler.
 			"UsrService": {
-				"dependencies": [
+				dependencies: [
 					{
-						"columns": ["UsrService"],
-						"methodName": "onUsrServiceChange"
+						columns: ["UsrService"],
+						methodName: "onUsrServiceChange"
 					}
 				]
 			},
@@ -38,11 +39,11 @@ define("UsrMyEntity1Page", [], function() {
 			// Several watched columns -> one handler. The attribute name is just
 			// a label; it carries no value of its own.
 			"AccountClientRequirement": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN,
-				"dependencies": [
+				dataValueType: Terrasoft.DataValueType.BOOLEAN,
+				dependencies: [
 					{
-						"columns": ["UsrStatus", "UsrRegistrationMethod"],
-						"methodName": "setAccountClientRequirement"
+						columns: ["UsrStatus", "UsrRegistrationMethod"],
+						methodName: "setAccountClientRequirement"
 					}
 				]
 			},
@@ -50,11 +51,11 @@ define("UsrMyEntity1Page", [], function() {
 			// A long watch list is normal when the page auto-saves once every
 			// mandatory field is filled in.
 			"RequiredFieldsToAutoSave": {
-				"dependencies": [
+				dependencies: [
 					{
-						"columns": ["UsrName", "UsrMyEntityDate", "UsrCompany", "UsrAccount",
+						columns: ["UsrName", "UsrMyEntityDate", "UsrCompany", "UsrAccount",
 							"UsrCurrency", "UsrOwner", "UsrKind", "UsrWeight"],
-						"methodName": "autoSaveWhenRequiredFieldsAreFilled"
+						methodName: "autoSaveWhenRequiredFieldsAreFilled"
 					}
 				]
 			}
@@ -68,7 +69,7 @@ define("UsrMyEntity1Page", [], function() {
 			},
 
 			onUsrServiceChange: function() {
-				var service = this.get("UsrService");
+				const service = this.get("UsrService");
 				if (!service || !service.value) {
 					return;
 				}
@@ -77,7 +78,7 @@ define("UsrMyEntity1Page", [], function() {
 			},
 
 			setAccountClientRequirement: function() {
-				var status = this.get("UsrStatus");
+				const status = this.get("UsrStatus");
 				this.set("AccountClientRequirement",
 					!!status && status.value === "f6c25e34-63f3-4b6d-9769-db0f37d42f0e");
 			},
@@ -90,7 +91,7 @@ define("UsrMyEntity1Page", [], function() {
 			},
 
 			onAmountChanged: function() {
-				console.log("amount", this.get("UsrAmount"));
+				this.log("Amount changed: " + this.get("UsrAmount"));
 			}
 		},
 		diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/

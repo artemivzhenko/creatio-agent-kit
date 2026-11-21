@@ -22,6 +22,7 @@
 // Lifetime. Both sides must unsubscribe or check this.destroyed before touching
 // the view model: a detail can outlive a page transition and then writes into a
 // disposed model.
+// Style: frontend guide 2.3, 2.4, 2.6, 2.7
 
 // ============================ DETAIL SIDE ====================================
 define("UsrMyDetail", [], function() {
@@ -29,33 +30,51 @@ define("UsrMyDetail", [], function() {
 		entitySchemaName: "UsrMyDetailEntity",
 
 		messages: {
-			"GetColumnsValues":     { mode: Terrasoft.MessageMode.PTP,
-									  direction: Terrasoft.MessageDirectionType.PUBLISH },
-			"UpdateParentFields":   { mode: Terrasoft.MessageMode.PTP,
-									  direction: Terrasoft.MessageDirectionType.PUBLISH },
-			"SetDetailButtonState": { mode: Terrasoft.MessageMode.PTP,
-									  direction: Terrasoft.MessageDirectionType.SUBSCRIBE }
+			/**
+			 * @message GetColumnsValues
+			 * Asks the page for the values of the listed columns.
+			 */
+			"GetColumnsValues": {
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.PUBLISH
+			},
+			/**
+			 * @message UpdateParentFields
+			 * Pushes column values from the detail into the page.
+			 */
+			"UpdateParentFields": {
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.PUBLISH
+			},
+			/**
+			 * @message SetDetailButtonState
+			 * Received from the page to enable or disable the add button.
+			 */
+			"SetDetailButtonState": {
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.SUBSCRIBE
+			}
 		},
 
 		methods: {
 
 			init: function() {
 				this.callParent(arguments);
-				setTimeout(function() {
+				setTimeout(() => {
 					this.sandbox.subscribe("SetDetailButtonState", this.onSetButtonState, this);
 					this.readParentColumns();
-				}.bind(this), 50);
+				}, 50);
 			},
 
 			// Pull page columns. Note the tag: [this.sandbox.id].
 			readParentColumns: function() {
-				var parentData = this.sandbox.publish(
+				const parentData = this.sandbox.publish(
 					"GetColumnsValues",
 					["UsrService", "UsrMyEntity", "UsrStatus"],
 					[this.sandbox.id]);
 
 				if (!parentData) {
-					console.warn("UsrMyDetail: page did not answer GetColumnsValues");
+					this.warning("UsrMyDetail: page did not answer GetColumnsValues");
 					return null;
 				}
 				return parentData;

@@ -59,13 +59,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// prefix instead of crt., e.g. "usr.FrameComponent", "usr.CardHeader",
 		// "usr.Detail". See ClassicUI/Modules/HowToUseCssAndCustomViewElementModules.js
 		// for how such an element is registered.
+		// Style: frontend guide 3.2
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
 			// Text input.
 			{
 				"operation": "insert",
-				"name": "NameInput",
+				"name": "Name",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Input",
@@ -85,7 +86,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Numeric input.
 			{
 				"operation": "insert",
-				"name": "AmountInput",
+				"name": "Amount",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 2, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.NumberInput",
@@ -102,7 +103,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// controlActions add the "+ create" and side actions.
 			{
 				"operation": "insert",
-				"name": "StatusComboBox",
+				"name": "Status",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 3, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.ComboBox",
@@ -126,7 +127,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Boolean.
 			{
 				"operation": "insert",
-				"name": "IsUrgentCheckbox",
+				"name": "IsUrgent",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 4, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Checkbox",
@@ -144,7 +145,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Date / time. pickerType decides which parts are editable.
 			{
 				"operation": "insert",
-				"name": "CloseDatePicker",
+				"name": "CloseDate",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 5, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.DateTimePicker",

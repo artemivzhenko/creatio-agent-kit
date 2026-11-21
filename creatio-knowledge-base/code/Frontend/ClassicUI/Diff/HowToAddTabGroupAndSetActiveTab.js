@@ -18,10 +18,12 @@
 // SWITCHING TABS from code: this.setActiveTab("<TabName>"). Call it from
 // onEntityInitialized, when the entity data is available. Well-known stock tab
 // names: "NotesAndFilesTab", "ESNTab".
+// Style: frontend guide 2.3, 2.4
 
 define("UsrMyEntity1Page", [], function() {
 
-	const NoticeTypeArrival = "475d7b08-33e0-4f91-b219-bb8a78ec2f85";
+	// Id of the "Arrival" value of the UsrMyEntityType lookup.
+	const NoticeTypeArrival ="475d7b08-33e0-4f91-b219-bb8a78ec2f85";
 
 	return {
 		entitySchemaName: "UsrMyEntity",
@@ -31,7 +33,7 @@ define("UsrMyEntity1Page", [], function() {
 				this.callParent(arguments);
 
 				// Open the page on a specific tab depending on the record.
-				var noticeType = this.get("UsrMyEntityType");
+				const noticeType =this.get("UsrMyEntityType");
 				if (noticeType && noticeType.value === NoticeTypeArrival) {
 					this.setActiveTab("NotesAndFilesTab");
 				} else {
@@ -44,45 +46,47 @@ define("UsrMyEntity1Page", [], function() {
 				// 1. The tab itself.
 				"operation": "insert",
 				"name": "UsrExtraTab",
+				"parentName": "Tabs",
+				"propertyName": "tabs",
 				"values": {
 					"caption": { "bindTo": "Resources.Strings.UsrExtraTabCaption" },
 					"items": [],
 					"order": 2
 				},
-				"parentName": "Tabs",
-				"propertyName": "tabs",
 				"index": 2
 			},
 			{
 				// 2. A field group inside the tab.
 				"operation": "insert",
 				"name": "UsrExtraTabMainGroup",
+				"parentName": "UsrExtraTab",
+				"propertyName": "items",
 				"values": {
 					"caption": { "bindTo": "Resources.Strings.UsrExtraTabMainGroupCaption" },
 					"itemType": 15,               // CONTROL_GROUP
 					"markerValue": "added-group",
 					"items": []
 				},
-				"parentName": "UsrExtraTab",
-				"propertyName": "items",
 				"index": 0
 			},
 			{
 				// 3. The grid layout inside the group.
 				"operation": "insert",
 				"name": "UsrExtraTabMainGridLayout",
+				"parentName": "UsrExtraTabMainGroup",
+				"propertyName": "items",
 				"values": {
 					"itemType": 0,                // GRID_LAYOUT
 					"items": []
 				},
-				"parentName": "UsrExtraTabMainGroup",
-				"propertyName": "items",
 				"index": 0
 			},
 			{
 				// 4. A field inside the grid layout.
 				"operation": "insert",
 				"name": "UsrPartner",
+				"parentName": "UsrExtraTabMainGridLayout",
+				"propertyName": "items",
 				"values": {
 					"layout": { "colSpan": 12, "rowSpan": 1, "column": 0, "row": 0,
 						"layoutName": "UsrExtraTabMainGridLayout" },
@@ -90,8 +94,6 @@ define("UsrMyEntity1Page", [], function() {
 					"enabled": true,
 					"contentType": 5
 				},
-				"parentName": "UsrExtraTabMainGridLayout",
-				"propertyName": "items",
 				"index": 0
 			},
 			{

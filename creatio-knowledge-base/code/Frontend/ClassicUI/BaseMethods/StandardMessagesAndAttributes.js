@@ -68,6 +68,7 @@
 // A note on `this.values`: joined ESQ columns land in the raw values map under
 // their DOTTED key, so a column added as "UsrSecondTab.UsrTabTitle" is read as
 // this.values["UsrSecondTab.UsrTabTitle"], not with this.get("UsrTabTitle").
+// Style: frontend guide 2.1, 2.3, 2.4, 2.7
 
 // ====================== WORKED EXAMPLE: save master, then act ================
 // A detail that must not add rows until the master record exists.
@@ -77,10 +78,18 @@ define("UsrMyDetail", ["ConfigurationEnums"], function(configurationEnums) {
 		entitySchemaName: "UsrRelatedInMyEntity",
 
 		messages: {
+			/**
+			 * @message GetCardState
+			 * Asks the master page for its card state.
+			 */
 			"GetCardState": {
 				mode: Terrasoft.MessageMode.PTP,
 				direction: Terrasoft.MessageDirectionType.PUBLISH
 			},
+			/**
+			 * @message SaveRecord
+			 * Asks the master page to save the record.
+			 */
 			"SaveRecord": {
 				mode: Terrasoft.MessageMode.PTP,
 				direction: Terrasoft.MessageDirectionType.PUBLISH
@@ -98,8 +107,8 @@ define("UsrMyDetail", ["ConfigurationEnums"], function(configurationEnums) {
 
 			addRecord: function() {
 				// Ask the page what state it is in.
-				var masterCardState = this.sandbox.publish("GetCardState", null, [this.sandbox.id]);
-				var isNewRecord = masterCardState && (
+				const masterCardState = this.sandbox.publish("GetCardState", null, [this.sandbox.id]);
+				const isNewRecord = masterCardState && (
 					masterCardState.state === configurationEnums.CardStateV2.ADD ||
 					masterCardState.state === configurationEnums.CardStateV2.COPY);
 

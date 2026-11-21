@@ -6,6 +6,16 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`check X not exists` right after a change waits for the rule (S11-T13).** Within `elementTimeoutMs` of a `set` / `clear` / `click` / `answer` / `upload` line, absence is awaited for the element budget instead of `absenceTimeoutMs`; a pass returns at once.
+- **`analyse` of a Classic page without an active tab no longer throws (S11-T17).** The tab walk read a property of an empty `FirstOrDefault`; it now has no active index, and the output says `tabs: none`.
+- **`use` no longer launches a browser (S11-T16).** The browser context and its login are made when the first page is opened, so a backend case (`ProcessCases`) never starts Chromium. The lookup filter `<Col>/Id eq <guid>` (`ODataValues.FilterColumn`) was already in place.
+- **A hidden or missing control fails the line cleanly (S11-T12).** `set` / `check-value` on a control not on the page report `'<code>' was not found on the page.`
+  (a `CommandFailedException`, no stack trace); a zero-width Classic field fails at once; a Classic button is found by its `data-item-marker` first.
+- **Folders are relative to `--root` (S35-T02).** `Cases`, `AnalysisFolders`, `Reports` and `TestData` were relative to the working directory, so a run started from
+  another folder found no cases and passed.
+
 ### Added
 
 - **Tabs, dialogs, waiting for a process (S34-T01..T03).** `tab new [as <name>]` / `tab <number|name>`: several browser tabs of one session, each

@@ -32,6 +32,7 @@
 // Reopening the explorer after a rejected pick (duplicate, wrong type) is the
 // friendly behaviour: the user stays in the flow instead of clicking the button
 // again.
+// Style: frontend guide 1.1, 2.4, 2.5
 
 define("UsrColumnSettingPageV2", ["StructureExplorerUtilities"], function() {
 	return {
@@ -41,7 +42,7 @@ define("UsrColumnSettingPageV2", ["StructureExplorerUtilities"], function() {
 			// Bound from the right icon of the field - see
 			// Diff/HowToUseControlConfigAndConverters.js
 			openColumnExplorer: function() {
-				var schemaName = "Case";
+				const schemaName = "Case";
 				if (Ext.isEmpty(schemaName)) {
 					return;
 				}
@@ -61,15 +62,14 @@ define("UsrColumnSettingPageV2", ["StructureExplorerUtilities"], function() {
 				if (!item || !Ext.isObject(item)) {
 					return;
 				}
-				var dataValueType = item.dataValueType;
-				var isLookup = dataValueType != null &&
-					(dataValueType === Terrasoft.DataValueType.LOOKUP ||
-						dataValueType === Terrasoft.DataValueType.IMAGELOOKUP);
+				const dataValueType = item.dataValueType;
+				const isLookup = dataValueType === Terrasoft.DataValueType.LOOKUP ||
+					dataValueType === Terrasoft.DataValueType.IMAGELOOKUP;
 
 				// Both property names appear depending on the Creatio version.
-				var columnPath = item.columnPath || item.leftExpressionColumnPath;
-				var columnName = isLookup ? columnPath + "Id" : columnPath;
-				var columnCaption = item.leftExpressionCaption || columnName;
+				const columnPath = item.columnPath || item.leftExpressionColumnPath;
+				const columnName = isLookup ? columnPath + "Id" : columnPath;
+				const columnCaption = item.leftExpressionCaption || columnName;
 
 				this.set("UsrColumnName", columnName);
 				this.set("UsrColumnCaption", columnCaption);
@@ -77,8 +77,8 @@ define("UsrColumnSettingPageV2", ["StructureExplorerUtilities"], function() {
 
 			// Reject duplicates and send the user straight back to the explorer.
 			onColumnSelectedWithDuplicateCheck: function(item) {
-				var columnName = item.columnPath || item.leftExpressionColumnPath;
-				var columnCaption = item.leftExpressionCaption || columnName;
+				const columnName = item.columnPath || item.leftExpressionColumnPath;
+				const columnCaption = item.leftExpressionCaption || columnName;
 
 				this.findExistingColumn(columnName, function(isExists) {
 					if (isExists) {
@@ -90,27 +90,29 @@ define("UsrColumnSettingPageV2", ["StructureExplorerUtilities"], function() {
 					}
 					this.set("UsrColumnName", columnName);
 					this.set("UsrColumnCaption", columnCaption);
-				});
+				}, this);
 			},
 
-			findExistingColumn: function(columnName, callback) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+			findExistingColumn: function(columnName, callback, scope) {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrColumnSetting"
 				});
 				esq.addColumn("Id");
 				esq.filters.add("byColumnName", Terrasoft.createColumnFilterWithParameter(
 					Terrasoft.ComparisonType.EQUAL, "UsrColumnName", columnName));
 				esq.getEntityCollection(function(result) {
-					callback.call(this, result.success && result.collection.getCount() > 0);
+					if (!result.success) {
+						Ext.callback(callback, scope || this, [false]);
+						return;
+					}
+					Ext.callback(callback, scope || this, [result.collection.getCount() > 0]);
 				}, this);
 			},
 
 			// Turning a numeric dataValueType back into its name. `_` (lodash)
 			// is available globally in Classic UI.
 			getTypeNameByNumber: function(number) {
-				var key = _.findKey(Terrasoft.DataValueType, function(value) {
-					return value === number;
-				});
+				const key = _.findKey(Terrasoft.DataValueType, (value) => value === number);
 				return key ? key : "";
 			}
 		},

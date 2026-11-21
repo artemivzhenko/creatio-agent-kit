@@ -23,6 +23,7 @@
 //
 // sessionStorage is per browser tab and survives a page transition inside the
 // app; localStorage would leak the marker across sessions.
+// Style: frontend guide 1.1, 2.4
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -36,7 +37,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Open a specific tab when the user arrived from a workplace list.
 			applyPreviousPageBehaviour: function() {
-				var previousPage = sessionStorage.getItem("previousPage");
+				const previousPage =sessionStorage.getItem("previousPage");
 
 				if (previousPage &&
 					(previousPage.indexOf("UsrMyEntity") > -1 ||
@@ -57,8 +58,8 @@ define("UsrMyEntity1Page", [], function() {
 				if (this.destroyed) {
 					return false;
 				}
-				var currentId = this.get("Id");
-				var match = window.location.hash.match(/[a-f0-9-]{36}/);
+				const currentId = this.get("Id");
+				const match = window.location.hash.match(/[a-f0-9-]{36}/);
 				return !match || match[0] === currentId;
 			},
 

@@ -167,9 +167,7 @@ public sealed class ClassicPageAnalyzer
             : Array.Empty<JsonElement>();
 
         var headers = page.Locator(ClassicIds.Selector(ClassicIds.TabItems(schema, Text(tabs, "panel"))));
-        var originalIndex = items.FirstOrDefault(i => Flag(i, "active")).TryGetProperty("index", out var o) && o.ValueKind == JsonValueKind.Number
-            ? o.GetInt32()
-            : -1;
+        var originalIndex = ActiveTabIndex(items);
 
         foreach (var item in items)
         {
@@ -200,6 +198,23 @@ public sealed class ClassicPageAnalyzer
         {
             await OpenTabAsync(page, headers, originalIndex).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// The index of the tab the page arrived on, or -1 when none is marked active (a page with an empty tab panel, or none): the
+    /// default <see cref="JsonElement"/> that <c>FirstOrDefault</c> gives has no properties and throws on any read.
+    /// </summary>
+    internal static int ActiveTabIndex(IEnumerable<JsonElement> items)
+    {
+        foreach (var item in items)
+        {
+            if (Flag(item, "active") && item.TryGetProperty("index", out var index) && index.ValueKind == JsonValueKind.Number)
+            {
+                return index.GetInt32();
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Clicks a tab header and waits for the page to stop adding controls.</summary>

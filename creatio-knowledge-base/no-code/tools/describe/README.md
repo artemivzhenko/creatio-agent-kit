@@ -206,7 +206,7 @@ read-only statements for the whole workspace (3.9 s on the test environment):
 - Its caption: the shallowest copy's in the site's `PrimaryCulture`, else the platform captions (T09), else none.
 - A table the site does not have: one row with `missing`.
 - `SysSchema` rows (not replacing) whose name starts with a prefix of the workspace (`project.json` `prefixes`, else every prefix two
-  of the workspace's own schema names share: `Usr`, `ia`) and that no workspace package defines: `site_schemas` (env, time, name,
+  of the workspace's own schema names share: `Usr`, `Abc`) and that no workspace package defines: `site_schemas` (env, time, name,
   UId, kind, package, caption). A name the workspace has with another UId is a line of the report (renamed or recreated on the site).
 
 ```

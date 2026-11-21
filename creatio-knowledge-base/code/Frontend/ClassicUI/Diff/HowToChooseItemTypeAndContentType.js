@@ -27,6 +27,7 @@
 //
 // Rule of thumb for lookups: ENUM (3) when the user should pick from a short
 // dropdown, LOOKUP (5) when they need search and a "select" dialog.
+// Style: frontend guide 2.1, 2.3
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -36,47 +37,49 @@ define("UsrMyEntity1Page", [], function() {
 				// Plain text column - no itemType, no contentType.
 				"operation": "insert",
 				"name": "UsrName",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"layout": { "colSpan": 12, "rowSpan": 1, "column": 0, "row": 0, "layoutName": "Header" },
 					"bindTo": "UsrName",
 					"enabled": true
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 0
 			},
 			{
 				// Lookup as a dropdown.
 				"operation": "insert",
 				"name": "UsrKind",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"layout": { "colSpan": 8, "rowSpan": 1, "column": 8, "row": 0, "layoutName": "Header" },
 					"bindTo": "UsrKind",
 					"enabled": true,
 					"contentType": 3   // Terrasoft.ContentType.ENUM
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 1
 			},
 			{
 				// Lookup with a selection window.
 				"operation": "insert",
 				"name": "UsrAccount",
+				"parentName": "Header",
+				"propertyName": "items",
 				"values": {
 					"layout": { "colSpan": 8, "rowSpan": 1, "column": 0, "row": 3, "layoutName": "Header" },
 					"bindTo": "UsrAccount",
 					"enabled": true,
 					"contentType": 5   // Terrasoft.ContentType.LOOKUP
 				},
-				"parentName": "Header",
-				"propertyName": "items",
 				"index": 2
 			},
 			{
 				// Multiline / rich text.
 				"operation": "insert",
 				"name": "Notes",
+				"parentName": "NotesControlGroup",
+				"propertyName": "items",
 				"values": {
 					"bindTo": "UsrNotes",
 					"dataValueType": Terrasoft.DataValueType.TEXT,
@@ -84,22 +87,20 @@ define("UsrMyEntity1Page", [], function() {
 					"layout": { "column": 0, "row": 0, "colSpan": 24, "rowSpan": 10 },
 					"labelConfig": { "visible": false }
 				},
-				"parentName": "NotesControlGroup",
-				"propertyName": "items",
 				"index": 0
 			},
 			{
 				// A tall text area declared as a model item.
 				"operation": "insert",
 				"name": "ShipmentInfoTextArea",
+				"parentName": "MainGridLayout",
+				"propertyName": "items",
 				"values": {
 					"itemType": 3,   // Terrasoft.ViewItemType.MODEL_ITEM
 					"layout": { "colSpan": 10, "rowSpan": 4, "column": 13, "row": 2, "layoutName": "MainGridLayout" },
 					"bindTo": "UsrInfoText",
 					"contentType": 0
 				},
-				"parentName": "MainGridLayout",
-				"propertyName": "items",
 				"index": 0
 			}
 		]/**SCHEMA_DIFF*/

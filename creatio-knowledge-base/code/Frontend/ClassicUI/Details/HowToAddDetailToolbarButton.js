@@ -27,6 +27,7 @@
 // compiles and starts the process, but the function is silently ignored, so the
 // "finished" dialog never appears. Put it in config.callback instead - the
 // correct form is shown below. See Processes/HowToRunBusinessProcess.js.
+// Style: frontend guide 2.3, 2.5, 2.6, 8
 
 define("UsrMyDetail", ["ProcessModuleUtilities"], function(ProcessModuleUtilities) {
 	return {
@@ -43,20 +44,22 @@ define("UsrMyDetail", ["ProcessModuleUtilities"], function(ProcessModuleUtilitie
 				// Own button in the detail toolbar.
 				"operation": "insert",
 				"name": "CustomProcessButton",
+				"parentName": "Detail",
+				"propertyName": "tools",
 				"values": {
 					"itemType": Terrasoft.ViewItemType.BUTTON,
 					"caption": { "bindTo": "Resources.Strings.AddLinkButtonCaption" },
 					"click": { "bindTo": "runCustomProcess" },
 					"style": Terrasoft.controls.ButtonEnums.style.GREY
 				},
-				"parentName": "Detail",
-				"propertyName": "tools",
 				"index": 0
 			},
 			{
 				// A second toolbar button, in the accent style.
 				"operation": "insert",
 				"name": "CreateSellerRequestButton",
+				"parentName": "Detail",
+				"propertyName": "tools",
 				"values": {
 					"itemType": Terrasoft.ViewItemType.BUTTON,
 					"caption": { "bindTo": "Resources.Strings.CreateSellerRequestCaption" },
@@ -64,8 +67,6 @@ define("UsrMyDetail", ["ProcessModuleUtilities"], function(ProcessModuleUtilitie
 					"style": Terrasoft.controls.ButtonEnums.style.BLUE,
 					"visible": true
 				},
-				"parentName": "Detail",
-				"propertyName": "tools",
 				"index": 1
 			}
 		]/**SCHEMA_DIFF*/,
@@ -74,7 +75,7 @@ define("UsrMyDetail", ["ProcessModuleUtilities"], function(ProcessModuleUtilitie
 
 			// Fire and forget: the master id is the only parameter.
 			runCustomProcess: function() {
-				var masterRecordId = this.get("MasterRecordId");
+				const masterRecordId = this.get("MasterRecordId");
 				if (!masterRecordId) {
 					return;
 				}
@@ -86,10 +87,9 @@ define("UsrMyDetail", ["ProcessModuleUtilities"], function(ProcessModuleUtilitie
 
 			// With feedback: mask, callback INSIDE the config, refresh on success.
 			onCreateSellerRequestClick: function() {
-				var self = this;
-				var masterRecordId = this.get("MasterRecordId");
+				const masterRecordId = this.get("MasterRecordId");
 
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask();
 
 				ProcessModuleUtilities.executeProcess({
 					sysProcessName: "UsrRequestOwner",
@@ -98,16 +98,16 @@ define("UsrMyDetail", ["ProcessModuleUtilities"], function(ProcessModuleUtilitie
 					// URL does not change under the user.
 					skipHistoryState: true,
 					callback: function(request, success, response) {
-						Terrasoft.MaskHelper.HideBodyMask();
+						this.hideBodyMask();
 
 						if (!success) {
-							self.showInformationDialog(
-								self.get("Resources.Strings.ProcessFailedMessage"));
+							this.showInformationDialog(
+								this.get("Resources.Strings.ProcessFailedMessage"));
 							return;
 						}
-						self.showInformationDialog(
-							self.get("Resources.Strings.ProcessFinishedMessage"));
-						self.updateDetail();
+						this.showInformationDialog(
+							this.get("Resources.Strings.ProcessFinishedMessage"));
+						this.updateDetail();
 					},
 					scope: this
 				});

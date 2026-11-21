@@ -84,6 +84,12 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     private DateTime _lineStarted = DateTime.UtcNow;
     private DateTime _previousLineStarted = DateTime.UtcNow;
 
+    /// <summary>Records that a line just changed the page.</summary>
+    public void MarkChange() => LastChangeUtc = DateTime.UtcNow;
+
+    /// <summary>When the last changing line finished (UTC).</summary>
+    public DateTime LastChangeUtc { get; private set; } = DateTime.MinValue;
+
     /// <summary>Records the start of the line about to run.</summary>
     public void MarkLineStart()
     {
@@ -286,6 +292,21 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         return true;
     }
 
+    private bool _traceStarted;
+
+    /// <summary>The current user's browser context, launching the browser and logging in on first use.</summary>
+    private async Task<IBrowserContext> ContextAsync(CancellationToken cancellationToken)
+    {
+        var context = await _pool.GetContextAsync(_currentUser!, cancellationToken).ConfigureAwait(false);
+        if (!_traceStarted)
+        {
+            _traceStarted = true;
+            await StartTraceAsync(context, _currentUser!).ConfigureAwait(false);
+        }
+
+        return context;
+    }
+
     // One trace chunk per (case, user): the context is shared by the cases of a run, the chunk is this case's part of it.
     private async Task StartTraceAsync(IBrowserContext context, string user)
     {
@@ -368,7 +389,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         }
 
         var tab = new Tab { Name = name, Ordinal = _tabs.Count + 1 };
-        var context = await _pool.GetContextAsync(_currentUser, cancellationToken).ConfigureAwait(false);
+        var context = await ContextAsync(cancellationToken).ConfigureAwait(false);
         await StartPageAsync(context, tab).ConfigureAwait(false);
         _tabs.Add(tab);
         _active = _tabs.Count - 1;
@@ -411,9 +432,9 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         await CloseAllTabsAsync().ConfigureAwait(false);
         await StopTraceAsync().ConfigureAwait(false);
 
-        var context = await _pool.GetContextAsync(username, cancellationToken).ConfigureAwait(false);
-        await StartTraceAsync(context, username).ConfigureAwait(false);
+        // No browser yet: a backend case only needs the name (its OData calls log in on their own); the first page that is opened asks for the context.
         _currentUser = username;
+        _traceStarted = false;
 
         _logger.LogDebug("Session now runs as {User}.", username);
     }
@@ -444,7 +465,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
 
         await ClosePageAsync().ConfigureAwait(false);
 
-        var context = await _pool.GetContextAsync(_currentUser, cancellationToken).ConfigureAwait(false);
+        var context = await ContextAsync(cancellationToken).ConfigureAwait(false);
         await StartPageAsync(context, CurrentTab ?? AddFirstTab()).ConfigureAwait(false);
 
         await RequirePage().GotoAsync(url, new PageGotoOptions
@@ -502,7 +523,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
 
         await ClosePageAsync().ConfigureAwait(false);
 
-        var context = await _pool.GetContextAsync(_currentUser, cancellationToken).ConfigureAwait(false);
+        var context = await ContextAsync(cancellationToken).ConfigureAwait(false);
         await StartPageAsync(context, CurrentTab ?? AddFirstTab()).ConfigureAwait(false);
 
         await RequirePage().GotoAsync(url, new PageGotoOptions

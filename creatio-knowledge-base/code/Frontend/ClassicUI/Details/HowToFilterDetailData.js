@@ -23,6 +23,7 @@
 //
 // Choose level 2 when the extra condition depends on page data, level 3 when
 // the detail should behave the same wherever it is placed.
+// Style: frontend guide 2.1, 2.4, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -55,8 +56,8 @@ define("UsrMyEntity1Page", [], function() {
 			// Returns a FilterGroup. Note that the master condition is repeated
 			// here: filterMethod replaces the automatic one.
 			ActivityFilter: function() {
-				var recordId = this.get("Id");
-				var filterGroup = this.Terrasoft.createFilterGroup();
+				const recordId = this.get("Id");
+				const filterGroup = this.Terrasoft.createFilterGroup();
 
 				filterGroup.add("MasterFilter",
 					this.Terrasoft.createColumnFilterWithParameter(
@@ -64,6 +65,7 @@ define("UsrMyEntity1Page", [], function() {
 
 				filterGroup.add("ActivityCategoryFilter",
 					this.Terrasoft.createColumnFilterWithParameter(
+						// Id of the ActivityCategory value this detail shows.
 						this.Terrasoft.ComparisonType.EQUAL, "ActivityCategory",
 						"3b2f8c14-6d91-4a07-b5e3-9c1d47f0a862"));
 
@@ -81,7 +83,7 @@ define("UsrMyEntity1Page", [], function() {
 //         entitySchemaName: "Activity",
 //         methods: {
 //             getFilters: function() {
-//                 var filterGroup = this.callParent(arguments);
+//                 const filterGroup =this.callParent(arguments);
 //                 filterGroup.add("OnlyOpen",
 //                     Terrasoft.createColumnFilterWithParameter(
 //                         Terrasoft.ComparisonType.NOT_EQUAL, "Status",

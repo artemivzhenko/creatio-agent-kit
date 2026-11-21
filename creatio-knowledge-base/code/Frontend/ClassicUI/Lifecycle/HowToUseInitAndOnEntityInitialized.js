@@ -28,10 +28,11 @@
 //   this.isEditMode()  - an existing record is open
 // Equivalent explicit form with ConfigurationEnums:
 //   this.get("CardState") === enums.CardStateV2.ADD
+// Style: frontend guide 2.4, 2.5
 
 define("UsrMyEntity1Page", ["ConfigurationEnums"], function(enums) {
 
-	var currentModule = null;
+	let currentModule = null;
 
 	return {
 		entitySchemaName: "UsrMyEntity",
@@ -62,7 +63,7 @@ define("UsrMyEntity1Page", ["ConfigurationEnums"], function(enums) {
 					// Defaults that only apply to a brand-new record.
 					this.getNextCode(function(code) {
 						this.set("UsrName", code);
-					});
+					}, this);
 					if (this.get("UsrAccount")) {
 						this.onAccountChanged();
 					}
@@ -90,7 +91,7 @@ define("UsrMyEntity1Page", ["ConfigurationEnums"], function(enums) {
 			checkUserRoles: function() {},
 			setFieldRequirements: function() {},
 			onAccountChanged: function() {},
-			getNextCode: function(callback) { callback.call(this, "ORD-000001"); },
+			getNextCode: function(callback, scope) { Ext.callback(callback, scope || this, ["ORD-000001"]); },
 			startDomObservers: function() {},
 			stopDomObservers: function() {}
 		},

@@ -25,6 +25,7 @@
 // Writing changes back: setting item.set(...) updates the UI only. Persist with
 // an UpdateQuery / BatchQuery (see Data/HowToUpdateRecords.js) or by saving the
 // row through the grid.
+// Style: frontend guide 1.1, 2.4
 
 define("UsrMyDetail", [], function() {
 	return {
@@ -34,23 +35,23 @@ define("UsrMyDetail", [], function() {
 
 			// Find a loaded row by id.
 			findRowById: function(recordId) {
-				return this.getGridData().collection.find(function(item) {
+				return this.getGridData().collection.find((item) => {
 					return item.get("Id") === recordId;
 				});
 			},
 
 			// Detect a duplicate before allowing a value.
 			hasRowWithDocumentType: function(documentTypeId) {
-				return !!this.getGridData().collection.findBy(function(item) {
-					var type = item.get("UsrDocumentType");
+				return !!this.getGridData().collection.findBy((item) => {
+					const type = item.get("UsrDocumentType");
 					return !!type && type.value === documentTypeId;
 				});
 			},
 
 			// Collect the rows the user touched, then persist them in one batch.
 			collectChangedRows: function() {
-				var changed = [];
-				this.getGridData().collection.items.forEach(function(item) {
+				const changed = [];
+				this.getGridData().collection.items.forEach((item) => {
 					if (item.isUpdated) {
 						changed.push({
 							Id: item.get("Id"),

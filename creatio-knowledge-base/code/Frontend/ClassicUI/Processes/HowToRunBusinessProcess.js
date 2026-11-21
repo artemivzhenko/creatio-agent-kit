@@ -31,6 +31,7 @@
 //
 // A process usually works on the SAVED record. Check this.get("Id") first, and
 // save the page before starting the process if the record is new.
+// Style: frontend guide 1.1, 2.5, 2.6, 8
 
 define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUtilities) {
 	return {
@@ -50,8 +51,7 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 			// Guarded form with a callback and a re-entrancy flag, so a double
 			// click cannot start the process twice.
 			cancelOrder: function() {
-				var self = this;
-				var orderId = this.get("Id");
+				const orderId = this.get("Id");
 
 				if (!orderId) {
 					this.showInformationDialog(this.get("Resources.Strings.SaveRecordFirstMessage"));
@@ -61,7 +61,7 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 					return;
 				}
 				this.isCancelProcessRunning = true;
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask({ timeout: 0 });
 
 				ProcessModuleUtilities.executeProcess({
 					sysProcessName: "UsrProcess_2201f91",
@@ -70,17 +70,17 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 					},
 					resultParameterNames: ["processInstanceId"],
 					callback: function(request, success, response) {
-						self.isCancelProcessRunning = false;
-						Terrasoft.MaskHelper.HideBodyMask();
+						this.isCancelProcessRunning = false;
+						this.hideBodyMask();
 
 						if (!success) {
-							self.showInformationDialog(
-								self.get("Resources.Strings.ProcessFailedMessage"));
+							this.showInformationDialog(
+								this.get("Resources.Strings.ProcessFailedMessage"));
 							return;
 						}
 						// The process result is delivered by a server message;
 						// here we only re-read the record.
-						self.reloadEntity();
+						this.reloadEntity();
 					},
 					scope: this
 				});
@@ -88,7 +88,7 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 
 			// Passing several parameters, including lookups as raw guids.
 			startShipmentProcess: function() {
-				var status = this.get("UsrStatus");
+				const status = this.get("UsrStatus");
 
 				ProcessModuleUtilities.executeProcess({
 					sysProcessName: "UsrProcess_45350ac",

@@ -30,6 +30,7 @@
 //
 // this.sandbox.id is the unique id of the current module instance. A detail
 // publishes with [this.sandbox.id] so the answer is scoped to that instance.
+// Style: frontend guide 2.1, 2.3, 2.4, 2.7
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -41,20 +42,32 @@ define("UsrMyEntity1Page", [], function() {
 			 * Broadcast by the dashboard module after it refreshes.
 			 */
 			"DashboardReloaded": {
-				"mode": Terrasoft.MessageMode.BROADCAST,
-				"direction": Terrasoft.MessageDirectionType.SUBSCRIBE
+				mode: Terrasoft.MessageMode.BROADCAST,
+				direction: Terrasoft.MessageDirectionType.SUBSCRIBE
 			},
+			/**
+			 * @message FactoriesReload
+			 * Broadcast after the factory list of the record changes.
+			 */
 			"FactoriesReload": {
-				"mode": Terrasoft.MessageMode.BROADCAST,
-				"direction": Terrasoft.MessageDirectionType.PUBLISH
+				mode: Terrasoft.MessageMode.BROADCAST,
+				direction: Terrasoft.MessageDirectionType.PUBLISH
 			},
+			/**
+			 * @message UsrTypeChanged
+			 * Received from the file detail when a document type changes.
+			 */
 			"UsrTypeChanged": {
-				"mode": Terrasoft.MessageMode.PTP,
-				"direction": Terrasoft.MessageDirectionType.SUBSCRIBE
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.SUBSCRIBE
 			},
+			/**
+			 * @message OrderFilesSaveChange
+			 * Tells the file detail that the page was saved.
+			 */
 			"OrderFilesSaveChange": {
-				"mode": Terrasoft.MessageMode.PTP,
-				"direction": Terrasoft.MessageDirectionType.PUBLISH
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.PUBLISH
 			}
 		},
 

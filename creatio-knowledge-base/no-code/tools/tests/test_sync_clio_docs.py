@@ -14,6 +14,15 @@ def test_numbered_site_names_become_placeholders():
                                        'Dev and DevSecond and devops stay')
 
 
+def test_the_real_hosts_of_the_upstream_examples_become_placeholders():
+    bundle, identity, ghe = "123" + "-crm-bundle", "c-dev" + "-is", "creatio" + ".ghe.com"  # built, as above
+    text = f"{bundle}.creatio.com becomes {bundle}-is.creatio.com; --url https://{identity}.creatio.com; https://{ghe}/team/fb"
+    assert placeholder_sites(text) == ("mysite.creatio.com becomes mysite-is.creatio.com; --url https://mysite-is.creatio.com;"
+                                       " https://github.com/your-org/clio-feedback")
+
+
 if __name__ == "__main__":
-    test_numbered_site_names_become_placeholders()
-    print("ok test_numbered_site_names_become_placeholders")
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+            print("ok", name)

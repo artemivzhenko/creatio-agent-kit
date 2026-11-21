@@ -59,6 +59,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		//   request.$context.executeRequest({ type, $context, ... })  most common
 		//   sdk.HandlerChainService.instance.process({ type, $context, ... })
 		//   sdk.request.send(type, { $context, ... })
+		// Style: frontend guide 3.4, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/,
 		viewModelConfigDiff: /**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/[]/**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/,
@@ -93,15 +94,15 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			{
 				request: "usr.FilterByOrdersRequest",
 				handler: async (request, next) => {
-					const cards = await request.$context.SelectedOrders;
+					const orders = await request.$context.SelectedOrders;
 
 					const filter = new sdk.FilterGroup();
 					filter.logicalOperation = sdk.LogicalOperatorType.Or;
 
-					for (const card of cards) {
-						if (card.UsrManager?.value) {
+					for (const order of orders) {
+						if (order.UsrManager?.value) {
 							await filter.addSchemaColumnFilterWithParameter(
-								sdk.ComparisonType.Equal, "Id", card.UsrManager.value);
+								sdk.ComparisonType.Equal, "Id", order.UsrManager.value);
 						}
 					}
 
@@ -122,7 +123,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 							value: await request.$context.PDS_OrderId_c3d4e5f
 						}]
 					});
-					console.log(records[0]?.UsrName);
+					request.$context.MyAttribute = records[0]?.UsrName;
 					return next?.handle(request);
 				}
 			}

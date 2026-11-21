@@ -11,13 +11,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Custom converters are declared in the converters section and can be
 		// referenced by their key name.
+		// Style: frontend guide 3.2, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
 			// Built-in converter: invert a boolean to drive readonly
 			{
 				"operation": "insert",
-				"name": "NameField",
+				"name": "Name",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Input",
@@ -33,7 +34,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Custom converter: display boolean as "Yes" / "No"
 			{
 				"operation": "insert",
-				"name": "StatusLabel",
+				"name": "Label_Status",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 2, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Label",
@@ -63,9 +64,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 
 		// Custom converter - receives the attribute value, returns the display value
 		converters: /**SCHEMA_CONVERTERS*/{
-			"usr.BoolToYesNo": function(value) {
-				return value ? "Yes" : "No";
-			}
+			"usr.BoolToYesNo": value => value ? "Yes" : "No"
 		}/**SCHEMA_CONVERTERS*/,
 
 		validators: /**SCHEMA_VALIDATORS*/{}/**SCHEMA_VALIDATORS*/

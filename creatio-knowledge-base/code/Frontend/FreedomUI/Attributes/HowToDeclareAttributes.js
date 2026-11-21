@@ -14,6 +14,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//   PageParameter - bound to a page parameter (not persisted to DB,
 		//                   passed between pages via no-code)
 		//   DataSource  - bound to a column of an entity DataSource
+		// Style: frontend guide 3.3
 
 		viewModelConfigDiff: /**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/[
 			{

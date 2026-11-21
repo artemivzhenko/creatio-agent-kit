@@ -20,6 +20,8 @@ public sealed class FakeExecutionSession : IExecutionSession
     public DateTime CaseStartedUtc { get; set; } = new DateTime(2026, 11, 21, 8, 0, 0, DateTimeKind.Utc);
     public DateTime PreviousLineStartedUtc { get; set; } = new DateTime(2026, 11, 21, 8, 0, 0, DateTimeKind.Utc);
     public void MarkLineStart() { }
+    public void MarkChange() => LastChangeUtc = DateTime.UtcNow;
+    public DateTime LastChangeUtc { get; set; } = DateTime.MinValue;
     public int ActiveTab => 1;
     public string? CurrentPage => null;
     public int MaterializedCount { get; private set; }

@@ -7,12 +7,12 @@
 //
 // Sections of a detail schema:
 //   entitySchemaName  the entity whose rows the grid shows
-//   attributes        virtual columns driving the detail UI
 //   messages          the sandbox contract with the page (see Messaging/)
-//   mixins            ConfigurationGridUtilitiesV2 for inline editing
+//   attributes        virtual columns driving the detail UI
 //   details           nested details, normally empty
-//   diff              view modifications: DataGrid, AddRecordButton, toolbar
+//   mixins            ConfigurationGridUtilitiesV2 for inline editing
 //   methods           detail logic
+//   diff              view modifications: DataGrid, AddRecordButton, toolbar
 //
 // Elements you will merge in diff:
 //   "DataGrid"                    the grid itself
@@ -32,6 +32,7 @@
 //
 // The master filter is configured on the PAGE, in its `details` section
 // (detailColumn / masterColumn) - not here. See HowToAddDetailToPage.js.
+// Style: frontend guide 2.1, 2.3, 2.4, 2.7
 
 define("UsrMySchemaDetail", ["ProcessModuleUtilities", "ConfigurationEnums",
 	"css!UsrMySchemaDetailCSS"], function(ProcessModuleUtilities, enums) {
@@ -44,13 +45,23 @@ define("UsrMySchemaDetail", ["ProcessModuleUtilities", "ConfigurationEnums",
 	return {
 		entitySchemaName: "UsrMyDetailEntity",
 
-		details: /**SCHEMA_DETAILS*/{}/**SCHEMA_DETAILS*/,
-
 		messages: {
-			"GetColumnsValues":     { mode: Terrasoft.MessageMode.PTP,
-									  direction: Terrasoft.MessageDirectionType.PUBLISH },
-			"SetDetailButtonState": { mode: Terrasoft.MessageMode.PTP,
-									  direction: Terrasoft.MessageDirectionType.SUBSCRIBE }
+			/**
+			 * @message GetColumnsValues
+			 * Asks the page for its column values.
+			 */
+			"GetColumnsValues": {
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.PUBLISH
+			},
+			/**
+			 * @message SetDetailButtonState
+			 * Receives the add button state from the page.
+			 */
+			"SetDetailButtonState": {
+				mode: Terrasoft.MessageMode.PTP,
+				direction: Terrasoft.MessageDirectionType.SUBSCRIBE
+			}
 		},
 
 		attributes: {
@@ -59,25 +70,16 @@ define("UsrMySchemaDetail", ["ProcessModuleUtilities", "ConfigurationEnums",
 			"ButtonBlockMessage": { dataValueType: Terrasoft.DataValueType.TEXT,    value: "" }
 		},
 
-		diff: /**SCHEMA_DIFF*/[
-			{
-				"operation": "merge",
-				"name": "AddRecordButton",
-				"values": {
-					"visible": { "bindTo": "IsAddButtonVisible" },
-					"enabled": { "bindTo": "IsAddButtonEnabled" }
-				}
-			}
-		]/**SCHEMA_DIFF*/,
+		details: /**SCHEMA_DETAILS*/{}/**SCHEMA_DETAILS*/,
 
 		methods: {
 
 			init: function() {
 				this.callParent(arguments);
 				// Defer: the page has not finished subscribing yet.
-				setTimeout(function() {
+				setTimeout(() => {
 					this.sandbox.subscribe("SetDetailButtonState", this.onSetButtonState, this);
-				}.bind(this), 50);
+				}, 50);
 			},
 
 			onSetButtonState: function(state) {
@@ -100,6 +102,17 @@ define("UsrMySchemaDetail", ["ProcessModuleUtilities", "ConfigurationEnums",
 				// Clear timers and observers here.
 				this.callParent(arguments);
 			}
-		}
+		},
+
+		diff: /**SCHEMA_DIFF*/[
+			{
+				"operation": "merge",
+				"name": "AddRecordButton",
+				"values": {
+					"visible": { "bindTo": "IsAddButtonVisible" },
+					"enabled": { "bindTo": "IsAddButtonEnabled" }
+				}
+			}
+		]/**SCHEMA_DIFF*/
 	};
 });

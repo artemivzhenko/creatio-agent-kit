@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using CreatioAutoTests.Execution;
 using Microsoft.Playwright;
 
 namespace CreatioAutoTests.Frontend.Classic;
@@ -21,6 +22,40 @@ public abstract class ClassicFieldBase : ClassicElementBase, IStateAware, IValue
 
     /// <summary>Reads the field in the string representation shared by DSL commands.</summary>
     public abstract Task<string?> GetValueAsStringAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A field Classic renders at zero width is in the DOM but nobody can use it; waiting for it to become visible only runs out the
+    /// timeout, so it fails at once with <see cref="InvisibleMessage"/>.
+    /// </summary>
+    public override async Task<bool> ExistsAsync(CancellationToken cancellationToken = default)
+    {
+        if (await HasZeroWidthAsync().ConfigureAwait(false))
+        {
+            throw new CommandFailedException(InvisibleMessage(Code));
+        }
+
+        return await base.ExistsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The sentence for a zero-width field.</summary>
+    public static string InvisibleMessage(string code) => code + " is in the page but invisible (zero width)";
+
+    private async Task<bool> HasZeroWidthAsync()
+    {
+        try
+        {
+            return await Root.EvaluateAsync<bool>("e => e.getClientRects().length > 0 && e.getBoundingClientRect().width === 0",
+                null, new LocatorEvaluateOptions { Timeout = ProbeTimeoutMs }).ConfigureAwait(false);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Writes the string representation supplied by the DSL.</summary>
     public abstract Task SetValueFromStringAsync(string value, CancellationToken cancellationToken = default);

@@ -156,6 +156,9 @@ public static class Program
             Console.WriteLine($"        {group.Count(),3}  {group.Key}");
         }
 
+        var tabs = analysis.Elements.Where(e => e.Type == "Tab").Select(e => e.Code).ToArray();
+        Console.WriteLine("tabs:   " + (tabs.Length == 0 ? "none" : string.Join(", ", tabs)));
+
         // Which controls are writable decides what a test can actually do with the page, and it is
         // not in the configuration file, so it is only ever visible here.
         if (args.Contains("--list"))

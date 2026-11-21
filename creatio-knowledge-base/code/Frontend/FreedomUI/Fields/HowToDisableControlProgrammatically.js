@@ -42,6 +42,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// This handler also runs during initial page load with
 		// request.silent === true, which is what applies the correct state as
 		// soon as the record's data has loaded - no separate init handler needed.
+		// Style: frontend guide 3.2, 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

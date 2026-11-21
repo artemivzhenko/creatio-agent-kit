@@ -34,14 +34,15 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// The master record must already exist: a link row needs its id. On a
 		// page that may still be new, save first (crt.SaveRecordRequest) or read
 		// the id and bail out with a message when it is empty.
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 			{
 				"operation": "insert",
-				"name": "AddRelatedButton",
+				"name": "Button_AddRelated",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(AddRelatedButton_caption)#",
+					"caption": "#ResourceString(Button_AddRelated_caption)#",
 					"iconPosition": "only-text",
 					"clicked": { "request": "usr.AddRelatedRecordsRequest", "params": {} }
 				},
@@ -95,7 +96,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 							}
 						},
 
-						afterClosed: async function(selectedItems) {
+						afterClosed: async (selectedItems) => {
 							// Cancel or empty selection.
 							if (!selectedItems?.length) {
 								return;

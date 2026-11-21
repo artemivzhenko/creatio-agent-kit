@@ -21,6 +21,7 @@
 // Note that SysUserInRole holds DIRECT membership. Roles inherited through an
 // organisational hierarchy are resolved server-side; if you need the effective
 // set, do the check in a business process or a service instead.
+// Style: frontend guide 1.1, 2.1, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -28,8 +29,8 @@ define("UsrMyEntity1Page", [], function() {
 
 		attributes: {
 			"IsUserInSpecificRoles": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN,
-				"value": false
+				dataValueType: Terrasoft.DataValueType.BOOLEAN,
+				value: false
 			}
 		},
 
@@ -41,9 +42,9 @@ define("UsrMyEntity1Page", [], function() {
 			},
 
 			readCurrentUser: function() {
-				var userId    = Terrasoft.SysValue.CURRENT_USER.value;
-				var contactId = Terrasoft.SysValue.CURRENT_USER_CONTACT.value;
-				var contactName = Terrasoft.SysValue.CURRENT_USER_CONTACT.displayValue;
+				const userId    = Terrasoft.SysValue.CURRENT_USER.value;
+				const contactId = Terrasoft.SysValue.CURRENT_USER_CONTACT.value;
+				const contactName = Terrasoft.SysValue.CURRENT_USER_CONTACT.displayValue;
 
 				// Writing the current contact into a lookup column.
 				this.set("UsrResponsible", {
@@ -56,13 +57,13 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Is the current user in any of the listed roles?
 			checkUserRoles: function() {
-				var specificRoles = [
+				const specificRoles = [
 					"2f8e9ddf-5bd4-498c-8b1d-fb983bb5c715", // Support managers
 					"2cb75460-8c3a-4e8f-a40f-154f099229d5", // Sales managers
 					"0ac24ff0-a308-48c7-9500-c63434846a9e"  // Regional unit
 				];
 
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "SysUserInRole"
 				});
 				esq.addColumn("SysRole");
@@ -73,9 +74,9 @@ define("UsrMyEntity1Page", [], function() {
 					Terrasoft.SysValue.CURRENT_USER.value));
 
 				// Any of the roles - an OR group with unique keys.
-				var roleFilter = Terrasoft.createFilterGroup();
+				const roleFilter = Terrasoft.createFilterGroup();
 				roleFilter.logicalOperation = Terrasoft.LogicalOperatorType.OR;
-				specificRoles.forEach(function(roleId, index) {
+				specificRoles.forEach((roleId, index) => {
 					roleFilter.add("RoleFilter" + index,
 						Terrasoft.createColumnFilterWithParameter(
 							Terrasoft.ComparisonType.EQUAL, "SysRole", roleId));
@@ -83,8 +84,11 @@ define("UsrMyEntity1Page", [], function() {
 				esq.filters.add("RoleGroup", roleFilter);
 
 				esq.getEntityCollection(function(result) {
-					var isInRole = result.success && result.collection.getItems().length > 0;
-					this.set("IsUserInSpecificRoles", isInRole);
+					if (!result.success) {
+						this.set("IsUserInSpecificRoles", false);
+						return;
+					}
+					this.set("IsUserInSpecificRoles", result.collection.getItems().length > 0);
 				}, this);
 			}
 		},

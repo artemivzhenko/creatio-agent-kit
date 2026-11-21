@@ -25,6 +25,7 @@
 //   7  DATE_TIME     8  DATE        9  TIME       10 LOOKUP     11 ENUM
 //   12 BOOLEAN       15 CUSTOM_OBJECT
 // Prefer the symbolic form (Terrasoft.DataValueType.BOOLEAN) in hand-written code.
+// Style: frontend guide 2.1, 2.3, 2.6
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -33,35 +34,35 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Virtual boolean used to enable/disable a button in diff.
 			"CreateFreightKPButtonEnabled": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN,
-				"value": false
+				dataValueType: Terrasoft.DataValueType.BOOLEAN,
+				value: false
 			},
 
 			// Virtual boolean that never reaches the server.
 			"IsEditable": {
-				"dataValueType": Terrasoft.DataValueType.BOOLEAN,
-				"type": Terrasoft.ViewModelColumnType.VIRTUAL_COLUMN,
-				"value": true
+				dataValueType: Terrasoft.DataValueType.BOOLEAN,
+				type: Terrasoft.ViewModelColumnType.VIRTUAL_COLUMN,
+				value: true
 			},
 
 			// Free-form object state (DOM observers, cached collections...).
 			"CurrentObserver": {
-				"dataValueType": Terrasoft.DataValueType.CUSTOM_OBJECT,
-				"value": null
+				dataValueType: Terrasoft.DataValueType.CUSTOM_OBJECT,
+				value: null
 			},
 
 			// Plain text constant used by page logic.
 			"TargetTabSelector": {
-				"dataValueType": Terrasoft.DataValueType.TEXT,
-				"value": "li[data-item-index=\"18\"]"
+				dataValueType: Terrasoft.DataValueType.TEXT,
+				value: "li[data-item-index=\"18\"]"
 			},
 
 			// An entity column redeclared only to attach a change dependency.
 			"UsrAccount": {
-				"dependencies": [
+				dependencies: [
 					{
-						"columns": ["UsrAccount"],
-						"methodName": "onUsrAccountChanged"
+						columns: ["UsrAccount"],
+						methodName: "onUsrAccountChanged"
 					}
 				]
 			},
@@ -71,10 +72,10 @@ define("UsrMyEntity1Page", [], function() {
 			// the method. This is the idiomatic Classic UI way to react to
 			// several columns at once.
 			"FieldRequirementsManager": {
-				"dependencies": [
+				dependencies: [
 					{
-						"columns": ["UsrStatus", "UsrRegistrationMethod"],
-						"methodName": "setFieldRequirements"
+						columns: ["UsrStatus", "UsrRegistrationMethod"],
+						methodName: "setFieldRequirements"
 					}
 				]
 			}
@@ -82,8 +83,8 @@ define("UsrMyEntity1Page", [], function() {
 		methods: {
 
 			onUsrAccountChanged: function() {
-				var account = this.get("UsrAccount");
-				console.log("account changed", account && account.value);
+				const account = this.get("UsrAccount");
+				this.log("Account changed: " + (account && account.value));
 			},
 
 			setFieldRequirements: function() {

@@ -16,6 +16,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Note: this intercepts the close, not dispatches it.
 		// To close the page programmatically, see HowToClosePageFromHandler.js.
+		// Style: frontend guide 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 
@@ -23,9 +24,9 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			{
 				request: "crt.ClosePageRequest",
 				handler: async (request, next) => {
-					// Code before the page closes (e.g. logging, cleanup)
+					// Code before the page closes (e.g. an audit record, cleanup)
 					const name = await request.$context.PDS_Name_someAttr;
-					console.log("Closing page, record name was: " + name);
+					// ...use name here: release a lock, write an audit record, and so on.
 
 					// Continue with the standard close
 					return next?.handle(request);
@@ -40,7 +41,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			//         const isDirty = await request.$context.SomeUnsavedFlag;
 			//         if (isDirty) {
 			//             // Cancel the close - page stays open
-			//             return;
+			//             return false;
 			//         }
 			//         return next?.handle(request);
 			//     }

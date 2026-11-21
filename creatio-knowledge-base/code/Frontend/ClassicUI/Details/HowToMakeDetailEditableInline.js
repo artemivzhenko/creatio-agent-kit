@@ -20,6 +20,7 @@
 //   "save", "cancel", "card", "copy", "remove".
 // Their icons come from stock resources: Resources.Images.SaveIcon, CancelIcon,
 // CardIcon, CopyIcon, RemoveIcon.
+// Style: frontend guide 2.1, 2.4
 
 define("UsrMyDetail", ["ConfigurationGrid", "ConfigurationGridGenerator",
 	"ConfigurationGridUtilitiesV2"], function() {

@@ -24,6 +24,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// The stock detail already offers add / delete / download in its own
 		// toolbar; add a custom upload button only when you need the action
 		// somewhere else on the page, such as in the header.
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
@@ -43,10 +44,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 
 			{
 				"operation": "insert",
-				"name": "UploadFileButton",
+				"name": "Button_UploadFile",
 				"values": {
 					"type": "crt.Button",
-					"caption": "#ResourceString(UploadFileButton_caption)#",
+					"caption": "#ResourceString(Button_UploadFile_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "crt.UploadFileRequest",
@@ -87,11 +88,17 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 						await dialogService.open({
 							message: await request.$context.Resources.Strings.NoFilesAttachedMessage,
 							actions: [
-								{ key: "OK", config: { color: "primary", caption: "OK" } }
+								{
+									key: "OK",
+									config: {
+										color: "primary",
+										caption: await request.$context.Resources.Strings.OkButtonCaption
+									}
+								}
 							]
 						});
 						// Stop here: do not pass the request on.
-						return;
+						return false;
 					}
 
 					return next?.handle(request);

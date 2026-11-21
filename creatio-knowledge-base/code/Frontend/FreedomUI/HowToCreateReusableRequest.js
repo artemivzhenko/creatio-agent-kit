@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_Run_caption".
 			{
 				"operation": "insert",
-				"name": "RunButton",
+				"name": "Button_Run",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Run",
+					"caption": "#ResourceString(Button_Run_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.RunRequest",
@@ -38,6 +39,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Do not call next?.handle in a pure-function request - it is not a
 		// platform lifecycle event, so there is nothing to chain to.
+		// Style: frontend guide 3.2, 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 
@@ -62,7 +64,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Reusable function - reads request.inputName, returns formatted string
 			{
 				request: "usr.FormatNameRequest",
-				handler: async (request, next) => {
+				handler: async (request) => {
 					const input = request.inputName || "";
 					return input.trim().toUpperCase();
 					// No next?.handle - this is a pure function, not a lifecycle event

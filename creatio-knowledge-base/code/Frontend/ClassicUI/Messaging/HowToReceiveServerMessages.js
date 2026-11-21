@@ -22,10 +22,11 @@
 // re-initialisation.
 //
 // Related: Backend/C#/HowToPostMessageToFrontend.cs shows the server half.
+// Style: frontend guide 1.1, 2.4
 
 define("UsrMyEntity1Page", [], function() {
 
-	var currentModule = null;
+	let currentModule = null;
 
 	return {
 		entitySchemaName: "UsrMyEntity",
@@ -39,11 +40,11 @@ define("UsrMyEntity1Page", [], function() {
 			},
 
 			onServerMessageReceived: function(scope, message) {
-				var sender = message && message.Header && message.Header.Sender;
-				var currentRecordId = this.get("Id");
+				const sender = message && message.Header && message.Header.Sender;
+				const currentRecordId = this.get("Id");
 
 				if (sender === "SuccessCancelOfOrder") {
-					var data = Ext.decode(message.Body);
+					const data = Ext.decode(message.Body);
 
 					// Only react to messages addressed to the current user.
 					if (data.currentContactId !== Terrasoft.SysValue.CURRENT_USER_CONTACT.value) {
@@ -55,7 +56,7 @@ define("UsrMyEntity1Page", [], function() {
 				}
 
 				if (sender === "OrderStatusChanged") {
-					var payload = Ext.decode(message.Body);
+					const payload = Ext.decode(message.Body);
 					if (payload.orderId !== currentRecordId) {
 						return;
 					}

@@ -55,6 +55,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//    attribute's change handler. Two fields that recalculate each other
 		//    loop forever. Write only when the value actually differs, which
 		//    breaks the cycle after one pass.
+		// Style: frontend guide 3.3, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/,
 
@@ -111,9 +112,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					const typeField = await request.$context.TypeField;
 					const typeId = typeField?.value;
 
+					// Placeholder lookup ids; on a real page read them by code or from a system setting.
 					const typesRequiringJob = [
-						"00783ef6-f36b-1410-a883-16d83cab0980",
-						"60733efc-f36b-1410-a883-16d83cab0980"
+						"5d2a1c3e-0000-4000-8000-000000000001",
+						"5d2a1c3e-0000-4000-8000-000000000002"
 					];
 					request.$context.IsJobRequired = typesRequiringJob.includes(typeId);
 

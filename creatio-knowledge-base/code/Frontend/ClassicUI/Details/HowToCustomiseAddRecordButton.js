@@ -14,18 +14,25 @@
 // A detail lives in its own sandbox module, so it cannot read the page columns
 // directly. To decide whether adding is allowed it asks the page over the
 // sandbox - see Messaging/HowToCommunicateDetailWithPage.js.
+// Style: frontend guide 2.1, 2.3, 2.4, 2.6, 2.7
 
 define("UsrMyDetail", [], function() {
 	return {
 		entitySchemaName: "UsrMyDetailEntity",
 
 		messages: {
-			// Detail -> page request for column values.
+			/**
+			 * @message GetColumnsValues
+			 * Detail -> page request for column values.
+			 */
 			"GetColumnsValues": {
 				mode: Terrasoft.MessageMode.PTP,
 				direction: Terrasoft.MessageDirectionType.PUBLISH
 			},
-			// Page -> detail push of the button state.
+			/**
+			 * @message SetDetailButtonState
+			 * Page -> detail push of the button state.
+			 */
 			"SetDetailButtonState": {
 				mode: Terrasoft.MessageMode.PTP,
 				direction: Terrasoft.MessageDirectionType.SUBSCRIBE
@@ -44,17 +51,6 @@ define("UsrMyDetail", [], function() {
 			}
 		},
 
-		diff: [
-			{
-				operation: "merge",
-				name: "AddRecordButton",
-				values: {
-					visible: { bindTo: "IsAddButtonVisible" },
-					enabled: { bindTo: "IsAddButtonEnabled" }
-				}
-			}
-		],
-
 		methods: {
 
 			init: function() {
@@ -62,14 +58,14 @@ define("UsrMyDetail", [], function() {
 
 				// The detail is created before the page finishes wiring its own
 				// subscriptions; a short defer avoids a race on first render.
-				setTimeout(function() {
+				setTimeout(() => {
 					try {
 						this.sandbox.subscribe("SetDetailButtonState", this.onSetButtonState, this);
 						this.checkButtonStateOnInit();
 					} catch (e) {
-						console.error("UsrMyDetail: init failed:", e);
+						this.error("UsrMyDetail: init failed: " + e);
 					}
-				}.bind(this), 50);
+				}, 50);
 			},
 
 			// Page pushes { enabled, message } to the detail.
@@ -79,7 +75,7 @@ define("UsrMyDetail", [], function() {
 			},
 
 			checkButtonStateOnInit: function() {
-				var parentData = this.sandbox.publish(
+				const parentData =this.sandbox.publish(
 					"GetColumnsValues", ["UsrService", "UsrMyEntity"], [this.sandbox.id]);
 				if (!parentData) {
 					return;
@@ -96,16 +92,27 @@ define("UsrMyDetail", [], function() {
 				try {
 					this.callParent(arguments);
 				} catch (e) {
-					console.error("UsrMyDetail: addRecord failed:", e);
+					this.error("UsrMyDetail: addRecord failed: " + e);
 					this.callParent(arguments);
 				}
 			},
 
 			showBlockedMessage: function() {
-				var message = this.get("ButtonBlockMessage");
+				const message = this.get("ButtonBlockMessage");
 				this.showInformationDialog(message ||
 					this.get("Resources.Strings.CannotAddRecordMessage"));
 			}
-		}
+		},
+
+		diff: /**SCHEMA_DIFF*/[
+			{
+				"operation": "merge",
+				"name": "AddRecordButton",
+				"values": {
+					"visible": { "bindTo": "IsAddButtonVisible" },
+					"enabled": { "bindTo": "IsAddButtonEnabled" }
+				}
+			}
+		]/**SCHEMA_DIFF*/
 	};
 });

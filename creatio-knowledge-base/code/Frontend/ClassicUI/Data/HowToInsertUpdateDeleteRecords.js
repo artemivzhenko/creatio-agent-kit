@@ -25,6 +25,7 @@
 // These queries bypass the page view model: they do not run page validation and
 // do not refresh the UI. After changing data the page is showing, reload it
 // (reloadEntity / updateDetail / reloadGridData).
+// Style: frontend guide 1.1, 2.5, 2.6
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -33,7 +34,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// INSERT
 			logCancelAttempt: function(orderId, callbackData) {
-				var insertQuery = Ext.create("Terrasoft.InsertQuery", {
+				const insertQuery =Ext.create("Terrasoft.InsertQuery", {
 					rootSchemaName: "UsrActionLog"
 				});
 
@@ -47,16 +48,16 @@ define("UsrMyEntity1Page", [], function() {
 
 				insertQuery.execute(function(response) {
 					if (response.success) {
-						console.log("log record created", response.id);
+						this.log("Log record created: " + response.id);
 					} else {
-						console.error("insert failed", response.errorInfo);
+						this.error("Insert failed: " + response.errorInfo.message);
 					}
 				}, this);
 			},
 
 			// UPDATE
 			setServiceState: function(serviceId, stateId) {
-				var update = Ext.create("Terrasoft.UpdateQuery", {
+				const update =Ext.create("Terrasoft.UpdateQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 
@@ -76,7 +77,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// DELETE
 			removeAccountLink: function(linkId) {
-				var deleteQuery = Ext.create("Terrasoft.DeleteQuery", {
+				const deleteQuery =Ext.create("Terrasoft.DeleteQuery", {
 					rootSchemaName: "UsrAccountInMyEntity"
 				});
 				deleteQuery.filters.add("IdFilter", Terrasoft.createColumnFilterWithParameter(
@@ -84,7 +85,7 @@ define("UsrMyEntity1Page", [], function() {
 
 				deleteQuery.execute(function(response) {
 					if (!response.success) {
-						console.error("delete failed", response.errorInfo);
+						this.error("Delete failed: " + response.errorInfo.message);
 					}
 				}, this);
 			}

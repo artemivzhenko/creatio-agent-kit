@@ -27,13 +27,13 @@
 // column of the link table stays empty, so a follow-up UpdateQuery is needed -
 // run it from onGridDataLoaded, once the new rows are actually in the grid, and
 // scope it with an IS NULL filter so you only touch the fresh rows.
+// Style: frontend guide 2.1, 2.4, 2.5, 2.6
 
 define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 	function(LookupMultiAddMixin, configurationEnums) {
 		return {
 			entitySchemaName: "UsrRelatedInMyEntity",
 			details: /**SCHEMA_DETAILS*/{}/**SCHEMA_DETAILS*/,
-			diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/,
 
 			mixins: {
 				LookupMultiAddMixin: "Terrasoft.LookupMultiAddMixin"
@@ -52,8 +52,8 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 
 				// Entry point for the "+" button.
 				addRecord: function() {
-					var masterCardState = this.sandbox.publish("GetCardState", null, [this.sandbox.id]);
-					var isNewRecord = masterCardState && (
+					const masterCardState = this.sandbox.publish("GetCardState", null, [this.sandbox.id]);
+					const isNewRecord = masterCardState && (
 						masterCardState.state === configurationEnums.CardStateV2.ADD ||
 						masterCardState.state === configurationEnums.CardStateV2.COPY);
 
@@ -92,20 +92,21 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 
 				// esq.getEntity(id, callback, scope) reads a single record by key.
 				getMasterAccountValue: function(callback, scope) {
-					var masterRecordId = this.getMasterRecordId();
+					const masterRecordId = this.getMasterRecordId();
 					if (!masterRecordId) {
-						callback.call(scope || this, null);
+						Ext.callback(callback, scope || this, [null]);
 						return;
 					}
-					var esq = this.Ext.create("Terrasoft.EntitySchemaQuery", {
+					const esq = this.Ext.create("Terrasoft.EntitySchemaQuery", {
 						rootSchemaName: "UsrMyEntity"
 					});
 					esq.addColumn("UsrAccount");
 					esq.getEntity(masterRecordId, function(result) {
-						var accountId = (result.success && result.entity)
-							? result.entity.get("UsrAccount")
-							: null;
-						callback.call(scope || this, accountId);
+						if (!result.success || !result.entity) {
+							Ext.callback(callback, scope || this, [null]);
+							return;
+						}
+						Ext.callback(callback, scope || this, [result.entity.get("UsrAccount")]);
 					}, this);
 				},
 
@@ -121,9 +122,9 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 
 				// Narrow what the selection window shows.
 				getAdditionalLookupFilters: function() {
-					var filterGroup = this.Terrasoft.createFilterGroup();
+					const filterGroup = this.Terrasoft.createFilterGroup();
 
-					var accountId = this.get("UsrParentAccountId");
+					const accountId = this.get("UsrParentAccountId");
 					if (accountId) {
 						filterGroup.add("ByHoldingFilter",
 							this.Terrasoft.createColumnFilterWithParameter(
@@ -131,6 +132,7 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 					}
 					filterGroup.add("ExcludeCancelledFilter",
 						this.Terrasoft.createColumnFilterWithParameter(
+							// Id of the "Cancelled" value of the UsrStatus lookup.
 							this.Terrasoft.ComparisonType.NOT_EQUAL, "UsrStatus",
 							"7352911c-9cff-460c-a202-ed8b10fb8ee8"));
 
@@ -147,12 +149,12 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 				},
 
 				fillHoldingForNewRecords: function() {
-					var masterRecordId = this.getMasterRecordId();
-					var accountId = this.get("UsrParentAccountId");
+					const masterRecordId = this.getMasterRecordId();
+					const accountId = this.get("UsrParentAccountId");
 					if (!masterRecordId || !accountId) {
 						return;
 					}
-					var update = this.Ext.create("Terrasoft.UpdateQuery", {
+					const update =this.Ext.create("Terrasoft.UpdateQuery", {
 						rootSchemaName: "UsrRelatedInMyEntity"
 					});
 					update.filters.addItem(
@@ -169,10 +171,11 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 						if (response.success) {
 							this.loadGridData();
 						} else {
-							console.error("Failed to fill UsrParentAccount", response.errorInfo);
+							this.error("Failed to fill UsrParentAccount: " + response.errorInfo.message);
 						}
 					}, this);
 				}
-			}
+			},
+			diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/
 		};
 	});

@@ -52,6 +52,7 @@
 //   ActionButtonsContainer, DataGrid, SectionFilterContainer
 //
 // See Sections/HowToCustomiseSectionModesAndButtons.js for the worked example.
+// Style: frontend guide 2.3, 2.4
 
 define("UsrMyEntitySection", [], function() {
 	return {
@@ -66,7 +67,7 @@ define("UsrMyEntitySection", [], function() {
 
 			// Fixed filters shown above the list.
 			initFixedFiltersConfig: function() {
-				var fixedFilterConfig = {
+				const fixedFilterConfig = {
 					entitySchemaName: "UsrMyEntity",
 					filters: [
 						{
@@ -90,7 +91,7 @@ define("UsrMyEntitySection", [], function() {
 
 			// Route rows to different edit pages by type.
 			getEditPageName: function() {
-				var type = this.get("ActiveRowTypeColumnValue");
+				const type = this.get("ActiveRowTypeColumnValue");
 				return type === "special" ? "UsrRelatedEntityPage" : this.callParent(arguments);
 			},
 

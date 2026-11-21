@@ -3,7 +3,7 @@
 // single round trip. Use it whenever you would otherwise fire N queries in a
 // loop: it is faster and the whole batch reports one success flag.
 //
-//   var bq = Ext.create("Terrasoft.BatchQuery");
+//   const bq =Ext.create("Terrasoft.BatchQuery");
 //   bq.add(query1);
 //   bq.add(query2);
 //   bq.execute(function(response) { ... }, this);
@@ -19,6 +19,7 @@
 //
 // Pair batches with the body mask so the user sees that something is running -
 // see Dialogs/HowToShowBodyMask.js.
+// Style: frontend guide 1.1, 2.5, 2.6, 8
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -30,13 +31,12 @@ define("UsrMyEntity1Page", [], function() {
 				if (!changes.length) {
 					return;
 				}
-				var self = this;
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask();
 
-				var bq = Ext.create("Terrasoft.BatchQuery");
+				const bq = Ext.create("Terrasoft.BatchQuery");
 
-				changes.forEach(function(change) {
-					var update = Ext.create("Terrasoft.UpdateQuery", {
+				changes.forEach((change) => {
+					const update =Ext.create("Terrasoft.UpdateQuery", {
 						rootSchemaName: "UsrMyDetailEntity"
 					});
 					update.setParameterValue(change.field, change.value, change.type);
@@ -46,31 +46,31 @@ define("UsrMyEntity1Page", [], function() {
 				});
 
 				bq.execute(function(result) {
-					Terrasoft.MaskHelper.HideBodyMask();
+					this.hideBodyMask();
 
 					if (!result.success) {
-						self.showConfirmationDialog(result.errorInfo.message, function() {}, ["Ok"]);
+						this.showConfirmationDialog(result.errorInfo.message, function() {}, ["Ok"]);
 						return;
 					}
-					self.sandbox.publish("FactoriesReload", null, ["order-factories"]);
+					this.sandbox.publish("FactoriesReload", null, ["order-factories"]);
 				}, this);
 			},
 
 			// Replace a set of links: delete the old ones and insert the new ones
 			// in a single batch.
 			replaceAccountLinks: function(accountIds) {
-				var orderId = this.get("Id");
-				var bq = Ext.create("Terrasoft.BatchQuery");
+				const orderId = this.get("Id");
+				const bq = Ext.create("Terrasoft.BatchQuery");
 
-				var deleteQuery = Ext.create("Terrasoft.DeleteQuery", {
+				const deleteQuery =Ext.create("Terrasoft.DeleteQuery", {
 					rootSchemaName: "UsrAccountInMyEntity"
 				});
 				deleteQuery.filters.add("OrderFilter", Terrasoft.createColumnFilterWithParameter(
 					Terrasoft.ComparisonType.EQUAL, "UsrMyEntity", orderId));
 				bq.add(deleteQuery);
 
-				accountIds.forEach(function(accountId) {
-					var insertQuery = Ext.create("Terrasoft.InsertQuery", {
+				accountIds.forEach((accountId) => {
+					const insertQuery =Ext.create("Terrasoft.InsertQuery", {
 						rootSchemaName: "UsrAccountInMyEntity"
 					});
 					insertQuery.setParameterValue("UsrAccount", accountId, Terrasoft.DataValueType.GUID);

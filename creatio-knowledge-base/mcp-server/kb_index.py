@@ -517,9 +517,11 @@ class KnowledgeBase:
         name = name.strip().strip("/").rsplit(".", 1)[0]
         return [r for r in self.recipes.values() if r.id.endswith("/" + name)]
 
-    def code_style(self, section: str = "") -> str | None:
-        """CREATIO_CODE_STYLE.md, whole or one `## ` section matched by number or words."""
-        path = self.root / "CREATIO_CODE_STYLE.md"
+    GUIDES = {"csharp": "CREATIO_CODE_STYLE.md", "frontend": "CREATIO_FRONTEND_CODE_STYLE.md"}
+
+    def code_style(self, section: str = "", guide: str = "csharp") -> str | None:
+        """A style guide (`csharp` or `frontend`), whole or one `## ` section matched by number or words."""
+        path = self.root / self.GUIDES.get(guide.strip().lower(), guide)
         if not path.is_file():
             return None
         text = path.read_text(encoding="utf-8")

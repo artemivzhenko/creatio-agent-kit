@@ -28,6 +28,25 @@ public sealed class ConfigurationLoaderTests
     }
 
     [Test]
+    public void Folders_written_relative_are_relative_to_the_root_not_to_the_working_directory()
+    {
+        var configuration = Path.Combine(_fixtureDirectory, "Configuration");
+        Directory.CreateDirectory(Path.Combine(configuration, "pages"));
+        File.WriteAllText(Path.Combine(configuration, "creatio.env.config.json"),
+            "{\"BaseUrl\":\"http://x\",\"Users\":[{\"Username\":\"u\",\"Password\":\"p\"}],\"AnalysisFolders\":[\"./Analysis\"]}");
+        File.WriteAllText(Path.Combine(configuration, "creatio.site.config.json"), "{}");
+        File.WriteAllText(Path.Combine(configuration, "pages", "P.json"),
+            "{\"name\":\"P\",\"url\":\"/p\",\"type\":\"FreedomUI\",\"elements\":[{\"code\":\"Name\",\"label\":\"\",\"type\":\"Text\"}]}");
+
+        var loaded = FrameworkConfiguration.Load(_fixtureDirectory, CreatioAutoTests.Frontend.Registry.UiElementRegistry.Discover(typeof(FrameworkConfiguration).Assembly));
+
+        Assert.That(loaded.CasesFolders, Is.EqualTo(new[] { Path.Combine(_fixtureDirectory, "Cases") }));
+        Assert.That(loaded.AnalysisFolders, Is.EqualTo(new[] { Path.Combine(_fixtureDirectory, "Analysis") }));
+        Assert.That(loaded.RunSettings.ReportsDirectory, Is.EqualTo(Path.Combine(_fixtureDirectory, "Reports")));
+        Assert.That(loaded.RunSettings.TestDataDirectory, Is.EqualTo(Path.Combine(_fixtureDirectory, "TestData")));
+    }
+
+    [Test]
     public void Malformed_JSON_names_the_file_and_expected_type()
     {
         File.WriteAllText(Path.Combine(_fixtureDirectory, "broken.json"), "{");

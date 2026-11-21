@@ -40,6 +40,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// A note on sizes: Freedom UI takes design tokens ("large", "medium"),
 		// not pixel values, for gap and padding. Raw CSS lengths belong in
 		// rows/columns only.
+		// Style: frontend guide 3.2
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
@@ -59,14 +60,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// A one-column grid block.
 			{
 				"operation": "insert",
-				"name": "DetailsGridContainer",
+				"name": "GridContainer_Details",
 				"values": {
+					"layoutConfig": { "basis": "fit-content" },
 					"type": "crt.GridContainer",
 					"rows": "minmax(max-content, 32px)",
 					"columns": ["minmax(64px, 1fr)"],
 					"gap": { "columnGap": "large", "rowGap": "none" },
 					"padding": { "top": "medium", "right": "large", "bottom": "medium", "left": "large" },
-					"layoutConfig": { "basis": "fit-content" },
 					"color": "primary",
 					"borderRadius": "medium",
 					"alignItems": "stretch",
@@ -81,7 +82,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// A two-column grid: two entries in `columns`.
 			{
 				"operation": "insert",
-				"name": "TwoColumnContainer",
+				"name": "GridContainer_TwoColumns",
 				"values": {
 					"type": "crt.GridContainer",
 					"rows": "minmax(max-content, 32px)",
@@ -90,7 +91,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					"alignItems": "stretch",
 					"items": []
 				},
-				"parentName": "DetailsGridContainer",
+				"parentName": "GridContainer_Details",
 				"propertyName": "items",
 				"index": 0
 			},
@@ -98,27 +99,27 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Children pick their cell. Both sit on row 1, in columns 1 and 2.
 			{
 				"operation": "insert",
-				"name": "LeftField",
+				"name": "Left",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Input",
 					"label": "$Resources.Strings.PDS_Left_a1b2c3d",
 					"control": "$PDS_Left_a1b2c3d"
 				},
-				"parentName": "TwoColumnContainer",
+				"parentName": "GridContainer_TwoColumns",
 				"propertyName": "items",
 				"index": 0
 			},
 			{
 				"operation": "insert",
-				"name": "RightField",
+				"name": "Right",
 				"values": {
 					"layoutConfig": { "column": 2, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Input",
 					"label": "$Resources.Strings.PDS_Right_d4e5f6g",
 					"control": "$PDS_Right_d4e5f6g"
 				},
-				"parentName": "TwoColumnContainer",
+				"parentName": "GridContainer_TwoColumns",
 				"propertyName": "items",
 				"index": 1
 			},
@@ -126,7 +127,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// A flex column - stack children without a grid.
 			{
 				"operation": "insert",
-				"name": "ActionsFlexContainer",
+				"name": "FlexContainer_Actions",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 2, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.FlexContainer",
@@ -134,7 +135,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					"fitContent": true,
 					"items": []
 				},
-				"parentName": "DetailsGridContainer",
+				"parentName": "GridContainer_Details",
 				"propertyName": "items",
 				"index": 1
 			},
@@ -142,10 +143,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// A collapsible block.
 			{
 				"operation": "insert",
-				"name": "AdditionalInfoPanel",
+				"name": "ExpansionPanel_AdditionalInfo",
 				"values": {
 					"type": "crt.ExpansionPanel",
-					"title": "#ResourceString(AdditionalInfoPanel_title)#",
+					"title": "#ResourceString(ExpansionPanel_AdditionalInfo_title)#",
 					"toggleType": "default",
 					"togglePosition": "before",
 					"expanded": true,
@@ -182,10 +183,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			},
 			{
 				"operation": "insert",
-				"name": "LogisticsTabContainer",
+				"name": "TabContainer_Logistics",
 				"values": {
 					"type": "crt.TabContainer",
-					"caption": "#ResourceString(LogisticsTabContainer_caption)#",
+					"caption": "#ResourceString(TabContainer_Logistics_caption)#",
 					"items": []
 				},
 				"parentName": "Tabs",

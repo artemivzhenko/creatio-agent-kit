@@ -2,13 +2,14 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 	return {
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
+			// Caption: the page resource string "Button_Refresh_caption".
 			{
 				"operation": "insert",
-				"name": "RefreshButton",
+				"name": "Button_Refresh",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Refresh",
+					"caption": "#ResourceString(Button_Refresh_caption)#",
 					"iconPosition": "only-text",
 					"clicked": {
 						"request": "usr.ReloadDataRequest",
@@ -36,6 +37,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		// Useful after a background operation (web service call, process run)
 		// that changed the underlying data.
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

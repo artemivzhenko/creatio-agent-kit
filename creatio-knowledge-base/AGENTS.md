@@ -211,9 +211,11 @@ Two files, deliberately split:
   ranking of a few known queries and id lookup. `python mcp-server/test_kb_index.py`
   must stay green after any change to `kb_index.py`.
 
-[CREATIO_CODE_STYLE.md](CREATIO_CODE_STYLE.md) at the root is not a recipe: it is the C#
-style guide, served whole or by `##` section through the `get_code_style` tool. Keep its
-`## N. Heading` numbering — that is what the section lookup matches.
+[CREATIO_CODE_STYLE.md](CREATIO_CODE_STYLE.md) and
+[CREATIO_FRONTEND_CODE_STYLE.md](CREATIO_FRONTEND_CODE_STYLE.md) at the root are not recipes:
+they are the C# and the client style guides, served whole or by `##` section through the
+`get_code_style` tool (`guide="csharp"` or `"frontend"`). Keep their `## N. Heading`
+numbering — that is what the section lookup matches.
 
 The ranking weights near the top of `kb_index.py` (`W_TITLE_HIT`, `W_BODY_SCALE`,
 `COVERAGE_FLOOR`) are tuned and commented with the reasoning. If you change one, check the

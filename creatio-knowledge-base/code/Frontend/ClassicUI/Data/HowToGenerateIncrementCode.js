@@ -4,7 +4,7 @@
 //
 //   this.getIncrementCode(function(response) {
 //       this.set("UsrNumber", response);
-//   });
+//   }, this);
 //
 // The callback runs with the view model as `this`, and `response` is the ready
 // string. The mask itself is configured outside the schema - in the object
@@ -24,6 +24,7 @@
 // a record at the same moment can receive the same value. When the number must
 // be strictly unique, generate it server-side in a business process or an entity
 // event listener instead - see Backend/C#/Events/.
+// Style: frontend guide 2.4, 2.5
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -37,20 +38,20 @@ define("UsrMyEntity1Page", [], function() {
 				if (this.isAddMode() || this.isCopyMode()) {
 					this.getIncrementCode(function(response) {
 						this.set("UsrNumber", response);
-					});
+					}, this);
 				}
 			},
 
 			// Same call in a flow where the number must exist before an action.
-			ensureNumberThen: function(callback) {
+			ensureNumberThen: function(callback, scope) {
 				if (this.get("UsrNumber")) {
-					callback.call(this);
+					Ext.callback(callback, scope || this);
 					return;
 				}
 				this.getIncrementCode(function(response) {
 					this.set("UsrNumber", response);
-					callback.call(this);
-				});
+					Ext.callback(callback, scope || this);
+				}, this);
 			}
 		},
 		diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/

@@ -88,6 +88,7 @@ one recipe it needs.
 
 ```
 CREATIO_CODE_STYLE.md          C# style and architecture guide, served by get_code_style
+CREATIO_FRONTEND_CODE_STYLE.md client style guide (Classic UI, Freedom UI, remote modules, mobile), get_code_style(guide="frontend")
 ../agent_setup.py              one-command setup of the MCP servers, the skills and companion tooling for Claude Code, Codex and Copilot
 code/Frontend/ClassicUI/  61   Creatio 7.x — diff, methods, Terrasoft.*
 code/Frontend/FreedomUI/  44   Creatio 8.x — viewConfigDiff, handlers, crt.*, @creatio-devkit
@@ -141,13 +142,16 @@ for Freedom UI, `HowToCreateMobileRequestHandlerModule.ts` for Mobile): the code
 single file, split at `===== file:` markers, with the traps in the header. That is the form the assistant reads. A folder with `package.json` inside is never
 indexed, so template files do not show up as recipes.
 
-## C# code style guide
+## Code style guides
 
 [CREATIO_CODE_STYLE.md](CREATIO_CODE_STYLE.md) covers how back-end code should look:
 formatting and `#region` layout, naming, interfaces and `[DefaultBinding]` registration,
 guard clauses and exception types, logging format, concurrency, XML docs, anti-patterns,
-and a review checklist. The assistant reads it through `get_code_style`, whole or one
-section at a time.
+and a review checklist. [CREATIO_FRONTEND_CODE_STYLE.md](CREATIO_FRONTEND_CODE_STYLE.md)
+does the same for client code: Classic UI schemas, Freedom UI schemas, Angular remote
+modules and mobile handler modules, each derived from the platform's own sources. The
+assistant reads them through `get_code_style(section?, guide="csharp" | "frontend")`,
+whole or one section at a time.
 
 ## Using it with an AI assistant
 
@@ -162,7 +166,7 @@ Recipes:
 | `find_api(symbol)` | reverse lookup: which recipes use `crt.OpenLookupPageRequest`, `UseAdminRights`… |
 | `list_recipes(area?, topic?)` | browse ids and titles |
 | `kb_overview()` | map of areas, topics and counts |
-| `get_code_style(section?)` | the C# style guide, whole or by section |
+| `get_code_style(section?, guide?)` | the C# (`csharp`) or client (`frontend`) style guide, whole or by section |
 
 The describe layer, over a package folder or a clio workspace (`no-code/tools/describe/README.md`):
 
@@ -204,6 +208,7 @@ The environment, through a clio environment name, never a private script:
 | `run_tests(env, category?, test?)`, `review_download(package, keep?)`, `precommit_check(workspace)` | the in-Creatio tests with counts and the stale-dll warning; a pulled package sorted against HEAD; staged files that must not be committed |
 | `role_members`, `user_roles`, `role_diff`, `sys_setting` | role membership (nested roles included) and a setting across environments and bindings |
 | `push_package(package, env, ...)` | install in one command: IsChanged cleared, push-pkg, compilation log, probes of the changed items |
+| `ci_check`, `ci_hierarchy`, `ci_lint`, `ci_build`, `ci_deploy`, `ci_push_all` | the kit's CI pipeline from an agent: the package rules, the install order with the dependency report, the localization and process checks, the build artifact, the deploy of several packages (push, compile, restart, Redis), the push alone with a retry of the failed ones |
 
 `area` is one of `ClassicUI`, `FreedomUI`, `RemoteModule`, `Mobile`, `Backend`, `SQL`,
 `Clio`, `Tools`. In the `Clio` area `get_recipe("execute-sql-script")` returns a command's reference

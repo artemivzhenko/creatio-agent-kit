@@ -86,6 +86,7 @@
 //   EditPageUId   (GUID)
 //   DetailFilters (COLLECTION)
 //   IsDetailWizardAvailable (BOOLEAN)
+// Style: frontend guide 2.3, 2.4
 
 define("UsrMyDetail", [], function() {
 	return {
@@ -112,7 +113,7 @@ define("UsrMyDetail", [], function() {
 
 			// Route record types to different edit pages.
 			getEditPageName: function() {
-				var type = this.get("ActiveRowType");
+				const type = this.get("ActiveRowType");
 				return type === "special" ? "UsrRelatedEntityPage" : this.callParent(arguments);
 			},
 
@@ -130,7 +131,7 @@ define("UsrMyDetail", [], function() {
 				return this.get("MasterRecordId");
 			},
 
-			applyPostLoadFix: function(){},
+			applyPostLoadFix: function() {},
 
 			destroy: function() {
 				this.callParent(arguments);

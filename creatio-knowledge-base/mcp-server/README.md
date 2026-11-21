@@ -15,7 +15,7 @@ Recipes (`kb_index.py`):
 | `find_api(symbol, limit?)` | Reverse lookup — which recipes use `crt.OpenLookupPageRequest`, `UseAdminRights`, `EntitySchemaQuery`… A bare name also matches the dotted one. |
 | `list_recipes(area?, topic?)` | Browse ids and titles. |
 | `kb_overview()` | Map of areas, topics and counts — the entry point when the model does not know what exists. |
-| `get_code_style(section?)` | The C# style and architecture guide (`../CREATIO_CODE_STYLE.md`), whole or one `##` section by number or heading words (`"logging"`, `"9"`). |
+| `get_code_style(section?, guide?)` | The style and architecture guides: `guide="csharp"` (default, `../CREATIO_CODE_STYLE.md`) or `guide="frontend"` (`../CREATIO_FRONTEND_CODE_STYLE.md`: Classic UI, Freedom UI, remote modules, mobile); whole or one `##` section by number or heading words (`"logging"`, `"9"`). |
 
 The describe layer (`../no-code/tools/creatio_schemas/describe/`, its README is the contract -
 every list answer has a `limit`, default 40, and a `... N more` tail; `0` means all):
@@ -34,7 +34,7 @@ every list answer has a `limit`, default 40, and a `... N more` tail; `0` means 
 | `find_text(path, pattern, kind?, context?, limit?)` | A regex over every file the index knows: `<Package>/<Item> (<kind>) <line>: <text>`, `context` lines around each hit; resource XML only with `kind="resource"`. The answer to "where is this text" without a Grep over raw schema files. |
 | `schema_deps(path, schema, direction?, kind?, via?, limit?, offset?)` | The typed graph: objects a page or process builds on (and through which columns); every process, rule, page, DCM, binding or listener that builds on an object. |
 | `schema_impact(path, schemas, tasks?, current?, md?, limit?, kind?)` | The dependents of the schemas a task changes; with the loop's tasks folder, which other active task changes or affects them. Ends with `exit code 1` on a conflict. `md` gives the `## Impact` table for `plan.md`; `kind` keeps one kind of dependents (a lookup with a hundred). |
-| `schema_diff(package, schemas?, against?)` | The working copy against git HEAD, a revision or a folder with a pulled copy: `+` / `-` / `~` lines per item, never a JSON hunk. |
+| `schema_diff(package, schemas?, against?)` | The working copy against git HEAD, a revision, a folder with a pulled copy, or the site (`against="env:<name>"`: the named schemas' copies pulled from the site's tables): `+` / `-` / `~` lines per item, never a JSON hunk. |
 | `resolve_uid(path, text)` | What a UId names (a schema, `column X.Y`, a process element or parameter), the UId of a dotted name, or a text with every UId replaced by its name - the reverse of what the designer stores. |
 | `tool_stats(days?)` | Calls, characters and the largest answers per tool over the last days, and the share of answers cut with a `... N more` tail (from `mcp-server/.stats/`). |
 | `schema_layers(path_or_env, schema, rule?, workspace?)` | The SysSchema copies of a schema on an environment, applied first to last; `Custom layer present` means a copy on the site overrides what you push. |
@@ -72,9 +72,17 @@ The environment (`creatio_schemas/environment.py` over clio; `env` is a clio env
 | `sys_setting(code, envs, workspace?)` | A setting's value on each environment and the data bindings of the workspace that set it. |
 | `push_package(package, env, ...)` | `IsChanged` cleared, `push-pkg`, the compilation log, `compile-configuration` when needed, the probes of the changed items; `dry_run` shows the plan. |
 | `verify_pushed(package, env, schemas?, bin?)` | Is the site running the pushed code: per schema `same` / `differs (metadata or body ...)` / `not on the site`, a script process `not published` / `compile error`, a client schema `not served`; read-only. |
+| `ci_check(packages, package?, cyrillic?)` | The package rules of the CI pipeline (`ci-cd/pipeline.py check`) on a packages folder: schema folder files, duplicate UIds, `alert(` / `debugger`, one `.sql` and one `.dll` per folder; one line per problem, `exit code` 0/1. Read-only. |
+| `ci_hierarchy(packages)` | The install order by levels from `descriptor.json` with the dependency report (inside, outside, used by, PROBLEMS). Read-only. |
+| `ci_lint(packages, locale?, package?)` | Schemas without `resource.<locale>.xml` and process Read Data elements that read every column; two parts, each with its `exit code`. Read-only. |
+| `ci_build(packages, out, package?)` | `clio compress` per package into `out`, plus `out/Pkg.zip`; writes into `out` only. |
+| `ci_deploy(packages, env, package?, restart?, redis?, compile_all?)` | The deploy stage on a site: `IsChanged` cleared, `push-pkg` per package in dependency order, `compile-configuration`, `restart-web-app`, `clear-redis-db`, `healthcheck`. WRITES to the site. For one package with probes use `push_package`. |
+| `ci_push_all(packages, env, package?, retry?, continue_on_error?)` | Only the push of several packages in dependency order, one at a time; the failed ones in `error-pkg.txt`, `retry` pushes that list again; a log line per step in `logs/`. WRITES to the site. |
 
 The describe and environment tools import `../no-code/tools` at startup (standard library only);
-the environment tools also need `clio` on the PATH with the environment registered.
+the environment tools also need `clio` on the PATH with the environment registered. The `ci_*` tools run the
+kit's `../../ci-cd/pipeline.py` and `clio-ext.py` in-process with their output captured, so the kit must be checked out
+whole; the in-Creatio unit tests are `run_tests`, the UI cases the `run` tool of the creatio-tests server.
 
 Search is lexical BM25 with a title bonus and a light stemmer (`pagination` finds
 `paginate`, `files` finds `file`), built in memory at startup. No API keys, no network,

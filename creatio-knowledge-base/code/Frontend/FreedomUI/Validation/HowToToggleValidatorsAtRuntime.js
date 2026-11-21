@@ -30,6 +30,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// record opens with the right state.
 		//
 		// See also HowToUseValidators.js for declaring the validators themselves.
+		// Style: frontend guide 3.3, 3.4
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/,
 		viewModelConfigDiff: /**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/[]/**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/,
@@ -52,9 +53,9 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			{
 				request: "crt.HandleViewModelInitRequest",
 				handler: async (request, next) => {
-					await next?.handle(request);
+					const result = await next?.handle(request);
 					await applyRequirements(request.$context);
-					return;
+					return result;
 				}
 			}
 
@@ -70,11 +71,11 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		const isCompany = await $context.PDS_UsrIsCompany_k3n8dla;
 
 		if (isCompany) {
-			$context.enableAttributeValidator("PDS_UsrCompanyCode_2l8nvsx", "required");
-			$context.disableAttributeValidator("PDS_UsrPersonCode_3x2r8ba", "required");
+			await $context.enableAttributeValidator("PDS_UsrCompanyCode_2l8nvsx", "required");
+			await $context.disableAttributeValidator("PDS_UsrPersonCode_3x2r8ba", "required");
 		} else {
-			$context.disableAttributeValidator("PDS_UsrCompanyCode_2l8nvsx", "required");
-			$context.enableAttributeValidator("PDS_UsrPersonCode_3x2r8ba", "required");
+			await $context.disableAttributeValidator("PDS_UsrCompanyCode_2l8nvsx", "required");
+			await $context.enableAttributeValidator("PDS_UsrPersonCode_3x2r8ba", "required");
 		}
 	}
 });

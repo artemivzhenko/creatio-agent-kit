@@ -29,6 +29,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// for GENERIC reactions - dirty tracking, logging, a rule over a list of
 		// columns - or when the attribute set is not known at design time.
 		// See HowToHandleAttributeChangeWithChangeKey.js.
+		// Style: frontend guide 3.4
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{

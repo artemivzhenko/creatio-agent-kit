@@ -23,6 +23,7 @@
 // Alternative for parallel work: fire the queries independently and count the
 // completions yourself, or pack them into one Terrasoft.BatchQuery, which is
 // both faster and simpler than a chain of separate reads.
+// Style: frontend guide 1.1, 2.5, 8
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -31,45 +32,43 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Sequential gates before a status change.
 			moveToInWork: function() {
-				var self = this;
-
 				Terrasoft.chain(
 					// Step 1: the record must have at least one detail row.
 					function(next) {
 						this.hasDetailRecords(function(hasRecords) {
 							if (!hasRecords) {
-								self.showInformationDialog(
-									self.get("Resources.Strings.DetailRowRequiredMessage"));
+								this.showInformationDialog(
+									this.get("Resources.Strings.DetailRowRequiredMessage"));
 								return;   // no next() -> the chain stops here
 							}
 							next();
-						});
+						}, this);
 					},
 					// Step 2: read the service and pass it forward.
 					function(next) {
 						this.loadPrimaryService(function(service) {
 							next(service);
-						});
+						}, this);
 					},
 					// Step 3: consume the value produced by step 2.
 					function(next, service) {
 						if (!service) {
-							self.showInformationDialog(
-								self.get("Resources.Strings.ServiceRequiredMessage"));
+							this.showInformationDialog(
+								this.get("Resources.Strings.ServiceRequiredMessage"));
 							return;
 						}
-						self.set("UsrIsPrimary", service);
+						this.set("UsrIsPrimary", service);
 						next();
 					},
 					// Final step: no `next` parameter needed.
 					function() {
-						self.save();
+						this.save();
 					},
 					this);
 			},
 
-			hasDetailRecords: function(callback) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+			hasDetailRecords: function(callback, scope) {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");
@@ -77,12 +76,16 @@ define("UsrMyEntity1Page", [], function() {
 					Terrasoft.ComparisonType.EQUAL, "UsrMyEntity", this.get("Id")));
 
 				esq.getEntityCollection(function(result) {
-					callback.call(this, result.success && result.collection.getCount() > 0);
+					if (!result.success) {
+						Ext.callback(callback, scope || this, [false]);
+						return;
+					}
+					Ext.callback(callback, scope || this, [result.collection.getCount() > 0]);
 				}, this);
 			},
 
-			loadPrimaryService: function(callback) {
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+			loadPrimaryService: function(callback, scope) {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("UsrService");
@@ -90,8 +93,12 @@ define("UsrMyEntity1Page", [], function() {
 					Terrasoft.ComparisonType.EQUAL, "UsrMyEntity", this.get("Id")));
 
 				esq.getEntityCollection(function(result) {
-					var items = result.success ? result.collection.getItems() : [];
-					callback.call(this, items.length ? items[0].get("UsrService") : null);
+					if (!result.success) {
+						Ext.callback(callback, scope || this, [null]);
+						return;
+					}
+					const items = result.collection.getItems();
+					Ext.callback(callback, scope || this, [items.length ? items[0].get("UsrService") : null]);
 				}, this);
 			}
 		},

@@ -1,11 +1,14 @@
 // --- How to block the UI while an async operation runs (body mask) -----------
-// Terrasoft.MaskHelper draws the "loading" overlay over the whole page:
+// The view model draws the "loading" overlay over the whole page:
 //
-//   Terrasoft.MaskHelper.ShowBodyMask();
-//   Terrasoft.MaskHelper.HideBodyMask();
+//   this.showBodyMask();
+//   this.hideBodyMask();
+//
+// Terrasoft.MaskHelper.showBodyMask runs underneath; the PascalCase
+// Terrasoft.MaskHelper.ShowBodyMask / HideBodyMask still works but is deprecated.
 //
 // Rules that matter:
-//   1. Every ShowBodyMask must have a HideBodyMask on EVERY exit path - the
+//   1. Every showBodyMask must have a hideBodyMask on EVERY exit path - the
 //      success branch, the error branch, and the early return. A leaked mask
 //      locks the page and the user has to reload.
 //   2. Hide the mask BEFORE showing a dialog, otherwise the dialog is rendered
@@ -17,6 +20,7 @@
 // Use it for: batch writes, business process starts the user waits for, service
 // calls, multi-step validation chains. Do not use it for a fast ESQ that only
 // refreshes a hidden flag.
+// Style: frontend guide 2.5, 2.6, 8
 
 define("UsrMyEntity1Page", [], function() {
 	return {
@@ -24,10 +28,9 @@ define("UsrMyEntity1Page", [], function() {
 		methods: {
 
 			loadServicesAndShowWindow: function() {
-				var self = this;
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask();
 
-				var esq = Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");
@@ -37,34 +40,32 @@ define("UsrMyEntity1Page", [], function() {
 
 				esq.getEntityCollection(function(result) {
 					// Hide first, so any dialog below is visible.
-					Terrasoft.MaskHelper.HideBodyMask();
+					this.hideBodyMask();
 
 					if (!result.success) {
-						self.showConfirmationDialog(result.errorInfo.message, function() {}, ["Ok"]);
+						this.showConfirmationDialog(result.errorInfo.message, function() {}, ["Ok"]);
 						return;
 					}
-					var items = result.collection.getItems();
+					const items = result.collection.getItems();
 					if (!items.length) {
-						self.showInformationDialog(self.get("Resources.Strings.NoDataFoundMessage"));
+						this.showInformationDialog(this.get("Resources.Strings.NoDataFoundMessage"));
 						return;
 					}
-					self.renderServicesWindow(items);
+					this.renderServicesWindow(items);
 				}, this);
 			},
 
 			// Batch write with the mask released on both branches.
 			saveChanges: function(changes) {
-				var self = this;
-
 				if (!changes.length) {
 					// Early return: nothing was shown, nothing to hide.
 					return;
 				}
-				Terrasoft.MaskHelper.ShowBodyMask();
+				this.showBodyMask();
 
-				var bq = Ext.create("Terrasoft.BatchQuery");
-				changes.forEach(function(change) {
-					var update = Ext.create("Terrasoft.UpdateQuery", {
+				const bq = Ext.create("Terrasoft.BatchQuery");
+				changes.forEach((change) => {
+					const update =Ext.create("Terrasoft.UpdateQuery", {
 						rootSchemaName: "UsrMyDetailEntity"
 					});
 					update.setParameterValue(change.field, change.value, change.type);
@@ -74,9 +75,9 @@ define("UsrMyEntity1Page", [], function() {
 				});
 
 				bq.execute(function(result) {
-					Terrasoft.MaskHelper.HideBodyMask();
+					this.hideBodyMask();
 					if (!result.success) {
-						self.showConfirmationDialog(result.errorInfo.message, function() {}, ["Ok"]);
+						this.showConfirmationDialog(result.errorInfo.message, function() {}, ["Ok"]);
 					}
 				}, this);
 			},

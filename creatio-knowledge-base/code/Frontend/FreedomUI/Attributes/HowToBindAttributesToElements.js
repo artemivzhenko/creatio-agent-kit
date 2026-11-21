@@ -11,17 +11,18 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//   readonly - make the field read-only (boolean attribute)
 		//   disabled - disable the element (boolean attribute)
 		//   caption  - dynamic label text (string attribute)
+		// Style: frontend guide 3.2, 3.3
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
 			// Input bound to a DataSource field; readonly controlled by a boolean attribute
 			{
 				"operation": "insert",
-				"name": "NameField",
+				"name": "Name",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Input",
-					"label": "$NameField_label",
+					"label": "$Resources.Strings.PDS_Name_h9kddsb",
 					"labelPosition": "auto",
 					"value": "$PDS_Name_h9kddsb",
 					"readonly": "$IsFormReadonly"
@@ -31,14 +32,15 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 				"index": 0
 			},
 
-			// Button with visibility controlled by a boolean attribute
+			// Button with visibility controlled by a boolean attribute.
+			// Its caption is the page resource string "Button_Submit_caption".
 			{
 				"operation": "insert",
-				"name": "ActionButton",
+				"name": "Button_Submit",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 2, "colSpan": 1, "rowSpan": 1 },
 					"type": "crt.Button",
-					"caption": "Submit",
+					"caption": "#ResourceString(Button_Submit_caption)#",
 					"iconPosition": "only-text",
 					"visible": "$IsButtonVisible",
 					// Bind with built-in converter to invert the boolean
@@ -56,7 +58,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 			// Label with dynamic caption and conditional visibility
 			{
 				"operation": "insert",
-				"name": "StatusLabel",
+				"name": "Label_Status",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 3, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Label",
