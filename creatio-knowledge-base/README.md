@@ -104,6 +104,7 @@ skill/creatio-kb/              agent skill: the habit of consulting the KB and t
 skill/creatio-loop/            the author/tester contract: the task folder, project.json, the schema lock, proof tiers
 skill/creatio-author/          the author role: plan.md with acceptance criteria, impact, build, push, probe
 skill/creatio-tester/          the tester role: preflight, map, tests of every tier, evidence, the report
+skill/creatio-merge/           the layer merge of objects as one procedure: plan, backup, tests, snapshots, merge, push, verify, tests, report
 ```
 
 Each area is split into topic folders. Both UI areas use the same vocabulary wherever the
