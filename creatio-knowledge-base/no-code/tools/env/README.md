@@ -1,5 +1,5 @@
 ---
-description: Creatio environment tools - one Python client (Environment) for a site - login with cookies and BPMCSRF, OData 4 CRUD, service calls with the WCF fault page reduced to one line, RunProcess with result parameters, SQL through clio as JSON rows - and nine command lines - record.py (which table holds an Id, a record with its lookups named and its details), roles.py (role members, a user's roles and a diff - nested roles included), setting.py (a setting across environments and bindings), sql.py (rows as JSON or CSV, statements split, [ERR] is exit 1), call.py (status + JSON), proc-run.py (the result parameters and the run's SysProcessLog row), proc-runs.py (the runs of a process or around a record's changes, one run's error without stack frames), unit.py (the in-Creatio tests of a project, the integration tier) and api.py (members and overloads of a platform type by reflection over a local bin folder).
+description: Creatio environment tools - one Python client (Environment) for a site - login with cookies and BPMCSRF, OData 4 CRUD, service calls with the WCF fault page reduced to one line, RunProcess with result parameters, SQL through clio as JSON rows - and ten command lines - record.py (which table holds an Id, a record with its lookups named and its details), data.py (a lookup's rows, sample records with lookups named, a synthetic DSL insert block for a case), roles.py (role members, a user's roles and a diff - nested roles included), setting.py (a setting across environments and bindings), sql.py (rows as JSON or CSV, statements split, [ERR] is exit 1), call.py (status + JSON), proc-run.py (the result parameters and the run's SysProcessLog row), proc-runs.py (the runs of a process or around a record's changes, one run's error without stack frames), unit.py (the in-Creatio tests of a project, the integration tier) and api.py (members and overloads of a platform type by reflection over a local bin folder).
 ---
 
 # Environment tools: SQL, service calls, processes, in-Creatio tests, platform API signatures
@@ -16,10 +16,13 @@ them. Pure Python standard library (`api.py` also needs Windows PowerShell).
 | `unit.py` | `run --category` / `--class`: the project's in-Creatio tests, one row per test |
 | `api.py` | public members of a platform type from the assemblies of a local installation |
 | `record.py` | `find` the table that holds an Id; `context` of a record: lookups named, the rows that point at it; `history` from the change log; `transitions` of one column |
+| `data.py` | `lookup-values` of a lookup ordered by Name; `sample` records with their lookups named; `fixture`: a synthetic DSL `insert` block of an object's shape (writes nothing) |
 | `roles.py` | `members` of a role, the roles of a `user`, a `diff` of users against a role - the closure, nested roles included |
 | `setting.py` | a system setting on each environment with date and author, and the workspace bindings that set it |
-| [`../creatio_schemas/records.py`, `access.py`](../creatio_schemas/README.md) | the library behind them |
+| [`../creatio_schemas/records.py`, `access.py`, `testdata.py`](../creatio_schemas/README.md) | the library behind them |
 | `tests/test_env_snapshot.py` | the snapshot's site lines through a FakeClio (chunks of 50, a planted difference) |
+| `tests/test_env_manifest.py` | `manifest.py` over a fake clio: the manifest read, the diff grouped, the dev guard |
+| `tests/test_env_data.py` | `data.py` and `testdata.py` over a scripted `sql`, made-up rows |
 | `tests/test_env_forensics.py` | a scripted clio: every statement answered by what it contains; no site needed |
 | [`../creatio_schemas/environment.py`](../creatio_schemas/README.md) | the library: `Environment`, `Response` |
 | `tests/test_env_tools.py` | a fake HTTP opener and a fake clio; no site needed |
@@ -97,6 +100,20 @@ python record.py transitions -e <env> <Entity>.<Column> [--from "A"] [--to "B"] 
 | `history` | the change log of a record: when, who, was -> became |
 | `transitions` | every change of one column of an object, from its change log |
 
+### env data
+
+```
+python data.py lookup-values -e <env> <Lookup> [--limit 50] [--offset 0]
+python data.py sample  -e <env> <Entity> [--filter "\"UsrAmount\" > 10"] [--n 3] [--columns "CreatedOn,ModifiedBy"]
+python data.py fixture -e <env> <Entity> [--alias A] [--columns "UsrNotes,UsrStatus"]
+```
+
+| command | what it does |
+| --- | --- |
+| `lookup-values` | the rows of a lookup ordered by Name |
+| `sample` | records of an object with their lookups named |
+| `fixture` | a synthetic DSL insert block of the object's shape |
+
 ### env roles
 
 ```
@@ -135,6 +152,36 @@ python proc-runs.py error -e <env> <log id>
 | `fire` | move a pending timer to now + --delay seconds (dev environments only) |
 | `error` | one run's error without stack frames, and the element it stopped on |
 <!-- commands:end -->
+
+## Test data (`data.py`)
+
+- `lookup-values`: `<Lookup>: N rows`, then `Id  Name  [Code]  [Description cut to 60]` per row ordered by Name, a page
+  with a `next: offset=` tail; a missing table names `Usr<Lookup>` when that one exists.
+- `sample`: `n` records (at most 50; the newest by `CreatedOn` without `--filter`), `Column (type) = value` per line, a
+  lookup as `Name (<id>)` or `<id> (no row)`; system columns only when `--columns` names them; the filter is one `where`
+  fragment, no `;`, no writing word. The values are for looking: a case takes its record from `fixture`.
+- `fixture`: `insert <Entity> as <alias> set ...` with made-up values - the required columns (NOT NULL without a
+  default) and `--columns`; with nothing required, the caption (`Name`, else the first own text column); text
+  `<Column> <alias>`, numbers `1`, dates today, booleans `false`; a lookup takes its first row by Name (the Name in a `#`
+  line above); a reference to another object gets its own `insert` above, bound as `$<Column>`, one level deep; then the
+  `delete` lines for the case's end, newest first (a `# writes` case must delete what it inserts). Ends with
+  `columns: K required, L lookups resolved, M references inserted`.
+
+A column the site requires beyond the database - a schema requirement, a server-side validator (the insert fails with
+"<column> field must be filled in") - is named in `--columns`: neither is readable from the site (most `SysSchema`
+layers are not JSON, OData `$metadata` does not flag a required lookup). `--columns` applies to the object itself, not
+to a referenced object inserted above; run `fixture` for that one.
+
+## A site's manifest and its features (MCP only: `env_diff`, `set_feature`)
+
+`creatio_schemas/manifest.py` wraps the clio verbs clio's own MCP server does not reach. `env_diff(env, save=<file>)` runs
+`clio save-state` (features with their per-role values, settings, web services, packages with the hash of each schema) and
+answers the item count per section; `env_diff(before=, after=)` compares two such files - one line per change grouped by
+section (`+ item`, `- item`, `~ item key: was -> now`; a schema of a pushed package is `~ <Pkg> schemas/<Schema> hash`).
+Save one before a push and one after to see what the push changed, or before and after anything else. `env_diff(env,
+other=)` is `clio show-diff --source --target`: two environments now (clio compares environments, not files).
+`set_feature(env, feature, on|off, project)` is `clio set-feature <code> 1|0` for all users, refused unless the project.json
+marks the environment `kind: dev` (the `fire_timer` guard). `apply-manifest` is not wrapped: it writes to a site.
 
 ## Which site
 

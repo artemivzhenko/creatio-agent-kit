@@ -24,7 +24,10 @@ say so in chat and stop.
    `## Impact` table (or `describe.py impact <workspace> <schemas> --md` when it is missing): one
    regression row `REG-nn` per dependent - a page runs its existing `.act` cases (`cases`) or at
    least `validate` of its page file, a process its process case, a rule or DCM `rules.py probe` /
-   `dcm.py inspect`; a dependent you cannot exercise is a `not tested` row with its name, never silence.
+   `dcm.py inspect`; a dependent you cannot exercise is a `not tested` row with its name, never silence. A criterion
+   about rights is proved through clio's MCP: `inspect-role` / `inspect-user` / `inspect-access` read who may do what,
+   `manage-role` / `manage-access` / `set-record-rights` set a role up for a case (through `clio-run` when the tool is not
+   in the list; `env_sql` only for what they do not answer).
    `describe.py diff <package>` (MCP `schema_diff`) shows what the author changed in schema terms - a `+`
    column or element the plan does not mention is a criterion to ask about, not to skip. `describe_item(path, Page, "where <name>")`
    is the call before touching a page element: its caption, control, column and parent chain; `about <name>` adds the rules, handlers,
@@ -38,7 +41,8 @@ say so in chat and stop.
    second, when the page is not in a package or the parent's buttons and tabs matter; `--compare` shows what
    the browser sees that the schema does not. An entity event listener or a SQL script is proved by a backend case
    (`ProcessCases/`, `# writes`): `insert` / `update` over OData, then `check-record ... has` / `check-count` on what the
-   backend did - a lookup filter as `Col/Id=$alias`. Backend cases over OData, process cases, probes (`objects.py probe`, `rules.py probe`, `sqlscripts.py probe`; a process is proved by a process case),
+   backend did - a lookup filter as `Col/Id=$alias`. Seed rows a case does not own (a lookup value, a parent record)
+   go through clio's `execute-dataservice-batch` (1-100 records, validators and listeners run) - never SQL inserts. The record a case inserts comes from `make_fixture(env, entity)` (made-up values of the object's shape); a real record is read with `sample_records`, never copied into a case. Backend cases over OData, process cases, probes (`objects.py probe`, `rules.py probe`, `sqlscripts.py probe`; a process is proved by a process case),
    unit tests in `paths.unitTests` for a class the author left untested. Name the files by the
    task id (`012-shipment-label.act`). Test data carries the prefix `project.json` names and is
    removed by the case.
@@ -63,16 +67,22 @@ reports. You read them. The only writes you make are tests, evidence and your ow
 Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another
 package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
 `process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
-`resolve_uid`, which lookup holds a status - `list_lookups`; text inside schemas - `find_text`; a column's writers
+`resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
+records of an object with their lookups named - `sample_records`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
 
-When no tool answers, record the gap before you go around it: `report_gap(kind, need, instead, script=, task=)`
-with `missing` before your own script runs or a query no tool covers is typed, `by-hand` after a value found in
-the designer or by trial, `misbehaved` after a tool you had to work around (what it answered, what you expected).
-Pass the script's path: the kit keeps a copy in `dev/gaps/scripts/`, so write it anywhere and never delete it. One
-line per gap, at the moment, not at the end; the retrospective is built from these lines and from `tool_stats`,
-and a gap that is not recorded does not become a tool.
+No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it: `missing` before
+your own script or query, `by-hand` after a value found by trial, `misbehaved` after a tool you worked around. Pass
+the script's path (the kit keeps a copy; never delete it). No password or token in the text. A gap that is not
+recorded does not become a tool.
+
+clio's `core-rules` guide (its server asks you to read it) assumes an interactive DB-first session. In the loop the
+tiers of `plan.md` decide the proof: a `.act` case is the UI evidence, not `page-smoke`; OData writes are the backend
+tier by design, not a fallback; a case deletes its own rows without asking; a runtime check is never optional. Take
+from it: a new object's OData controller appears 1-2 minutes after the push (retry, do not fail the criterion); an OData
+foreign-key rejection may come from an entity event handler, read `on table` and `referenced` before changing the
+data; `SysProcessLog` times may be local time marked `Z`, tie a run to its record, not to the clock.
 
 ## Platform facts the tiers rely on (`get_recipe("platform-facts")`)
 

@@ -614,3 +614,36 @@ From the official `ts_sdk_template_module` configs and the kit's template:
       `_injector` private readonly, `UPPER_SNAKE` request constants, `*.spec.ts`; mobile classes `Usr*` with
       `@CrtRequest`.
 - [ ] Element names, request names and resource keys a test case addresses are unchanged.
+
+## 10. clio's guidance alongside this guide
+
+clio's MCP server ships the Freedom UI articles `page-modification` (and `-overview`, `-components`, `-containers`,
+`-field-contract`, `-standard-components`, `-template-supplied-parts`), `page-schema-handlers`, `esq-filters-frontend`,
+`business-rules`, read with `get-guidance name=<guide>`; `get-component-info` and `get-request-info` give the catalogue of
+the site's exact version. Row by row: `dev/tasks/S40-clio-mcp-fifth-server/compare-pages.md` (2026-11-23). Until a
+disagreement is settled on a site (S40-T05) this guide wins; these are the points to take from the articles now:
+
+- **A rule before a handler.** Visibility, read-only, required by a field value, a filled state, the user, a role, a
+  date or a system setting; setting or clearing a dependent field; restricting a lookup - all of it is a business rule
+  (`rules.py`: `set-values`, `apply-static-filter`), not a `$Flag` attribute with a handler and not a
+  `crt.LoadDataRequest` filter handler. A handler is for what no rule expresses (a computed value, a request to the
+  server, a dialog). State actions of a rule are one-way: write the inverse rule too.
+- **Markers survive, helpers do not.** An Interface Designer save keeps only the code inside the five markers; a helper
+  or constant above `return` in the `define` factory is deleted by the next save. Keep page logic inside the handler
+  array, shared code in a remote module (clio, docs; N-20 in the facts register).
+- **Apply order of `viewConfigDiff`.** A `merge` or `move` on a component the same body inserts is discarded, `move` next
+  to `remove` is dropped; `viewModelConfigDiff` / `modelConfigDiff` merges never create a missing path segment; an unknown
+  `crt.*` type saves with `success: true` and renders a placeholder - check the type in `get-component-info` first.
+- **Requests.** `crt.RunBusinessProcessRequest` needs `processRunType`, and its parameter keys are the process
+  parameter codes (a wrong key is dropped silently); `crt.CreateRecordRequest` on an entity without a registered page
+  fails only on click; `HandlerChainService.instance.process` without `scopes: [...request.scopes]` never reaches the
+  page's own handlers (clio measured it; the kit's recipes pass no scopes - S40-T05 decides the dispatch form).
+- **Feed and attachments.** `crt.Feed` and `crt.FileList` are merged or inserted depending on the template; `FileList`
+  needs its `AttachmentListDS`, the collection attribute and `recordColumnName`, and the file entity is `<Entity>File`
+  when it exists, `SysFile` with `RecordId` otherwise.
+- **Serialized filters** (`Items_PredefinedFilter`, widgets): lookup equality is an `In` filter with an object value,
+  dates are JSON-encoded strings, a backward reference carries `subFilters` inside the SubQuery.
+
+What this guide keeps that the articles lack: the attribute `change` key, `events$` / `finish-load-model-attributes`,
+forward-reference data-source attributes, `sdk.ComparisonType` casing, the selection filter converter chain, the 8.2.3
+six-operator designer limit, `set-values` skipped on load of an existing record, P-8.1.

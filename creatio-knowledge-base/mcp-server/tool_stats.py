@@ -90,7 +90,7 @@ def read(days: int = 1, folder: Path | None = None) -> list[dict]:
 # -- gaps: what the agent did outside the tools, recorded when it happened (S37-T01) ---------------------------------- #
 
 GAP_KINDS = ("missing", "misbehaved", "by-hand")
-_SECRET_RE = re.compile(r"\b(password|pwd)\s*[=:]", re.I)
+_SECRET_RE = re.compile(r"\b(password|passwd|pwd|token|secret|client_secret|api[_-]?key|bearer)\b\s*[=:]?\s*\S", re.I)
 
 
 def gaps_folder() -> Path:
@@ -99,18 +99,20 @@ def gaps_folder() -> Path:
 
 
 def record_gap(folder: Path, kind: str, need: str, instead: str, script: str = "", task: str = "") -> dict:
-    """Append one line to <folder>/gaps.jsonl and keep a copy of `script` under <folder>/scripts/; ValueError says why a call is refused."""
+    """Append one line to <folder>/gaps.jsonl and keep a copy of `script` under <folder>/scripts/; ValueError says why a call is refused.
+    The secret check covers `need`, `instead` and `task` (the text other agents read); the script is copied as it is - the caller keeps
+    credentials out of it."""
     if kind not in GAP_KINDS:
         raise ValueError(f"kind must be one of {', '.join(GAP_KINDS)}")
     if not need.strip() or not instead.strip():
         raise ValueError("need and instead must both say something")
-    if _SECRET_RE.search(need + " " + instead):
-        raise ValueError("the log is read by other agents: no password in need or instead")
+    if _SECRET_RE.search(" ".join((need, instead, task))):
+        raise ValueError("the log is read by other agents: no password, token or key in the text")
     kept = ""
     if script:
         src = Path(script)
         if not src.is_file():
-            raise ValueError(f"script not found: {script}")
+            raise ValueError(f"script is not a file: {script}")
         scripts = folder / "scripts"
         if src.resolve().parent == scripts.resolve():
             kept = str(src)
@@ -118,8 +120,8 @@ def record_gap(folder: Path, kind: str, need: str, instead: str, script: str = "
             scripts.mkdir(parents=True, exist_ok=True)
             today = date.today().isoformat()
             dest, n = scripts / f"{today}-{src.name}", 2
-            while dest.exists():
-                dest, n = scripts / f"{today}-{src.stem}-{n}{src.suffix}", n + 1
+            while dest.exists():  # the counter goes before the name: `a.tar.gz` stays whole
+                dest, n = scripts / f"{today}-{n}-{src.name}", n + 1
             shutil.copy2(src, dest)
             kept = str(dest)
     line = {"ts": datetime.now().isoformat(timespec="seconds"), "kind": kind, "need": need.strip(), "instead": instead.strip(), "script": kept, "task": task}
@@ -130,15 +132,17 @@ def record_gap(folder: Path, kind: str, need: str, instead: str, script: str = "
 
 
 def read_gaps(folder: Path | None = None) -> list[dict]:
-    """Every line of <folder>/gaps.jsonl (a bad line is skipped)."""
+    """Every line of <folder>/gaps.jsonl (a line that is not a JSON object is skipped)."""
     path = (folder or gaps_folder()) / "gaps.jsonl"
     out = []
     if path.is_file():
         for raw in path.read_text(encoding="utf-8").splitlines():
             try:
-                out.append(json.loads(raw))
+                line = json.loads(raw)
             except ValueError:
                 continue
+            if isinstance(line, dict):
+                out.append(line)
     return out
 
 

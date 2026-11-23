@@ -34,7 +34,10 @@ use `find_api` instead: it tells you which recipe demonstrates that exact API.
 For anything done through the **clio CLI** - installing packages, running SQL, adding
 columns, editing Freedom UI pages, rights, builds - search with `area="Clio"`:
 `get_recipe("clio-sql-and-data")` is the block's workflow with verified traps, and
-`get_recipe("execute-sql-script")` the command's full syntax and options.
+`get_recipe("execute-sql-script")` the command's full syntax and options. clio's own MCP server carries the
+platform rules as guidance (`get-guidance name=list`, then `name=<guide>`: processes, pages, business rules, ESQ,
+settings, bindings, the three-way merge); the recipes here carry the project's idioms and the facts checked on a
+site. When both speak about the same thing, read both and follow the one with evidence.
 
 For **no-code artifacts built as package files** - business processes, business rules
 of objects and Freedom UI pages, objects and their columns, fields and grids on Freedom UI
@@ -84,7 +87,8 @@ saved, `process_error(env, log_id)` the whole error and the element it stopped o
 Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another
 package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
 `process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
-`resolve_uid`, which lookup holds a status - `list_lookups`; text inside schemas - `find_text`; a column's writers
+`resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
+records of an object with their lookups named - `sample_records`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`. A platform behaviour you are not
 sure of (publish, layers, `IsChanged`, roles, OData paths, Classic DOM) is in `get_recipe("platform-facts")`, one

@@ -21,7 +21,7 @@ def load(name, path):
 
 
 project = load("project_tools", ROOT / "no-code" / "tools" / "project.py")
-setup = load("agent_setup", ROOT / "agent_setup.py")
+setup = load("agent_setup", ROOT.parent / "agent_setup.py")  # the kit root, above creatio-knowledge-base
 
 
 def test_sync_example_and_preserves_unmanaged_settings():
@@ -67,12 +67,12 @@ def test_launcher_falls_back_to_py_and_check_is_read_only():
             return subprocess.CompletedProcess(cmd, 9009, "", "Install Python from the Microsoft Store")
         return subprocess.CompletedProcess(cmd, 0, "3.12.1\n", "")
     with patch.object(setup.subprocess, "run", side_effect=run), \
-         patch.object(setup, "find_claude", side_effect=AssertionError("check must not register")), \
-         patch.object(setup.sys, "argv", ["agent_setup.py", "--check"]), \
+         patch.object(setup, "register", side_effect=AssertionError("check must not register")), \
+         patch.object(setup, "ARGS", ["--check"]), \
          contextlib.redirect_stdout(io.StringIO()) as out:
         setup.main()
     assert "Selected Python launcher: py -3" in out.getvalue()
-    assert "MCP_TIMEOUT=120000" in out.getvalue()
+    assert "Servers: creatio-kb, creatio-tests" in out.getvalue() and "Skills: " in out.getvalue()
 
 
 def test_the_launcher_order_is_py_3_on_windows_and_python3_elsewhere():  # S33-T09
@@ -89,7 +89,7 @@ def test_the_launcher_order_is_py_3_on_windows_and_python3_elsewhere():  # S33-T
 
 def test_no_working_launcher_stops_before_registration():
     with patch.object(setup.subprocess, "run", side_effect=FileNotFoundError("missing")), \
-         patch.object(setup, "find_claude", side_effect=AssertionError("must not register")), \
+         patch.object(setup, "register", side_effect=AssertionError("must not register")), \
          contextlib.redirect_stdout(io.StringIO()):
         try:
             setup.main()

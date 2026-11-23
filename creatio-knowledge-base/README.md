@@ -6,7 +6,7 @@ modules, a C# style guide, **a no-code layer** (13 clio block skills with a refe
 each of its 261 commands, and 17 Python toolkits that build business processes, rules, objects,
 pages, cases, data bindings and SQL scripts as package files), **a describe layer** that answers
 questions about a package - what it holds, what a schema is, who depends on it, what changed -
-without reading the files, and an MCP server that gives an AI assistant all of it as 44 tools.
+without reading the files, and an MCP server that gives an AI assistant all of it as 67 tools.
 Four agent skills (Claude Code, Codex CLI, GitHub Copilot CLI) turn the tools into roles: an **author** that builds a task and a
 **tester** that proves it, under one task-folder contract.
 
@@ -155,7 +155,7 @@ whole or one section at a time.
 
 ## Using it with an AI assistant
 
-The MCP server gives the assistant 44 tools in three groups.
+The MCP server gives the assistant 67 tools in three groups.
 
 Recipes:
 

@@ -962,6 +962,81 @@ def column_transitions(env: str, column: str, from_: str = "", to: str = "", sin
 
 
 @mcp.tool()
+def lookup_values(env: str, lookup: str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
+    """What a lookup holds on the site, instead of a `select` on a guessed table: `<lookup>: N rows`, then one line per row
+    `Id  Name  [Code]  [Description cut to 60]` ordered by Name, a page of `limit` (0 = all) from `offset` with a
+    `next: offset=` tail. A missing table says so (and names `Usr<lookup>` when that one exists). Read-only."""
+    from creatio_schemas.testdata import lookup_values as _values
+    return _answer(env, lambda e: _values(e, lookup.strip(), max(limit, 0), max(offset, 0)), 0)
+
+
+@mcp.tool()
+def sample_records(env: str, entity: str, filter: str = "", n: int = 3, columns: str = "", limit: int = DEFAULT_LIMIT) -> str:
+    """`n` records of an object (at most 50; the newest by CreatedOn when `filter` is empty), one block each:
+    `Column (type) = value`, every lookup as the referenced row's Name and its Id (`<id> (no row)` when the row is gone).
+    `filter` is a SQL `where` fragment (`"UsrAmount" > 10`) - one fragment, no `;`, no writing word. The system columns
+    (CreatedOn, ModifiedBy, ProcessListeners...) show only when `columns` names them. Read the values; never copy them
+    into a case - `make_fixture` makes the case's record. Read-only."""
+    from creatio_schemas.testdata import sample_records as _sample
+    return _answer(env, lambda e: _sample(e, entity.strip(), filter, n, columns), limit)
+
+
+@mcp.tool()
+def make_fixture(env: str, entity: str, alias: str = "A", columns: str = "") -> str:
+    """A synthetic record of the object's shape as a DSL block for a backend case (`insert <Entity> as <alias> set ...`):
+    the required columns (NOT NULL without a default; name the others in `columns`), text `<Column> <alias>`, numbers 1,
+    dates today, booleans false; a lookup takes its first row by Name (the Id, its Name in a `#` line above); a reference
+    to another object gets its own `insert` above, bound as `$<Column>`, one level deep (deeper: a `# set by hand` line);
+    then the `delete` lines for the case's end, newest first. Ends with `columns: K required, L lookups resolved, M references
+    inserted`. A column the site requires beyond the database (an insert failing with "<column> field must be filled in")
+    goes into `columns`. Writes nothing: paste the inserts at the top of the case, the deletes at its end. Read-only."""
+    from creatio_schemas.testdata import make_fixture as _fixture
+    return _answer(env, lambda e: _fixture(e, entity.strip(), alias.strip() or "A", columns), 0)
+
+
+@mcp.tool()
+def env_diff(env: str = "", save: str = "", before: str = "", after: str = "", other: str = "", limit: int = DEFAULT_LIMIT) -> str:
+    """What changed on a site between two moments, from clio's manifest. `save=<file.yaml>` with `env` runs `clio save-state`
+    (features, settings, web services, packages with their schemas' hashes) and answers the file and the item count per
+    section - save one before a push and one after. `before` + `after` (two such files) answers the differences grouped by
+    section, one line per change (`+ item`, `- item`, `~ item key: was -> now`), or `no differences`. `other` with `env`
+    runs `clio show-diff --source <env> --target <other>` (two environments now; clio compares environments, not files).
+    Read-only: `apply-manifest` is not wrapped."""
+    from creatio_schemas.describe import cut
+    _tools_path()
+    from creatio_schemas import manifest
+    try:
+        if save.strip():
+            if not env.strip():
+                return "error: save needs env"
+            return manifest.save_state(env.strip(), save.strip())
+        if before.strip() and after.strip():
+            lines = manifest.manifest_diff(before.strip(), after.strip())
+        elif other.strip() and env.strip():
+            lines = manifest.show_diff(env.strip(), other.strip())
+        else:
+            return "error: give env and save, or before and after, or env and other"
+    except (OSError, ValueError, RuntimeError) as e:
+        return f"error: {e.args[0] if e.args else e}"
+    return "\n".join(cut(lines, limit, "lines")) or "no differences"
+
+
+@mcp.tool()
+def set_feature(env: str, feature: str, state: str, project: str) -> str:
+    """Switch a feature for all users on a dev site: `clio set-feature <feature> 1|0` (`state` on / off). WRITES, and is refused
+    (`refused: <env> is not a dev environment`) unless `project` (a project.json path) marks the environment `"kind": "dev"`
+    with a `clioName` equal to `env` - the guard of `fire_timer`. A platform refusal comes back as `error: ...`."""
+    _tools_path()
+    from creatio_schemas import manifest
+    try:
+        return manifest.set_feature(env.strip(), feature.strip(), state, project.strip() or None)
+    except PermissionError as refusal:
+        return str(refusal.args[0])
+    except (OSError, ValueError, RuntimeError) as e:
+        return f"error: {e.args[0] if e.args else e}"
+
+
+@mcp.tool()
 def role_members(env: str, role: str, units: bool = False) -> str:
     """The users a role reaches through `SysAdminUnitInRole` - the closure, nested roles and the org structure included,
     not only the direct members `SysUserInRole` lists - each with the unit the membership came through. `units` adds

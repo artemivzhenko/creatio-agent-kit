@@ -10,7 +10,7 @@ agent as tools, and four agent skills (Claude Code, Codex, Copilot) that turn th
 
 | Folder | What it holds | Start at |
 |---|---|---|
-| [creatio-knowledge-base/](creatio-knowledge-base/README.md) | 177 code recipes (Classic UI, Freedom UI, C#, SQL), the clio reference, `no-code/tools/` (17 package toolkits, the describe layer, the environment layer), the `creatio-kb` MCP server (44 tools), the skills `creatio-kb`, `creatio-author`, `creatio-tester`, `creatio-loop`, the platform facts register | its README |
+| [creatio-knowledge-base/](creatio-knowledge-base/README.md) | 177 code recipes (Classic UI, Freedom UI, C#, SQL), the clio reference, `no-code/tools/` (17 package toolkits, the describe layer, the environment layer), the `creatio-kb` MCP server (67 tools), the skills `creatio-kb`, `creatio-author`, `creatio-tester`, `creatio-loop`, the platform facts register | its README |
 | [automatic-creatio-tests/](automatic-creatio-tests/README.md) | the test framework: `.act` cases in a small DSL over Playwright for Freedom UI and Classic UI pages, process cases and OData backend cases without a browser, the `creatio-tests` MCP server (11 tools) | its README, [docs/dsl.md](automatic-creatio-tests/docs/dsl.md) |
 | [ci-cd/](ci-cd/README.md) | the pipeline of a package repository: `pipeline.py` with the stages check (package rules, the descriptor-date rule against the merge base), build, register, backup, deploy from the built artifact (IsChanged cleared, push-pkg, compile, restart, Redis; a backup zip is the rollback), verify, unit tests inside Creatio, UI cases; templates for GitHub Actions, GitLab CI and Jenkins; `clio-ext.py`, the developer's commands around clio (push-all in dependency order, hierarchy, localization and process checks, OAuth service); the check, hierarchy, lint, build, deploy and push-all stages are also `ci_*` tools of the knowledge-base MCP server | its README |
 | [postman/](postman/) | a Postman collection for manual API checks against a site; a helper, not part of the pipeline | - |
@@ -42,10 +42,19 @@ py -3 agent_setup.py --agents codex  # one agent instead of every one found: cla
 ```
 
 The script creates the virtual environments of both MCP servers once, then, for every agent CLI it finds, registers
-`creatio-kb`, `creatio-tests`, `context7`, `microsoft-learn` and (with the .NET 10 SDK) `roslyn-codelens` at user
-scope with the interpreter of each venv, so the paths follow the clone, and copies the four Creatio skills into the
-agent's personal skills folder (`~/.claude/skills` for Claude Code, `~/.agents/skills` for Codex and Copilot). Claude
-Code also gets the ponytail plugin and graphify. Re-running it is safe. Then:
+`creatio-kb`, `creatio-tests`, `context7`, `microsoft-learn`, (with the .NET 10 SDK) `roslyn-codelens` and (with clio on
+PATH) `clio` - clio's own MCP server - at user scope with the interpreter of each venv, so the paths follow the clone, and
+copies the four Creatio skills into the agent's personal skills folder (`~/.claude/skills` for Claude Code,
+`~/.agents/skills` for Codex and Copilot). Claude Code also gets the ponytail plugin and graphify. Re-running it is safe.
+
+clio's server adds what the kit does not build: rights (`inspect-*`, `manage-*`, `*-rights`), system settings, DataService
+batches, data bindings read from the site, the Freedom UI component and request catalogue of the exact platform version,
+`validate-page`, a browser session and `page-smoke`. It advertises 18 tools and reaches the other 237 through
+`clio-run {"command": ..., "args": {...}}` (`get-tool-contract` lists them); that costs about 9k tokens of context per
+session, so a session that only reads the knowledge base can run without it. Its telemetry is declined once by the setup
+script (`~/.clio/telemetry/consent.json`); nothing an agent writes goes to clio's feedback. The skills say which clio tools
+the author and the tester use and keep one rule: a kit task writes schemas as package files and pushes them; clio writes
+to the site only data, rights, settings and validated pages. Then:
 
 ```bash
 cd automatic-creatio-tests && dotnet build && dotnet test        # the framework, no browser needed

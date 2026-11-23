@@ -42,7 +42,25 @@ folder.
    `Files/cs` per `get_code_style("architecture")` 3.7 and gets a unit test per 3.8
    (`clio new-test-project` once per package, `dotnet test` green before you say done).
    Client code (a Classic schema, a Freedom UI page, a remote module) follows
-   `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push.
+   `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push. For a
+   Freedom UI page, clio's MCP gives the component and request catalogue of the site's exact platform version:
+   `get-component-info` (list mode first, then the component), `get-request-info`; `validate-page` lints the page
+   body before the push (`clio-run` when a tool is not in the list).
+
+   Two write paths, one rule: a schema (object, page, process, C#, SQL script) is a package file built by the
+   toolkits and pushed by `push_package`. clio writes to the site only data, rights, system settings and pages you
+   validated. A schema that clio created on the site (`create-entity-schema`, `sync-schemas`, `create-page`) must come
+   back into the package through `export-schema` or `pkg-to-file-system` before the push - the push overwrites what
+   is not in the folder - or `plan.md` declares the task DB-first and `push_package` is not used in it.
+
+   clio's `core-rules` guide (its server asks you to read it) is written for an interactive DB-first session on a
+   shared site. In a loop task take from it: one compile at a time per environment; a C# service or listener in
+   `Files/cs` answers only after a restart, and on a site that `project.json` does not mark `kind: dev` the restart
+   is the human's; a new object's OData controller appears 1-2 minutes after the push, a 404 in that window is not
+   a failure; `en-US` captions are English; a task that adds a section puts the workplace and the roles into
+   `questions.md`; a compile log read right after a push may be an earlier compile's verdict. Do not take from it:
+   asking before every compile (`project.json` is the consent), the browser-first verification preference and
+   `page-smoke` in place of the tester's tiers, OData as a last resort (the backend tier is OData by design).
 4. **Push.** `python no-code/tools/push/push.py <package> -e <clioName> --probe` does the whole sequence: clears
    the modified flag, `push-pkg`, reads the compilation log, runs `compile-configuration` when a process has a
    script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects
@@ -63,16 +81,15 @@ package prefix.
 Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another
 package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
 `process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
-`resolve_uid`, which lookup holds a status - `list_lookups`; text inside schemas - `find_text`; a column's writers
+`resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
+records of an object with their lookups named - `sample_records`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
 
-When no tool answers, record the gap before you go around it: `report_gap(kind, need, instead, script=, task=)`
-with `missing` before your own script runs or a query no tool covers is typed, `by-hand` after a value found in
-the designer or by trial, `misbehaved` after a tool you had to work around (what it answered, what you expected).
-Pass the script's path: the kit keeps a copy in `dev/gaps/scripts/`, so write it anywhere and never delete it. One
-line per gap, at the moment, not at the end; the retrospective is built from these lines and from `tool_stats`,
-and a gap that is not recorded does not become a tool.
+No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it: `missing` before
+your own script or query, `by-hand` after a value found by trial, `misbehaved` after a tool you worked around. Pass
+the script's path (the kit keeps a copy; never delete it). No password or token in the text. A gap that is not
+recorded does not become a tool.
 
 ## Reading C#: `members` first, Roslyn for the graph
 

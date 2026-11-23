@@ -449,3 +449,23 @@ In configuration packages, use schema resources (`GetLocalizableString(...)` or 
 - [ ] Invalid config → `Warn` + default; fatal config → `ConfigurationErrorsException`.
 - [ ] Locks on a private `object`; double-checked init; `ConfigureAwait(false)`; `Dispose` unsubscribes everything.
 - [ ] XML docs on the public surface; `<inheritdoc />` on implementations; user-facing text localizable.
+
+## 10. clio's guidance alongside this guide
+
+clio's MCP server ships platform articles (`get-guidance name=<guide>`, 162 of them). Where they cover this guide's
+ground they are richer on the API surface and poorer on the package-files flow; read the article when the task touches
+the topic, follow this guide where the two disagree until the disagreement is settled on a site
+(`dev/tasks/S40-clio-mcp-fifth-server/compare-backend.md` holds the row-by-row comparison, 2026-11-23).
+
+| Topic | Article | Read it for |
+|---|---|---|
+| web service | `configuration-webservice`, `-tests` | CSRF: a data-changing method is never `GET`; `BPMCSRF` header on writes; concrete return types only; a `#if NETSTANDARD2_0` status-code helper; a service answers only after a restart; a duplicate route is skipped silently |
+| entity event listener | `configuration-entity-event-listener`, `-tests` | the event order (`OnSaving, OnInserting, OnInserted, OnSaved`; `OnSaving, OnUpdating, OnUpdated, OnSaved`); react only to business-input columns (`GetChangedColumnValues`), never to the listener's own output or `ModifiedOn`; validation through `entity.Validating` + `EntityValidationMessage` (to be checked against the kit's throw recipe, S40-T05); `ClassFactory.RebindWithFactoryMethod` in tests |
+| ESQ filters | `esq`, `esq-filters-backend`, `esq-filter-parsing` | the filter API this guide's recipes do not show: `CreateIsNullFilter`, IN as `Equal` with `object[]` (a `Guid[]` binds as one parameter; an empty array is invalid SQL, guard it), `Between`, `TrimDateTimeParameterToDate`, `EntitySchemaQueryMacrosType` instead of `UtcNow.AddDays`, `CreateExistsFilter` over `[Child:Column]`, aggregate subqueries, `IsEnabled`, `IsNot` on a group |
+| feature toggle | `feature-toggle`, `-tests` | `FeatureStub` as the test double; the string-code `GetIsEnabled(code)` form (this guide's recipes use the generic form; both exist, S40-T05 checks which the site's version prefers) |
+| system settings | `sys-setting`, `sys-settings`, `-tests` | `TryGetValue` / `GetDefValue`; shipping a setting as the binding pair `SysSettings_<Code>` + `SysSettingsValue_<Code>` (clio says the value row with `IsForceUpdate` false does not overwrite a site value; P-2.7 saw an overwrite - S40-T05) |
+| tests | `integration-testing`, `atf-repository-*` | AAA, `[Description]`, `because` on every assertion; ATF.Repository models for tests outside the instance (this guide's 3.8 tier stays: no platform in the instance-free tier) |
+
+What this guide keeps that the articles lack: `IsColumnValueLoaded`, `GetOldTypedColumnValue`, the `[ThreadStatic]`
+re-entry guard, silent `Update` for a write-back, `UseOffsetFetchPaging`, `IsAlwaysSelect`, lookup column naming, the
+missing-column guard, `UseAdminRights`, `SelectQuery.BuildEsq`.

@@ -59,6 +59,11 @@ The environment (`creatio_schemas/environment.py` over clio; `env` is a clio env
 | `env_call(env, method, path, body?)` | A service or OData call with login and CSRF; the fault in one line. |
 | `find_record(env, id, objects?, everywhere?, time_zone?)` | Which table holds an Id, with the caption, dates and authors. |
 | `record_context(env, entity, id, columns?, depth?)` | A record with its lookups named and the rows that point at it. |
+| `lookup_values(env, lookup, limit?, offset?)` | The rows of a lookup on the site, `Id  Name  [Code]  [Description]` ordered by Name, paged; a missing table names `Usr<lookup>` when that exists. Read-only. |
+| `sample_records(env, entity, filter?, n?, columns?)` | `n` records of an object (the newest without a filter), every lookup as its Name and Id, system columns hidden unless named; `filter` one `where` fragment. Read-only. |
+| `make_fixture(env, entity, alias?, columns?)` | A synthetic record of the object's shape as a DSL `insert` block for a backend case (required columns, a lookup's first row by Name, a reference inserted above as `$<Column>`, the `delete` lines for the case's end); a column only the site requires goes into `columns`. Writes nothing. |
+| `env_diff(env?, save?, before?, after?, other?, limit?)` | `save` runs `clio save-state` (features, settings, web services, packages with schema hashes) and counts the sections; `before` + `after` compares two such files, one line per change grouped by section; `other` is `clio show-diff` between two environments. Read-only. |
+| `set_feature(env, feature, state, project)` | `clio set-feature <code> 1\|0` for all users. WRITES; refused unless `project` marks the environment `kind: dev`. |
 | `role_members(env, role, units?)`, `user_roles(env, user)`, `role_diff(env, role, users)` | Role membership from `SysAdminUnitInRole` (nested roles included); the diff ends with `exit code 1` when a user is missing. |
 | `run_process(env, process, params?, results?)` | Starts a process (`params` a JSON object), prints its result parameters and its `SysProcessLog` row; `exit code 1` unless the run completed. |
 | `process_runs(env, process?, record?, since?, until?, limit?, window?, time_zone?, noise?, steps?)` | The runs of a process, or every run within `window` seconds of a change of a record (`<Entity>:<Id>`) or its details; noise processes hidden with a count. |
@@ -101,7 +106,8 @@ per tool, the ten largest answers and the truncated share, and end with the gap 
 
 **What the agent did outside the tools.** `report_gap(kind, need, instead, script?, task?)` appends one line to `<kit>/dev/gaps/gaps.jsonl`
 (`dev/` is gitignored) and copies the script it names to `dev/gaps/scripts/<date>-<name>`; `CREATIO_KB_GAPS_DIR` moves the folder (the
-tests). The skills tell the author and the tester to call it before a self-written script runs, before a raw query no tool covers, and
+tests, or a server installed outside the source tree: the kit root is taken as two levels above `mcp-server/`, which holds for the
+source tree and `pip install -e`). The text of a gap is checked for a password, token or key and refused; a script is copied as it is. The skills tell the author and the tester to call it before a self-written script runs, before a raw query no tool covers, and
 after a tool they had to work around. The feedback round clusters these lines into new tools; the scripts are the prototypes.
 
 ## Install

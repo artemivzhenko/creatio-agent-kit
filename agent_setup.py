@@ -9,6 +9,8 @@ re-registers without duplicates.
   context7         MCP      up-to-date library docs (Angular, RxJS, npm packages)
   microsoft-learn  MCP      official .NET / C# documentation (remote, HTTP)
   roslyn-codelens  MCP      Roslyn semantic analysis of C# solutions (needs the .NET 10 SDK)
+  clio             MCP      clio's own server (`clio mcp-server`): rights, settings, DataService batches, bindings from the
+                            site, the component catalogue, browser sessions; its telemetry is declined once (needs clio on PATH)
   skills           files    creatio-kb, creatio-author, creatio-tester, creatio-loop
   ponytail, graphify        Claude Code only: a plugin and a skill
     py -3 agent_setup.py                     # every agent found on PATH (python3 on macOS and Linux)
@@ -21,6 +23,7 @@ and ~/.agents/skills; Copilot ~/.copilot/mcp-config.json and ~/.agents/skills (C
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
 import subprocess
@@ -116,6 +119,21 @@ def register(agent: str, exe: str, name: str, command: list[str] | None = None, 
         run(f"{agent}: add {name}", [exe, "mcp", "add"] + (["--transport", "http", name, url] if url else [name, *env_args, "--", *command]))
 
 
+def decline_clio_telemetry() -> None:
+    """clio's MCP asks every agent for telemetry consent until `~/.clio/telemetry/consent.json` holds an answer (`CLIO_TELEMETRY_HOME`
+    moves it); written once as `denied`, never over an existing answer. The shape is clio's `ConsentState` (clio 8.1.0.158)."""
+    root = Path(os.environ.get("CLIO_TELEMETRY_HOME") or Path.home() / ".clio" / "telemetry")
+    path = root / "consent.json"
+    if path.exists():
+        print(f"clio telemetry: {path} exists, kept")
+        return
+    print(f"clio telemetry: write denied -> {path}")
+    if not DRY_RUN:
+        root.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime, timezone
+        path.write_text(json.dumps({"telemetry_consent": "denied", "updated_at": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
+
+
 def install_skills(agent: str) -> None:
     """The four Creatio skills, copied into the agent's personal skills folder (re-running refreshes them)."""
     home = SKILL_HOMES[agent]
@@ -147,8 +165,10 @@ def main() -> None:
     sdks = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True).stdout if shutil.which("dotnet") else ""
     roslyn = any(line.startswith("10.") for line in sdks.splitlines())
     print("Agents: " + (", ".join(f"{n} ({e})" for n, e in agents.items()) or "none found (claude, codex, copilot not on PATH)"))
+    clio = shutil.which("clio")
     if "--check" in ARGS:
-        print("Servers: creatio-kb, creatio-tests, context7, microsoft-learn" + (", roslyn-codelens" if roslyn else " (roslyn-codelens skipped: no .NET 10 SDK)"))
+        print("Servers: creatio-kb, creatio-tests, context7, microsoft-learn" + (", roslyn-codelens" if roslyn else " (roslyn-codelens skipped: no .NET 10 SDK)")
+              + (", clio" if clio else " (clio skipped: not on PATH - dotnet tool install -g clio)"))
         print("Skills: " + ", ".join(SKILLS))
         return
     if not agents:
@@ -162,6 +182,10 @@ def main() -> None:
     else:
         print("\nroslyn-codelens skipped: .NET 10 SDK not found (dotnet --list-sdks).")
     context7 = ["npx", "-y", "@upstash/context7-mcp"] + (["--api-key", os.environ["CONTEXT7_API_KEY"]] if os.environ.get("CONTEXT7_API_KEY") else [])
+    if clio:
+        decline_clio_telemetry()
+    else:
+        print("\nclio skipped: not on PATH (dotnet tool install -g clio), its MCP server is not registered.")
 
     for agent, exe in agents.items():
         print(f"\n#### {agent}: {exe}")
@@ -171,6 +195,8 @@ def main() -> None:
         register(agent, exe, "microsoft-learn", url="https://learn.microsoft.com/api/mcp")
         if roslyn:  # Creatio package csproj files are SDK-style (net472), which is what the server requires
             register(agent, exe, "roslyn-codelens", ["roslyn-codelens-mcp"], env={"MCP_TIMEOUT": "120000"})
+        if clio:  # the long tail of its 255 tools is reached through `clio-run`; 18 resident tools in tools/list
+            register(agent, exe, "clio", [clio, "mcp-server"])
         install_skills(agent)
         if agent == "claude":
             run("claude: plugin ponytail", [exe, "plugin", "install", "ponytail", "--marketplace", "DietrichGebert/ponytail"])

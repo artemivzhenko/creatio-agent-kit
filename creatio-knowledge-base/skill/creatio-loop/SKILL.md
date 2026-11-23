@@ -26,7 +26,7 @@ say what each role does with it.
 
 One file per project, outside git (it holds the password), path given to both agents by the
 human. Template: [templates/project.example.json](templates/project.example.json). It names the
-environment (clio name, url, login, password, platform version, whether it may be broken), the
+environment (clio name, url, login, password, platform version - clio's `describe-environment` prints it - whether it may be broken), the
 package (name, schema prefix, workspace path, dependencies), the paths (the task folders, this
 knowledge base, the test framework, the unit-test project), the read-only workspaces and the
 project's own rules; since v2.1 also `package.consumers` (packages pushed and compiled with this
@@ -117,6 +117,14 @@ A `pass` row cites the command and its decisive line. A `fail` or `blocked` row 
 `evidence/` with the full output (`evidence/AC-03-report-2.txt`). `blocked` means the criterion
 cannot be tested or contradicts `task.md`; it is the human's decision, the tester states why.
 Results vocabulary, nothing else: `pass` | `fail` | `blocked` | `not tested`.
+
+## Two write paths
+
+The kit is files-first: a schema is a package file, pushed by `push_package`, verified by `verify_pushed`. clio's MCP
+server (registered by `agent_setup.py`) is DB-first: `create-entity-schema`, `sync-schemas`, `create-page` write to the
+site. In a loop task clio writes to the site only data, rights, system settings and pages validated by `validate-page`;
+a schema clio wrote on the site comes back through `export-schema` or `pkg-to-file-system` before the push, or
+`plan.md` declares the task DB-first and the push is not used. The two must not meet in one task without that line.
 
 ## Retrospective
 

@@ -382,7 +382,7 @@ def test_report_gap_records_the_line_and_keeps_the_script():
             # the same name again the same day gets a suffix; a file already under scripts/ is not copied twice
             script.write_text("select 2", encoding="utf-8")
             second = server.report_gap("misbehaved", "the rows with captions", "describe_table, then SQL", str(script))
-            assert second.endswith(f"line 2; script kept as {folder / 'gaps' / 'scripts' / (today + '-probe-2.sql')}"), second
+            assert second.endswith(f"line 2; script kept as {folder / 'gaps' / 'scripts' / (today + '-2-probe.sql')}"), second
             third = server.report_gap("by-hand", "the caption of a status", "read it in the designer", str(kept))
             assert third.endswith(f"line 3; script kept as {kept}") and len(list((folder / "gaps" / "scripts").iterdir())) == 2, third
             assert server.report_gap("missing", "a value", "typed it").endswith("line 4"), "no script is fine"
@@ -390,9 +390,16 @@ def test_report_gap_records_the_line_and_keeps_the_script():
             before = (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8")
             assert server.report_gap("other", "x", "y") == "refused: kind must be one of missing, misbehaved, by-hand"
             assert server.report_gap("missing", " ", "y") == "refused: need and instead must both say something"
-            assert server.report_gap("missing", "x", "y", str(folder / "none.py")).startswith("refused: script not found")
-            assert server.report_gap("missing", "login with password=abc", "y").startswith("refused: the log is read by other agents")
+            assert server.report_gap("missing", "x", "y", str(folder / "none.py")).startswith("refused: script is not a file")
+            assert server.report_gap("missing", "x", "y", str(folder)).startswith("refused: script is not a file"), "a directory"
+            for secret in ("login with password=abc", "Authorization: Bearer abc", "token=zz", "api_key: k", "client_secret=1", "passwd 1"):
+                assert server.report_gap("missing", secret, "y").startswith("refused: the log is read by other agents"), secret
+            assert server.report_gap("missing", "x", "y", task="pwd=1").startswith("refused:"), "task is checked too"
+            assert server.report_gap("missing", "the token column of UsrOrder", "y").startswith("refused:"), "a word alone is enough: better refused than leaked"
             assert (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8") == before
+            # a non-object JSON line in the file is skipped, not fatal
+            with open(folder / "gaps" / "gaps.jsonl", "a", encoding="utf-8") as fh:
+                fh.write("[1, 2]\n")
             # the summary ends with the count by kind and the last gap
             last = server.tool_stats(1).splitlines()[-1]
             assert last.startswith("gaps: 4 (missing 2, misbehaved 1, by-hand 1); last: ") and last.endswith(" missing a value"), last
@@ -667,6 +674,58 @@ def test_ci_tools_run_the_pipeline_in_process_and_capture_its_output():
             assert server.ci_backup(str(root), "dev") == f"backup {root} -e dev --out Backup"
             assert server.ci_verify(str(root), "dev", package="UsrApp") == f"verify {root} -e dev --package UsrApp"
             assert server.ci_push_all(str(root), "dev", retry=True) == f"push-all -p {root} -e dev --list {root.parent / 'error-pkg.txt'}"
+
+
+def test_test_data_tools_answer_from_the_database():
+    status = "5d2a1c3e-0000-4000-8000-000000000001"
+    order = "5d2a1c3e-0000-4000-8000-000000000002"
+    cols = lambda *names: [{"column": n, "type": "character varying", "length": "250", "nullable": "YES", "default": "''"} for n in names]
+    fake = ScriptedEnv({
+        "table_name = 'UsrOrderStatus' order by ordinal_position": cols("Id", "Name"), "count(*)": [{"n": 1}],
+        'from "UsrOrderStatus" order by "Name", "Id" offset': [{"Id": status, "Name": "Draft"}],
+        "table_name = 'UsrOrder' order by ordinal_position": cols("Id", "UsrNumber") + [{"column": "UsrStatusId", "type": "uuid", "length": None, "nullable": "NO", "default": None}],
+        "kcu.table_name = 'UsrOrder'": [{"table": "UsrOrder", "column": "UsrStatusId", "ref_table": "UsrOrderStatus"}],
+        'select * from "UsrOrder"': [{"Id": order, "UsrNumber": "N-1", "UsrStatusId": status}],
+        "column_name = 'Name' and table_name in": [{"table": "UsrOrderStatus"}], 'as "table", "Id", "Name" from': [{"table": "UsrOrderStatus", "Id": status, "Name": "Draft"}],
+        "with recursive up": [{"table": "UsrOrderStatus"}], 'from "UsrOrderStatus" order by "Name", "Id" limit 1': [{"Id": status, "Name": "Draft"}],
+        "information_schema.columns": []})
+    with patch.object(env_module.Environment, "from_clio", staticmethod(lambda name, **kw: fake)):
+        assert server.lookup_values("dev", "UsrOrderStatus") == f"UsrOrderStatus: 1 rows\n{status}  Draft"
+        sample = server.sample_records("dev", "UsrOrder", n=1)
+        assert f"  UsrStatusId (lookup UsrOrderStatus) = Draft ({status})" in sample and sample.endswith("columns: 2, lookups resolved: 1"), sample
+        assert server.sample_records("dev", "UsrOrder", filter="1=1; drop table x") == "error: filter must be one where fragment: no ';'"
+        fixture = server.make_fixture("dev", "UsrOrder")
+        assert fixture == ("# UsrStatus = Draft (the first UsrOrderStatus by Name)\n"
+                           f"insert UsrOrder as A set UsrStatus={status}\n# the end of the case: delete what the block inserted, newest first\ndelete UsrOrder $A\ncolumns: 1 required, 1 lookups resolved, 0 references inserted"), fixture
+        assert server.lookup_values("dev", "OrderStatus").startswith('error: no table "OrderStatus" on the site; UsrOrderStatus exists')
+
+
+def test_env_diff_and_set_feature_wrap_clio():
+    calls = []
+
+    def clio(args):
+        calls.append(args)
+        if args[0] == "save-state":
+            Path(args[1]).write_text("features:\n- code: UsrFeatureA\n  users_values:\n    All employees: true\npackages:\n- name: UsrPkg\n  hash: 0A\n", encoding="utf-8")
+        return 0, "[INF] - Loading packages\n[INF] - No differences found.\n"
+
+    import json
+    from creatio_schemas import environment as env_module_lib
+    with tempfile.TemporaryDirectory() as tmp, patch.object(env_module_lib, "_run_clio", clio):
+        before, after = Path(tmp) / "before.yaml", Path(tmp) / "after.yaml"
+        assert server.env_diff("dev", save=str(before)) == f"saved {before.resolve()}: features 1, packages 1"
+        after.write_text(before.read_text(encoding="utf-8").replace("hash: 0A", "hash: 0B"), encoding="utf-8")
+        assert server.env_diff(before=str(before), after=str(after)) == "packages: 1 change(s)\n  ~ UsrPkg hash: 0A -> 0B"
+        assert server.env_diff(before=str(before), after=str(before)) == "no differences"
+        assert server.env_diff("dev", other="test") == "[INF] - No differences found."
+        assert server.env_diff(save=str(before)) == "error: save needs env" and server.env_diff("dev").startswith("error: give env and save")
+        project = Path(tmp) / "project.json"
+        project.write_text(json.dumps({"environment": {"clioName": "dev", "kind": "dev"}}), encoding="utf-8")
+        assert server.set_feature("dev", "UsrFeatureA", "on", str(project)) == "feature UsrFeatureA on for all users on dev"
+        project.write_text(json.dumps({"environment": {"clioName": "dev", "kind": "client"}}), encoding="utf-8")
+        assert server.set_feature("dev", "UsrFeatureA", "on", str(project)).startswith("refused: dev is not a dev environment")
+        assert server.set_feature("dev", "UsrFeatureA", "soon", str(project)).startswith("error: state must be on or off")
+    assert [c[0] for c in calls] == ["save-state", "show-diff", "set-feature"]  # the refused ones never reached clio
 
 
 if __name__ == "__main__":
