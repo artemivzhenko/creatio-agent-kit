@@ -243,12 +243,12 @@ def test_find_and_lookup_limits():
 
     with patch.object(index, "packages_of", return_value=[Path("UsrPkg")]), patch.object(index, "PackageIndex", FakeIndex):
         limited = find_schema("unused", "UsrLookup0", 1)
-        assert limited.count("  ... 2 more; add limit=0 for all") == 2
+        assert limited.count("  ... 2 more; next: offset=1; add limit=0 for all") == 2, limited  # the first page names the next offset (S30-T03 4g)
         assert "UsrB" not in limited and "UsrUser1" not in limited
         full = find_schema("unused", "UsrLookup0", 0)
         assert "UsrC" in full and "UsrUser2" in full and "... " not in full
         limited = lookups("unused", 1)
-        assert limited.count("  ... 2 more; add limit=0 for all") == 2
+        assert limited.count("  ... 2 more; next: offset=1; add limit=0 for all") == 2, limited  # the first page names the next offset (S30-T03 4g)
         full = lookups("unused", 0)
         assert "UsrLookup2" in full and "UsrUnknown2" in full and "... " not in full
         # offset continues each list where the first page stopped (S30-T03)

@@ -1108,13 +1108,14 @@ def _names(package: str) -> list[str]:
 
 
 @mcp.tool()
-def ci_check(packages: str, package: str = "", cyrillic: bool = False) -> str:
+def ci_check(packages: str, package: str = "", cyrillic: bool = False, base: str = "") -> str:
     """The package rules of the CI pipeline (`ci-cd/pipeline.py check`), the stage that runs before a merge: every schema folder has
     `metadata.json`, `descriptor.json`, `properties.json`; no duplicate schema UId across the packages; no `alert(` or `debugger`
     in a `.js` schema; one `.sql` per `SqlScripts/<Name>/` named after its folder; one `.dll` per `Assemblies/<Name>/`; with
-    `cyrillic` also no Cyrillic outside comments. `packages` is the folder that holds the package folders, `package` a
-    comma-separated subset. One line per problem, `package rules: ok` when there is none; ends with `exit code` 0/1. Read-only."""
-    return _ci("pipeline.py", ["check", packages] + _names(package) + (["--cyrillic"] if cyrillic else []))
+    `cyrillic` also no Cyrillic outside comments; with `base` (a git ref, `origin/main`) also no data binding or SQL script
+    changed since that ref whose `descriptor.json` `ModifiedOnUtc` stayed (the site installs them only on a new date). `packages`
+    is the folder that holds the package folders, `package` a comma-separated subset. One line per problem, `package rules: ok` when there is none; ends with `exit code` 0/1. Read-only."""
+    return _ci("pipeline.py", ["check", packages] + _names(package) + (["--cyrillic"] if cyrillic else []) + (["--base", base.strip()] if base.strip() else []))
 
 
 @mcp.tool()
@@ -1151,14 +1152,33 @@ def ci_build(packages: str, out: str, package: str = "") -> str:
 
 
 @mcp.tool()
-def ci_deploy(packages: str, env: str, package: str = "", restart: bool = True, redis: bool = True, compile_all: bool = False) -> str:
+def ci_deploy(packages: str, env: str, package: str = "", restart: bool = True, redis: bool = True, compile_all: bool = False, artifact: str = "") -> str:
     """The deploy stage of the CI pipeline (`pipeline.py deploy`) on the clio environment `env`: `IsChanged` cleared in
     `SysSchema`, `SysPackageSchemaData` and `SysPackageSqlScript`, `clio push-pkg` per package in dependency order (or `package`,
-    comma-separated, in that order), `compile-configuration` (`compile_all` for a full rebuild), `restart-web-app --wait-ready`
-    unless `restart` is false, `clear-redis-db` unless `redis` is false, `healthcheck`. For ONE package with probes of the changed
+    comma-separated, in that order; or, with `artifact`, the `.gz` files of a build or backup artifact - a `Pkg.zip` or its
+    folder - in its `order.txt` order, which is also the rollback), `compile-configuration` (`compile_all` for a full rebuild),
+    `restart-web-app --wait-ready` unless `restart` is false, `clear-redis-db` unless `redis` is false, `healthcheck`. For ONE package with probes of the changed
     items use `push_package`. WRITES to the site; stops at the first failed command; ends with `exit code` 0/1."""
     flags = (["--no-restart"] if not restart else []) + (["--no-redis"] if not redis else []) + (["--all"] if compile_all else [])
-    return _ci("pipeline.py", ["deploy", packages, "-e", env] + _names(package) + flags)
+    target = ["--artifact", artifact.strip()] if artifact.strip() else [packages]
+    return _ci("pipeline.py", ["deploy", *target, "-e", env] + _names(package) + flags)
+
+
+@mcp.tool()
+def ci_backup(packages: str, env: str, package: str = "", out: str = "Backup") -> str:
+    """What the site runs now, saved before a deploy (`pipeline.py backup`): `clio pull-pkg` per package of the folder (or
+    `package`, comma-separated) into `out/<stamp>/` and `out/Pkg-<stamp>.zip`, the same shape as a build artifact, so the
+    rollback is `ci_deploy(artifact=<that zip>)`. A package not on the site is noted and skipped. Writes into `out` only;
+    ends with `exit code` 0/1."""
+    return _ci("pipeline.py", ["backup", packages, "-e", env, "--out", out] + _names(package))
+
+
+@mcp.tool()
+def ci_verify(packages: str, env: str, package: str = "") -> str:
+    """After a deploy: is the site running the pushed code (`pipeline.py verify`, the kit's `push.py verify` per package of
+    the folder): per schema `same` / `differs` / `not on the site`, a script process `not published` / `compile error`, a client
+    schema `not served`; exit 1 on any difference. Read-only. For one package with the details use `verify_pushed`."""
+    return _ci("pipeline.py", ["verify", packages, "-e", env] + _names(package))
 
 
 @mcp.tool()

@@ -154,7 +154,7 @@ define("UsrSchemae5af2d9bDetail", ["LookupMultiAddMixin", "ConfigurationEnums"],
 					if (!masterRecordId || !accountId) {
 						return;
 					}
-					const update =this.Ext.create("Terrasoft.UpdateQuery", {
+					const update = this.Ext.create("Terrasoft.UpdateQuery", {
 						rootSchemaName: "UsrRelatedInMyEntity"
 					});
 					update.filters.addItem(

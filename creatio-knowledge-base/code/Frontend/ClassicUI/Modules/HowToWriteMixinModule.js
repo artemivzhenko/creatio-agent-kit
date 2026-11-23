@@ -1,7 +1,7 @@
 // --- How to write a mixin module and use it on a page ------------------------
 // A mixin is a client schema of type Module whose body defines an Ext class in
 // the Terrasoft.configuration.mixins namespace with a short alternateClassName,
-// and returns an instance of it. A page lists it in `mixins` and its methods
+// and returns the class. A page lists it in `mixins` and its methods
 // then run AS THE PAGE'S OWN: `this` is the page's view model, so this.get(),
 // this.set(), this.sandbox and this.showInformationDialog all work inside it.
 //
@@ -53,7 +53,7 @@ define("UsrMyMixin", ["UsrMyMixinResources"], function(resources) {
 			return !this.isNewMode();
 		}
 	});
-	return Ext.create("Terrasoft.UsrMyMixin");
+	return Terrasoft.UsrMyMixin;
 });
 
 // ======================= THE PAGE THAT USES IT =================================

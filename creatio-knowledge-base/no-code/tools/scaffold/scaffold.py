@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas.classicui import ClassicSchema  # noqa: E402
 from creatio_schemas.classicui.write import MODULE_BASE_UID  # noqa: E402
 from creatio_schemas.cli import CommandLine  # noqa: E402
+from creatio_schemas.describe.site import schema_clash, site_says  # noqa: E402
 from creatio_schemas.data import DataBinding  # noqa: E402
 from creatio_schemas.entity import EntitySchema  # noqa: E402
 from creatio_schemas.files import CRLF, dump_json, new_uid, read_text, write_text  # noqa: E402
@@ -148,12 +149,19 @@ def changed_files(scratch: Path, package: Path) -> dict[Path, Path]:
     return out
 
 
+def stopped(package: Path, names: list[str], force: bool) -> bool:
+    """What the last `index --env` pass says about each new schema name (S31-T12); True when one is on the site."""
+    return any([site_says(schema_clash(package, n), force) for n in names])  # a list: every name prints its line
+
+
 def entity(_, a) -> int:
     package = Path(a.package).resolve()
     columns = [parse_column(s) for s in a.column]
     lookups = [parse_lookup(s) for s in a.lookup]
     cultures = a.cultures.split(",") if a.cultures else None
     made = plan(package, a.object, lookups, a.pages)
+    if stopped(package, [m.split()[-1] for m in made if not m.startswith("data binding")], a.force):
+        return 1
     scratch = scratch_copy(package)
     try:
         items = build(scratch, a.object, a.caption, columns, lookups, a.pages, cultures)
@@ -279,6 +287,8 @@ def create_source(package: Path, name: str, caption: str, service: bool = False,
 
 def source(_, a) -> int:
     package = Path(a.package).resolve()
+    if stopped(package, [a.name], a.force):
+        return 1
     for f in create_source(package, a.name, a.caption, a.service, a.cultures.split(",") if a.cultures else None):
         print(f"  {f.relative_to(package).as_posix()}")
     return 0
@@ -286,6 +296,8 @@ def source(_, a) -> int:
 
 def module(_, a) -> int:
     package = Path(a.package).resolve()
+    if stopped(package, [a.name], a.force):
+        return 1
     s = ClassicSchema.create_module(package, a.name, a.caption, a.mixin, a.cultures.split(",") if a.cultures else None)
     for f in sorted(s.files()):
         print(f"  {f.relative_to(package).as_posix()}")
@@ -304,17 +316,20 @@ def build_cli() -> CommandLine:
     p.add_argument("--pages", action="store_true", help="also <Object>_FormPage and <Object>_ListPage")
     p.add_argument("--cultures", help="comma-separated; default: the cultures the package's resources have")
     p.add_argument("--dry-run", action="store_true", help="print the diff of every file, write nothing")
+    p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p = c.command("source", source, "an empty source code schema (a class, or --service the web service skeleton)", target=False)
     p.add_argument("package")
     p.add_argument("name")
     p.add_argument("--caption", required=True)
     p.add_argument("--service", action="store_true", help="the [ServiceContract] skeleton of the KB recipe")
+    p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p.add_argument("--cultures", help="comma-separated; default the package's")
     p = c.command("module", module, "an empty client module (--mixin: the Ext.define mixin a Classic page lists)", target=False)
     p.add_argument("package")
     p.add_argument("name")
     p.add_argument("--caption")
     p.add_argument("--mixin", action="store_true")
+    p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p.add_argument("--cultures", help="comma-separated; default the package's")
     return c
 

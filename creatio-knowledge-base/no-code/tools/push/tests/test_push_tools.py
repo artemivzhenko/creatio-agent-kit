@@ -840,6 +840,30 @@ def test_verify_says_per_schema_whether_the_site_runs_the_working_copy():
             assert cli.main(["verify", str(pkg), "-e", "dev"]) == 1
 
 
+def test_served_goes_through_environment_fetch():
+    """`served` asks `Environment.fetch` with `Accept: */*` under /0/ (.NET Framework); a 404 is None (S33-T05 4g)."""
+    import io
+    import urllib.error
+    from email.message import Message
+    from creatio_schemas.environment import Environment
+    from creatio_schemas.verify import served
+    seen = []
+
+    class Opener:
+        def open(self, req, timeout=None):
+            seen.append((req.full_url, req.get_header("Accept")))
+            headers = Message()
+            if req.full_url.endswith("Login"):
+                return type("R", (), {"status": 200, "headers": headers, "read": lambda self: b'{"Code": 0}'})()
+            if "Missing" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 404, "nf", headers, io.BytesIO(b""))
+            return type("R", (), {"status": 200, "headers": headers, "read": lambda self: b"define(1)"})()
+
+    env = Environment("https://site.example/", "u", "p", opener=Opener())
+    assert served(env, "UsrPage") == "define(1)" and served(env, "UsrMissing") is None
+    assert seen[1] == ("https://site.example/0/conf/content/UsrPage.js", "*/*"), seen
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

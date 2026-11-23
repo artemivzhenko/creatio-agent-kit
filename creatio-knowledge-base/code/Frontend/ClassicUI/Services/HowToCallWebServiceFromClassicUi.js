@@ -3,15 +3,16 @@
 // a business process or an ESQ is often the shorter path to the same result.
 // Reach for a service when you need server logic that is neither.
 //
-// Add "ServiceHelper" to the schema dependencies and call:
+// On a view model call the ServiceHelper mixin method:
 //
-//   ServiceHelper.callService({
+//   this.callService({
 //       serviceName: "<ConfigurationServiceName>",   // the C# class name
 //       methodName:  "<OperationName>",              // the [OperationContract]
-//       data:        { param1: value1 },             // request body, optional
-//       callback:    function(response) { ... },
-//       scope:       this
-//   });
+//       data:        { param1: value1 }              // request body, optional
+//   }, function(response) { ... }, this);
+//
+// In a module without a view model: ServiceHelper.callService({serviceName,
+// methodName, data, callback, scope}) with "ServiceHelper" in the dependencies.
 //
 // Response shape: a service method named `GetPartnerDiscount` returns its
 // payload under the key "GetPartnerDiscountResult". That is the standard
@@ -31,7 +32,7 @@
 // the base URL for you.
 // Style: frontend guide 1.1, 2.5, 2.6, 8
 
-define("UsrMyEntity1Page", ["ServiceHelper"], function(ServiceHelper) {
+define("UsrMyEntity1Page", [], function() {
 	return {
 		entitySchemaName: "UsrMyEntity",
 		methods: {
@@ -45,41 +46,37 @@ define("UsrMyEntity1Page", ["ServiceHelper"], function(ServiceHelper) {
 				}
 				this.showBodyMask({ timeout: 0 });
 
-				ServiceHelper.callService({
+				this.callService({
 					serviceName: "UsrMyService",
 					methodName: "GetPartnerDiscount",
 					data: {
 						accountId: parentAccount.value
-					},
-					callback: function(response) {
-						this.hideBodyMask();
+					}
+				}, function(response) {
+					this.hideBodyMask();
 
-						const discount = response && response.GetPartnerDiscountResult;
-						if (discount === null || discount === undefined) {
-							this.showInformationDialog(
-								this.get("Resources.Strings.ServiceCallFailedMessage"));
-							return;
-						}
-						this.set("UsrDiscount", discount);
-					},
-					scope: this
-				});
+					const discount = response && response.GetPartnerDiscountResult;
+					if (discount === null || discount === undefined) {
+						this.showInformationDialog(
+							this.get("Resources.Strings.ServiceCallFailedMessage"));
+						return;
+					}
+					this.set("UsrDiscount", discount);
+				}, this);
 			},
 
 			// Call with no payload; the service creates a record and returns its id.
 			createRelatedRecord: function(methodName) {
-				ServiceHelper.callService({
+				this.callService({
 					serviceName: "UsrMyService",
-					methodName: methodName,
-					callback: function(response) {
-						const newId = response && response[methodName + "Result"];
-						if (!newId) {
-							return;
-						}
-						this.log("created record " + newId);
-					},
-					scope: this
-				});
+					methodName: methodName
+				}, function(response) {
+					const newId = response && response[methodName + "Result"];
+					if (!newId) {
+						return;
+					}
+					this.log("created record " + newId);
+				}, this);
 			}
 		},
 		diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/

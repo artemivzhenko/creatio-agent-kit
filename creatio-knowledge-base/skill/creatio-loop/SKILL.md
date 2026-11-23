@@ -51,6 +51,7 @@ copied into a repository file.
 | `report-1.md` … `report-3.md` | tester | a run with at least one `fail` or `blocked` | one row per criterion |
 | `success-report.md` | tester | a run where every criterion passes | the task is done |
 | `failed.md` | tester | the 4th failing run | where the result still diverges from the criteria; the human removes it |
+| `retrospective.md` | author or tester, when the human asks | during or after the work | what went well and badly, the tools that misbehaved, what was done by hand, the scripts written, the tools missed, the Creatio platform facts learned - with evidence, platform not project, no real names; the prompt is [templates/retrospective.md](templates/retrospective.md) |
 
 Templates for every file: [templates/](templates/).
 
@@ -116,3 +117,11 @@ A `pass` row cites the command and its decisive line. A `fail` or `blocked` row 
 `evidence/` with the full output (`evidence/AC-03-report-2.txt`). `blocked` means the criterion
 cannot be tested or contradicts `task.md`; it is the human's decision, the tester states why.
 Results vocabulary, nothing else: `pass` | `fail` | `blocked` | `not tested`.
+
+## Retrospective
+
+When the human asks (usually after `success-report.md`, sometimes mid-task), the agent writes `retrospective.md` from the
+prompt in [templates/retrospective.md](templates/retrospective.md): ten sections, the platform facts with how each was
+seen and on which version, nothing that identifies the project. It is the one file the human hands to other teams;
+the kit's maintainers turn its facts into the platform facts register and its "by hand" and "missed tools" sections
+into tools.

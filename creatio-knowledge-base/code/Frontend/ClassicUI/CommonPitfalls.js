@@ -88,7 +88,7 @@
 define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUtilities) {
 
 	// Id of the "In work" value of the UsrStatus lookup.
-	const StatusInWork ="f6c25e34-63f3-4b6d-9769-db0f37d42f0e";
+	const StatusInWork = "f6c25e34-63f3-4b6d-9769-db0f37d42f0e";
 
 	return {
 		entitySchemaName: "UsrMyEntity",
@@ -103,7 +103,7 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 
 			applyStatusRules: function() {
 				// 4: optional chaining, no throw on an empty lookup
-				const isInWork =this.get("UsrStatus")?.value === StatusInWork;
+				const isInWork = this.get("UsrStatus")?.value === StatusInWork;
 				this.set("UsrOwnerRequired", isInWork);
 			},
 

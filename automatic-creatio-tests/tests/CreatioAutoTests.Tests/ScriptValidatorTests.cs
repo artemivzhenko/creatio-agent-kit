@@ -147,7 +147,7 @@ public class ScriptValidatorTests
     }
 
     [Test]
-    public void Tab_warnings_follow_tab_switches_and_do_not_block_validation()
+    public void A_control_on_another_tab_needs_no_click_line_before_it()
     {
         var field = CatalogBuilder.Element("Name", "Text");
         field.Tab = "GeneralInfoTab";
@@ -159,8 +159,7 @@ public class ScriptValidatorTests
             "click GeneralInfoTab", "set Name \"two\"", "click OtherTab", "set Name \"three\"");
 
         Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
-        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 3, 7 }));
-        Assert.That(plan.Warnings[0].Message, Does.Contain("Name lies on tab GeneralInfoTab"));
+        Assert.That(plan.Warnings, Is.Empty);
     }
 
     private void ConditionalPage()
@@ -228,16 +227,16 @@ public class ScriptValidatorTests
     public void Warnings_are_retained_even_when_another_line_is_invalid()
     {
         var field = CatalogBuilder.Element("Name", "Text");
-        field.Tab = "GeneralInfoTab";
-        _catalog = CatalogBuilder.Build(field, CatalogBuilder.Element("GeneralInfoTab", "Tab"));
-        var plan = Validate("use tester", "open TestPage", "set Name \"one\"", "set Missing \"two\"");
+        field.Conditional = true;
+        _catalog = CatalogBuilder.Build(field);
+        var plan = Validate("use tester", "open TestPage", "check Name exists", "set Missing \"two\"");
         Assert.That(plan.IsValid, Is.False);
         Assert.That(plan.Warnings, Has.Count.EqualTo(1));
         Assert.That(plan.Issues, Has.Count.EqualTo(1));
     }
 
     [Test]
-    public void Classic_tab_panel_caption_opens_the_corresponding_tab()
+    public void Classic_tab_panel_lines_validate_without_tab_warnings()
     {
         var field = CatalogBuilder.Element("Name", "Text");
         field.Tab = "GeneralInfoTab";
@@ -255,6 +254,6 @@ public class ScriptValidatorTests
         var plan = Validate("use tester", "open TestPage", "set Tabs \"General\"", "set Name \"one\"",
             "set Tabs \"Other\"", "set Name \"two\"", "open TestPage", "set Name \"three\"");
         Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
-        Assert.That(plan.Warnings.Select(w => w.LineNumber), Is.EqualTo(new[] { 6, 8 }));
+        Assert.That(plan.Warnings, Is.Empty);
     }
 }

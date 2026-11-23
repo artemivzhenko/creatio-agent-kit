@@ -37,7 +37,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Open a specific tab when the user arrived from a workplace list.
 			applyPreviousPageBehaviour: function() {
-				const previousPage =sessionStorage.getItem("previousPage");
+				const previousPage = sessionStorage.getItem("previousPage");
 
 				if (previousPage &&
 					(previousPage.indexOf("UsrMyEntity") > -1 ||
@@ -73,7 +73,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Environment check, e.g. to disable an action outside production.
 			isProductionEnvironment: function() {
-				return window.location.href.indexOf("usr-production.creatio.com") > -1;
+				return window.location.href.indexOf("crm.example.com") > -1;
 			}
 		},
 		diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/

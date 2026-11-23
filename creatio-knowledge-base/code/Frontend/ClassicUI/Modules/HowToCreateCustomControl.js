@@ -99,6 +99,12 @@ define("UsrExtendableLookupEdit", ["ext-base", "terrasoft"], function(Ext) {
 			this.callParent(arguments);
 		},
 
+		// The document listener outlives the control unless it is removed here.
+		destroy: function() {
+			Ext.getDoc().un("mousedown", this.onMouseDownCollapse, this);
+			this.callParent(arguments);
+		},
+
 		// --- binding: forward the mixin contributions -----------------------
 		getBindConfig: function() {
 			const bindConfig = this.callParent(arguments);

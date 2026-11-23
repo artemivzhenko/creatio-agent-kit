@@ -23,7 +23,7 @@
 define("UsrMyEntity1Page", [], function() {
 
 	// Id of the "Arrival" value of the UsrMyEntityType lookup.
-	const NoticeTypeArrival ="475d7b08-33e0-4f91-b219-bb8a78ec2f85";
+	const NoticeTypeArrival = "475d7b08-33e0-4f91-b219-bb8a78ec2f85";
 
 	return {
 		entitySchemaName: "UsrMyEntity",
@@ -33,7 +33,7 @@ define("UsrMyEntity1Page", [], function() {
 				this.callParent(arguments);
 
 				// Open the page on a specific tab depending on the record.
-				const noticeType =this.get("UsrMyEntityType");
+				const noticeType = this.get("UsrMyEntityType");
 				if (noticeType && noticeType.value === NoticeTypeArrival) {
 					this.setActiveTab("NotesAndFilesTab");
 				} else {

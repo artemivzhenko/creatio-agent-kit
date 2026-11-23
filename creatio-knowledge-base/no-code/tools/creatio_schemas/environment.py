@@ -182,14 +182,15 @@ class Environment:
             return bare if self.net_core else "0/" + bare
         return path
 
-    def _send(self, method: str, path: str, body: Any = None, params: dict | None = None, literal: bool = False) -> Response:
+    def _send(self, method: str, path: str, body: Any = None, params: dict | None = None, literal: bool = False,
+              accept: str = "application/json") -> Response:
         # a path typed by hand may hold spaces (`$filter=Name eq 'x'`); what is already percent-encoded stays as it is
         where = urllib.parse.quote(path if literal else self._path(path), safe="/?=&$'(),:;@+%#!*")
         url = self.url + where + ("?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote) if params else "")
         data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode("utf-8"))
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json; charset=utf-8")
-        req.add_header("Accept", "application/json")
+        req.add_header("Accept", accept)
         req.add_header("ForceUseSession", "true")
         if self._cookies:
             req.add_header("Cookie", "; ".join(f"{k}={v}" for k, v in self._cookies.items()))
@@ -223,6 +224,11 @@ class Environment:
     def request(self, method: str, path: str, body: Any = None, params: dict | None = None) -> Response:
         self.login()
         return self._send(method, path, body, params)
+
+    def fetch(self, path: str, accept: str = "*/*") -> Response:
+        """GET a non-JSON path as the logged-in user (`conf/content/<Schema>.js` refuses `Accept: application/json` with 406)."""
+        self.login()
+        return self._send("GET", path, accept=accept)
 
     def get(self, path: str, params: dict | None = None) -> Response:
         return self.request("GET", path, params=params)

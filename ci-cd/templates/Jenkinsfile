@@ -23,7 +23,7 @@ pipeline {
     }
     stage('verify') {
       steps {
-        sh "$PY kit/ci-cd/pipeline.py check packages $PKG_ARG"
+        sh "$PY kit/ci-cd/pipeline.py check packages $PKG_ARG " + (env.CHANGE_TARGET ? "--base origin/${env.CHANGE_TARGET}" : "")
         sh "$PY kit/ci-cd/pipeline.py build packages --out Build $PKG_ARG"
         archiveArtifacts artifacts: 'Build/Pkg.zip', fingerprint: true
         sh 'if ls tests/*/*.csproj >/dev/null 2>&1; then dotnet test tests; fi'
@@ -36,7 +36,10 @@ pipeline {
                          string(credentialsId: 'creatio-url', variable: 'CREATIO_URL')]) {
           // single quotes: the shell expands the secrets, Groovy would interpolate them into the logged command
           sh '$PY kit/ci-cd/pipeline.py register ci --url "$CREATIO_URL" --login "$CREATIO_LOGIN" --password "$CREATIO_PASSWORD"'
-          sh "$PY kit/ci-cd/pipeline.py deploy packages -e ci $PKG_ARG"
+          sh "$PY kit/ci-cd/pipeline.py backup packages -e ci --out Backup $PKG_ARG"
+          archiveArtifacts artifacts: 'Backup/*.zip', fingerprint: true   // rollback: pipeline.py deploy --artifact <that zip> -e ci
+          sh "$PY kit/ci-cd/pipeline.py deploy --artifact Build/Pkg.zip -e ci"   // the verify stage's artifact, what was tested
+          sh "$PY kit/ci-cd/pipeline.py verify packages -e ci $PKG_ARG"
         }
       }
     }

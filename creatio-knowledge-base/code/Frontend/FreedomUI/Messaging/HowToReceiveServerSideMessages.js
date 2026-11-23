@@ -52,6 +52,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 						}
 					};
 
+					// Legacy call kept: the sdk has no counterpart for server messages (guide 3.5).
 					Terrasoft.ServerChannel.on(
 						Terrasoft.EventName.ON_MESSAGE,
 						(await request.$context.ServerMessageReceivedFunc),

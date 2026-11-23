@@ -21,7 +21,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		//   "TypeField": {
 		//       "modelConfig": { "path": "PDS.Type" },
-		//       "change": { "request": "usr.OnTypeChange" }
+		//       "change": { "request": "usr.ChangeTypeRequest" }
 		//   }
 		//
 		// Prefer that form when you know the attribute up front; it keeps one
@@ -38,10 +38,11 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					if (request.attributeName === "PDS_Name_h9kddsb" && !request.silent) {
 						const name = await request.$context.PDS_Name_h9kddsb;
 
-						// Update a computed attribute based on the new value
+						// Update a computed attribute based on the new value.
+						// Texts are page resource strings: NameSetMessage, NameEmptyMessage.
 						request.$context.ComputedStatusText = name
-							? "Name is set: " + name
-							: "Name is empty";
+							? (await request.$context.Resources.Strings.NameSetMessage) + name
+							: await request.$context.Resources.Strings.NameEmptyMessage;
 
 						// Toggle visibility of a dependent element
 						request.$context.IsStatusVisible = Boolean(name);

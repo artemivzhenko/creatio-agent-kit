@@ -43,6 +43,12 @@ def test_the_hierarchy_has_levels_external_dependencies_dependents_and_problems(
         (typed / "descriptor.json").write_text(text, encoding="utf-8")
         assert "UsrTyped: Type 1 without ProjectPath (expected Files/UsrTyped.csproj)" in ext.graph(root)["problems"]
         assert not any(p.startswith("UsrBase") for p in ext.graph(root)["problems"])  # no Type, no ProjectPath: a platform package
+        (typed / "descriptor.json").write_text('{"Descriptor": {"Name" "UsrTyped"}}', encoding="utf-8")
+        try:  # one line naming the package, not a traceback (S35-T01)
+            ext.graph(root)
+            raise AssertionError("no exit")
+        except SystemExit as e:
+            assert str(e.code).startswith("UsrTyped: descriptor.json is not valid JSON"), e.code
 
 
 def test_push_all_stops_or_continues_and_keeps_the_failed_list():

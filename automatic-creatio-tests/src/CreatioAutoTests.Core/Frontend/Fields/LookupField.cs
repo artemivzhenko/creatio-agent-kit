@@ -19,8 +19,9 @@ public sealed class LookupField : FieldElementBase, INavigableToRecord
     internal const string PanelSelector =
         "div.mat-mdc-autocomplete-panel, div.mat-autocomplete-panel.mat-autocomplete-visible";
     private const string LinkSelector = ".link-wrap a.crt-link";
-    private const int OptionResolveTimeoutMs = 5000;
     private const int OptionPollIntervalMs = 100;
+    private const int PickClickTimeoutMs = 2000;
+    private const int PickAttempts = 4;
     private const int SettleAfterPickMs = 200;
 
     /// <summary>Initializes the autocomplete-backed lookup field.</summary>
@@ -130,8 +131,9 @@ public sealed class LookupField : FieldElementBase, INavigableToRecord
                 "Autocomplete panel never appeared for lookup '" + Code + "' while searching '" + target + "'.", ex);
         }
 
-        var match = await ResolveOptionAsync(panel.First, target).ConfigureAwait(false);
-        if (match is null)
+        var picked = await PickAsync(() => ResolveOptionAsync(panel.First, target), option => option.ClickAsync(new LocatorClickOptions { Timeout = PickClickTimeoutMs }))
+            .ConfigureAwait(false);
+        if (!picked)
         {
             var offered = await CollectOptionsAsync(panel.First).ConfigureAwait(false);
             throw new InvalidOperationException(
@@ -139,7 +141,6 @@ public sealed class LookupField : FieldElementBase, INavigableToRecord
                 (offered.Count == 0 ? "(none)" : string.Join(", ", offered)) + ".");
         }
 
-        await match.ClickAsync().ConfigureAwait(false);
         await Page.WaitForTimeoutAsync(SettleAfterPickMs).ConfigureAwait(false);
 
         var committed = await GetValueAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -195,10 +196,40 @@ public sealed class LookupField : FieldElementBase, INavigableToRecord
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Finds the option and clicks it, finding it again when the click misses. The option is a positional locator (<c>Nth(3)</c>): the panel first
+    /// lists the unfiltered rows and re-renders when the search for the typed text answers, so the row found a moment ago can be gone by the click.
+    /// Waiting the full element timeout on a vanished row was the first-run flake of 'set' on a lookup.
+    /// </summary>
+    internal static async Task<bool> PickAsync(Func<Task<ILocator?>> resolve, Func<ILocator, Task> click, int attempts = PickAttempts)
+    {
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            var option = await resolve().ConfigureAwait(false);
+            if (option is null)
+            {
+                return false;
+            }
+
+            try
+            {
+                await click(option).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex) when ((ex is PlaywrightException or TimeoutException) && attempt < attempts)
+            {
+                // the row was replaced by the filtered list: resolve it again
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Polls the panel until the wanted option is rendered or the budget runs out.</summary>
     private async Task<ILocator?> ResolveOptionAsync(ILocator panel, string target)
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(OptionResolveTimeoutMs);
+        // the element budget, not a short one: a slow site answers the search late, and a found option returns at once
+        var deadline = DateTime.UtcNow.AddMilliseconds(TimeoutMs);
 
         while (true)
         {
@@ -274,25 +305,31 @@ public sealed class LookupField : FieldElementBase, INavigableToRecord
         return !text.TrimStart().StartsWith("Add new", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The option's text, or empty when the row went away while it was read (the panel re-renders when the search answers). Playwright raises
+    /// <see cref="TimeoutException"/> for a node that detached, not a <see cref="PlaywrightException"/>, and waits the full element timeout on it
+    /// unless a short one is given: that was the first-run flake of 'set' on a lookup.
+    /// </summary>
     private static async Task<string> ReadOptionTextAsync(ILocator option)
     {
+        var quick = new LocatorInnerTextOptions { Timeout = ProbeTimeoutMs };
         try
         {
             var label = option.Locator(".mat-option-text span[crttextoverflowtitle]");
             if (await label.CountAsync().ConfigureAwait(false) > 0)
             {
-                return (await label.First.InnerTextAsync().ConfigureAwait(false)).Trim();
+                return (await label.First.InnerTextAsync(quick).ConfigureAwait(false)).Trim();
             }
 
             var text = option.Locator(".mat-option-text");
             if (await text.CountAsync().ConfigureAwait(false) > 0)
             {
-                return (await text.First.InnerTextAsync().ConfigureAwait(false)).Trim();
+                return (await text.First.InnerTextAsync(quick).ConfigureAwait(false)).Trim();
             }
 
-            return (await option.InnerTextAsync().ConfigureAwait(false)).Trim();
+            return (await option.InnerTextAsync(quick).ConfigureAwait(false)).Trim();
         }
-        catch (PlaywrightException)
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
         {
             return string.Empty;
         }

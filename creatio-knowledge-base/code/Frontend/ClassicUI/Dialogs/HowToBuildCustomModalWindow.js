@@ -15,6 +15,7 @@
 //     stack stylesheets
 //   - keep a `self` reference to the view model; DOM handlers do not get it
 //   - remove the node AND every global you created when closing
+// shortcut: raw DOM and caption literals in the markup keep the modal readable; real captions come from Resources.Strings.
 //
 // THE TRAP: inline onclick="window.someFn()" needs a global function, so pages
 // assign closures to `window`. Those globals outlive the page and keep the whole
@@ -31,6 +32,7 @@ define("UsrMyDetail", [], function() {
 		methods: {
 
 			openCalculationsModal: function(config) {
+				// shortcut: `self` because DOM handlers get the element as `this`, not the view model.
 				const self = this;
 
 				this.addModalStyles();
@@ -51,7 +53,7 @@ define("UsrMyDetail", [], function() {
 
 				const wrapper = document.createElement("div");
 				wrapper.innerHTML = modalHtml;
-				const modal =wrapper.firstElementChild;
+				const modal = wrapper.firstElementChild;
 				document.body.appendChild(modal);
 
 				this.renderCalculationsTable(config);
@@ -87,7 +89,7 @@ define("UsrMyDetail", [], function() {
 				if (document.getElementById("usr-modal-styles")) {
 					return;
 				}
-				const style =document.createElement("style");
+				const style = document.createElement("style");
 				style.id = "usr-modal-styles";
 				style.textContent =
 					".usr-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);" +

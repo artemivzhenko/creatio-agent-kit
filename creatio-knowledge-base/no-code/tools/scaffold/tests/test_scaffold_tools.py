@@ -173,6 +173,29 @@ def test_source_and_module():
         assert code == 2 and "exists" in out
 
 
+def test_new_schemas_stop_on_what_the_site_already_has():
+    """scaffold asks like objects.py (S31-T12): a name the last `index --env` pass found on the site stops, --force goes on."""
+    from creatio_schemas.describe import store
+    from creatio_schemas.describe.index import index_path
+
+    with package() as pkg:
+        con = store.connect(index_path(pkg))
+        con.executemany("insert into site_schemas values ('dev', '2026-11-21T08:00:00Z', ?, 'u', ?, 'UsrOtherPkg', ?)",
+                        [("UsrRegion_FormPage", "page", "Region"), ("UsrRegionCalc", "source", "Calc"), ("UsrRegionModule", "client", "M")])
+        con.commit()
+        con.close()
+        before = files(pkg)
+        code, out = run("entity", str(pkg), "UsrRegion", "--caption", "Region", "--pages")
+        assert code == 1 and "error: UsrRegion_FormPage exists on the site (dev, 2026-11-21) as page in package UsrOtherPkg" in out, out
+        code, out = run("source", str(pkg), "UsrRegionCalc", "--caption", "Calc")
+        assert code == 1 and "error: UsrRegionCalc exists on the site" in out, out
+        code, out = run("module", str(pkg), "UsrRegionModule")
+        assert code == 1 and "error: UsrRegionModule exists on the site" in out, out
+        assert files(pkg) == before  # nothing written
+        code, out = run("source", str(pkg), "UsrRegionCalc", "--caption", "Calc", "--force")
+        assert code == 0 and "warning: UsrRegionCalc exists on the site (dev, 2026-11-21) as source in package UsrOtherPkg; --force given" in out, out
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_")]:
         fn()

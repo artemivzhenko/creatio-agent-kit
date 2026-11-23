@@ -43,6 +43,7 @@ from creatio_schemas.entity.database import check  # noqa: E402
 from creatio_schemas.entity.hierarchy import fetch_base, save_base  # noqa: E402
 from creatio_schemas.workspace import Package  # noqa: E402
 from creatio_schemas.files import ALL_DATA_VALUE_TYPES  # noqa: E402
+from creatio_schemas.describe.site import site_says  # noqa: E402
 
 
 def flags(a) -> dict:
@@ -54,18 +55,6 @@ def flag_options(p, choices) -> None:
     p.add_argument("--off", nargs="*", choices=sorted(choices), metavar="flag")
 
 
-def _site_says(found, force: bool) -> bool:
-    """Print what the last `index --env` pass says (S31-T12); True when the writer must stop."""
-    if found is None:
-        return False
-    level, line = found
-    if level == "stop" and not force:
-        print(f"error: {line}", file=sys.stderr)
-        return True
-    print(line if level != "stop" else f"warning: {line.split(': reuse it')[0]}; --force given, going on", file=sys.stderr)
-    return False
-
-
 def new(_, a):
     if a.replace:
         print(EntitySchema.create_replacing(Path(a.package), a.object, a.version).describe())
@@ -74,7 +63,7 @@ def new(_, a):
         raise ValueError("--caption is required for a new object")
     from creatio_schemas.describe.site import schema_clash
 
-    if _site_says(schema_clash(Path(a.package), a.object), a.force):
+    if site_says(schema_clash(Path(a.package), a.object), a.force):
         return 1
     print(EntitySchema.create(Path(a.package), a.object, a.caption, a.parent, a.version).describe())
 
@@ -101,7 +90,7 @@ def validate(ent, a):
 def column_add(ent, a):
     from creatio_schemas.describe.site import column_clash
 
-    if _site_says(column_clash(ent.package, ent.name, a.name), a.force):
+    if site_says(column_clash(ent.package, ent.name, a.name), a.force):
         raise SystemExit(1)  # before `finish` saves anything
     col = ent.add_column(a.name, a.type, a.caption or "", a.ref, a.default, **flags(a))
     print(f"added {a.name} ({col['UId']})")

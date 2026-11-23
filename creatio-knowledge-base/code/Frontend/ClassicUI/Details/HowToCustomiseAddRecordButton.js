@@ -75,7 +75,7 @@ define("UsrMyDetail", [], function() {
 			},
 
 			checkButtonStateOnInit: function() {
-				const parentData =this.sandbox.publish(
+				const parentData = this.sandbox.publish(
 					"GetColumnsValues", ["UsrService", "UsrMyEntity"], [this.sandbox.id]);
 				if (!parentData) {
 					return;
@@ -93,7 +93,6 @@ define("UsrMyDetail", [], function() {
 					this.callParent(arguments);
 				} catch (e) {
 					this.error("UsrMyDetail: addRecord failed: " + e);
-					this.callParent(arguments);
 				}
 			},
 

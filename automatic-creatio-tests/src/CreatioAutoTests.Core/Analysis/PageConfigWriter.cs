@@ -70,8 +70,11 @@ public sealed class PageConfigWriter
         // "conditional" is a person's (or from-schema's) fact about the rules, not something the DOM shows.
         var conditional = existing.Where(e => e.Conditional).Select(e => e.Code).ToHashSet(StringComparer.Ordinal);
 
+        // The tab is read from the DOM when the walk saw the control on one tab only; a hand-written one survives a run that could not tell.
+        var tabs = existing.Where(e => !string.IsNullOrWhiteSpace(e.Tab)).ToDictionary(e => e.Code, e => e.Tab, StringComparer.Ordinal);
+
         var elements = analysis.Elements
-            .Select(e => pinned.TryGetValue(e.Code, out var kept) ? kept : ToDefinition(e, conditional.Contains(e.Code)))
+            .Select(e => pinned.TryGetValue(e.Code, out var kept) ? kept : ToDefinition(e, conditional.Contains(e.Code), tabs.GetValueOrDefault(e.Code)))
             .ToList();
 
         if (keepMissing)
@@ -105,7 +108,7 @@ public sealed class PageConfigWriter
             pinned.Values.Where(p => found.Contains(p.Code)).ToArray());
     }
 
-    private static ElementDefinition ToDefinition(DiscoveredElement element, bool conditional)
+    private static ElementDefinition ToDefinition(DiscoveredElement element, bool conditional, string? knownTab = null)
     {
         var definition = new ElementDefinition
         {
@@ -113,6 +116,7 @@ public sealed class PageConfigWriter
             Label = element.Label,
             Type = element.Type,
             Conditional = conditional,
+            Tab = element.Tab ?? knownTab,
         };
 
         // Type-specific findings travel as extra members, bound to the element's options class when

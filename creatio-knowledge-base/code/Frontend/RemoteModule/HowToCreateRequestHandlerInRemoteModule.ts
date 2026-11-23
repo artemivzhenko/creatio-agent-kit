@@ -131,7 +131,7 @@ export class PageInitHandler extends BaseRequestHandler {
 //   "name": "UsrMyButton",
 //   "values": {
 //     "type": "crt.Button",
-//     "caption": "Refresh",
+//     "caption": "#ResourceString(UsrMyButton_caption)#",
 //     "clicked": { "request": "usr.MyRequest", "params": { "recordId": "$Id" } }
 //   },
 //   "parentName": "ActionButtonsContainer",

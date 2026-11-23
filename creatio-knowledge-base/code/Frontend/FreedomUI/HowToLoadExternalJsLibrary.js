@@ -19,7 +19,8 @@ requirejs.config({
 	paths: {
 		// Map a short alias to the file inside your Creatio package.
 		// Terrasoft.getFileContentUrl resolves the correct URL at runtime.
-		"MyExternalLib": Terrasoft.getFileContentUrl("YourPackageName", "src/js/my-lib.js")
+		// Legacy call kept: the sdk has no counterpart for a package file URL (guide 3.5).
+		"MyExternalLib": Terrasoft.getFileContentUrl("UsrPkg", "src/js/my-lib.js")
 	}
 });
 

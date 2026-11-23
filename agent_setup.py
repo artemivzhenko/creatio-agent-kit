@@ -78,9 +78,17 @@ def find_agents() -> dict[str, str]:
             pattern = str(HOME / ".vscode" / "extensions" / "anthropic.claude-code-*" / "resources" / "native-binary" / ("claude.exe" if WIN else "claude"))
             hits = sorted(glob.glob(pattern))
             exe = hits[-1] if hits else None
-        if exe:
+        if exe and answers(exe):
             found[name] = exe
     return found
+
+
+def answers(exe: str) -> bool:
+    """A real CLI answers --version with exit 0; VS Code's copilot shim only prints that the CLI is not installed."""
+    try:
+        return subprocess.run([exe, "--version"], capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def wanted_agents(found: dict[str, str]) -> dict[str, str]:
@@ -98,14 +106,14 @@ def register(agent: str, exe: str, name: str, command: list[str] | None = None, 
     env_args = [a for k, v in (env or {}).items() for a in ("--env", f"{k}={v}")]
     if agent == "claude":
         run(f"{agent}: remove old {name}", [exe, "mcp", "remove", "--scope", "user", name])
-        add = [exe, "mcp", "add", "--scope", "user", *env_args]
-        run(f"{agent}: add {name}", add + (["--transport", "http", name, url] if url else [name, "--", *command]))
+        add = [exe, "mcp", "add", "--scope", "user"]  # --env takes many values: it goes after the name, never before
+        run(f"{agent}: add {name}", add + (["--transport", "http", name, url] if url else [name, *env_args, "--", *command]))
     elif agent == "codex":
         run(f"{agent}: remove old {name}", [exe, "mcp", "remove", name])
         run(f"{agent}: add {name}", [exe, "mcp", "add", name, *env_args] + (["--url", url] if url else ["--", *command]))
     elif agent == "copilot":
         run(f"{agent}: remove old {name}", [exe, "mcp", "remove", name])
-        run(f"{agent}: add {name}", [exe, "mcp", "add", *env_args] + (["--transport", "http", name, url] if url else [name, "--", *command]))
+        run(f"{agent}: add {name}", [exe, "mcp", "add"] + (["--transport", "http", name, url] if url else [name, *env_args, "--", *command]))
 
 
 def install_skills(agent: str) -> None:

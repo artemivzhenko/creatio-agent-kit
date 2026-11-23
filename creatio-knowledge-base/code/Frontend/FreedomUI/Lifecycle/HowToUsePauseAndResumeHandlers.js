@@ -58,18 +58,25 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 							await request.$context.executeRequest({
 								type: "crt.ShowDialogRequest",
 								$context: request.$context,
-								message: await request.$context.Resources.Strings.UsrImportStartMsg,
-								actions: [{
-									key: "OK",
-									config: {
-										color: "primary",
-										caption: await request.$context.Resources.Strings.OkButtonCaption
+								dialogConfig: {
+									data: {
+										message: await request.$context.Resources.Strings.UsrImportStartMsg,
+										actions: [
+											{
+												key: "OK",
+												config: {
+													color: "primary",
+													caption: await request.$context.Resources.Strings.OkButtonCaption
+												}
+											}
+										]
 									}
-								}]
+								}
 							});
 						}
 					};
 
+					// Legacy call kept: the sdk has no counterpart for server messages (guide 3.5).
 					Terrasoft.ServerChannel.on(
 						Terrasoft.EventName.ON_MESSAGE,
 						(await request.$context.ServerMessageReceivedFunc),

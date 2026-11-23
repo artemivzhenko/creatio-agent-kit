@@ -31,7 +31,7 @@ define("UsrMyEntity1Page", ["ProcessModuleUtilities"], function(ProcessModuleUti
 		methods: {
 
 			onCreateComplexKPButtonClick: function() {
-				const recordId =this.get("Id");
+				const recordId = this.get("Id");
 				if (!recordId) {
 					this.showInformationDialog(this.get("Resources.Strings.SaveRecordFirstMessage"));
 					return;

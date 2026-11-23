@@ -78,7 +78,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// The same list expressed as an IN filter.
 			findFreightServicesShorter: function(callback, scope) {
-				const esq =Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");
@@ -101,7 +101,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Null checks and a traversed column path.
 			findUnassignedByProductType: function(productTypeId, callback, scope) {
-				const esq =Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("Id");

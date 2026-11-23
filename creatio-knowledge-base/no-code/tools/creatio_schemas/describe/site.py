@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -233,6 +234,18 @@ def column_clash(package: Path, obj: str, name: str) -> tuple[str, str] | None:
         return "stop", (f"{n} exists on the site ({env}, {at[:10]}) in package {pkg}: reuse it (add that package to the workspace or "
                         "reference the column); --force adds it anyway")
     return None
+
+
+def site_says(found, force: bool) -> bool:
+    """Print what the last `index --env` pass says (S31-T12); True when the writer must stop. Shared by objects.py and scaffold.py."""
+    if found is None:
+        return False
+    level, line = found
+    if level == "stop" and not force:
+        print(f"error: {line}", file=sys.stderr)
+        return True
+    print(line if level != "stop" else f"warning: {line.split(': reuse it')[0]}; --force given, going on", file=sys.stderr)
+    return False
 
 
 def schema_clash(package: Path, name: str) -> tuple[str, str] | None:

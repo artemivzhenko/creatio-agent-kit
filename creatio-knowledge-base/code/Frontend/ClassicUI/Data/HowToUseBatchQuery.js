@@ -36,7 +36,7 @@ define("UsrMyEntity1Page", [], function() {
 				const bq = Ext.create("Terrasoft.BatchQuery");
 
 				changes.forEach((change) => {
-					const update =Ext.create("Terrasoft.UpdateQuery", {
+					const update = Ext.create("Terrasoft.UpdateQuery", {
 						rootSchemaName: "UsrMyDetailEntity"
 					});
 					update.setParameterValue(change.field, change.value, change.type);
@@ -62,7 +62,7 @@ define("UsrMyEntity1Page", [], function() {
 				const orderId = this.get("Id");
 				const bq = Ext.create("Terrasoft.BatchQuery");
 
-				const deleteQuery =Ext.create("Terrasoft.DeleteQuery", {
+				const deleteQuery = Ext.create("Terrasoft.DeleteQuery", {
 					rootSchemaName: "UsrAccountInMyEntity"
 				});
 				deleteQuery.filters.add("OrderFilter", Terrasoft.createColumnFilterWithParameter(
@@ -70,7 +70,7 @@ define("UsrMyEntity1Page", [], function() {
 				bq.add(deleteQuery);
 
 				accountIds.forEach((accountId) => {
-					const insertQuery =Ext.create("Terrasoft.InsertQuery", {
+					const insertQuery = Ext.create("Terrasoft.InsertQuery", {
 						rootSchemaName: "UsrAccountInMyEntity"
 					});
 					insertQuery.setParameterValue("UsrAccount", accountId, Terrasoft.DataValueType.GUID);

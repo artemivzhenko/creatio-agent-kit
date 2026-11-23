@@ -100,16 +100,20 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					await request.$context.executeRequest({
 						type: "crt.ShowDialogRequest",
 						$context: request.$context,
-						message: message,
-						actions: [
-							{
-								key: "OK",
-								config: {
-									color: "primary",
-									caption: await request.$context.Resources.Strings.OkButtonCaption
-								}
+						dialogConfig: {
+							data: {
+								message: message,
+								actions: [
+									{
+										key: "OK",
+										config: {
+											color: "primary",
+											caption: await request.$context.Resources.Strings.OkButtonCaption
+										}
+									}
+								]
 							}
-						]
+						}
 					});
 
 					return next?.handle(request);

@@ -26,6 +26,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from importlib import import_module
 from pathlib import Path
@@ -128,7 +129,21 @@ def cmd_pull(a) -> int:
     root = packages_dir(a.packages)
     if a.package == "all":
         return run(None, f"clio restorew -e {a.env}", ["clio", "restorew", "-e", a.env], cwd=root.parent)
-    return run(None, f"clio pull-pkg {a.package}", ["clio", "pull-pkg", a.package, "-e", a.env], cwd=root)
+    before = pipeline.archives(root)
+    run(None, f"clio pull-pkg {a.package}", ["clio", "pull-pkg", a.package, "-e", a.env], cwd=root)
+    gz = pipeline.pulled_gz(root, a.package, before)
+    if gz is None:
+        sys.exit(f"clio pull-pkg {a.package} wrote no package archive into {root}")
+    # into an empty folder: over an existing one extract-pkg-zip asks on the console, which a runner does not have
+    scratch = Path(tempfile.mkdtemp(prefix=".pull-", dir=root))
+    try:
+        run(None, f"clio extract-pkg-zip {gz.name}", ["clio", "extract-pkg-zip", str(gz), "-d", str(scratch)], cwd=root)
+        # the site's files over the working copy's; a file the site no longer has stays (git shows it)
+        shutil.copytree(scratch / a.package, root / a.package, dirs_exist_ok=True)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+        gz.unlink(missing_ok=True)
+    return 0
 
 
 def cmd_push(a) -> int:
@@ -192,6 +207,7 @@ def cmd_push_all(a) -> int:
 def graph(root: Path) -> dict:
     """deps, external, level (longest chain below), dependents and descriptor problems of every package folder."""
     found = {p.name: p for p in root.iterdir() if p.is_dir() and (p / "descriptor.json").is_file()}
+    order = pipeline.dependency_order(found)  # exits on a cycle or a descriptor that is not JSON, one line each
     deps, external, problems = {}, {}, []
     for name, folder in found.items():
         d = pipeline.read_json(folder / "descriptor.json").get("Descriptor", {})
@@ -205,7 +221,6 @@ def graph(root: Path) -> dict:
         names = [x.get("Name") for x in d.get("DependsOn", [])]
         deps[name] = sorted(n for n in names if n in found)
         external[name] = sorted(n for n in names if n not in found)
-    order = pipeline.dependency_order(found)  # exits on a cycle
     level = {}
     for name in order:
         level[name] = 1 + max((level[d] for d in deps[name]), default=-1)

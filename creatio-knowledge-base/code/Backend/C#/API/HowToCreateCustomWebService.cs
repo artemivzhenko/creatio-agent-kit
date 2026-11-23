@@ -21,17 +21,17 @@ using Terrasoft.Web.Common;
 /// Creatio discovers services only within namespaces matching this convention.
 ///
 /// URL pattern after deployment:
-///   GET /0/ServiceModel/ContactLookupService.svc/GetContactIdByName?Name=John
+///   GET /0/ServiceModel/UsrContactLookupService.svc/GetContactIdByName?Name=John
 ///
 /// POST body must be JSON-wrapped:  { "Name": "John" }
 /// (BodyStyle.Wrapped adds an extra object layer — use BodyStyle.Bare for naked JSON)
 /// </summary>
-namespace Terrasoft.Configuration.ContactLookupServiceNamespace {
+namespace Terrasoft.Configuration.UsrContactLookupServiceNamespace {
 
     [ServiceContract]
     [DefaultServiceRoute]
     [AspNetCompatibilityRequirements(RequirementsMode = AspNetCompatibilityRequirementsMode.Required)]
-    public class ContactLookupService : BaseService {
+    public class UsrContactLookupService : BaseService {
 
         [OperationContract]
         [WebInvoke(Method = "GET",

@@ -37,6 +37,13 @@ def test_the_order_is_dependencies_first_then_the_settings_then_the_given_list()
         (Path(tmp) / ".clio" / "workspaceSettings.json").write_text(json.dumps({"Packages": ["UsrTests", "UsrBase"]}), encoding="utf-8")
         assert [p.name for p in pipeline.package_dirs(root, None)] == ["UsrTests", "UsrBase"]
         assert [p.name for p in pipeline.package_dirs(root, "UsrApp,UsrBase")] == ["UsrApp", "UsrBase"]
+        (Path(tmp) / ".clio" / "workspaceSettings.json").unlink()  # the settings' list needs no descriptor; the dependency order does
+        (root / "UsrBase" / "descriptor.json").write_text('{"Descriptor": {"Name" "UsrBase"}}', encoding="utf-8")
+        try:  # a broken descriptor is one line naming the package, not a JSONDecodeError traceback (S35-T01)
+            pipeline.package_dirs(root, None)
+            raise AssertionError("no exit")
+        except SystemExit as e:
+            assert str(e.code).startswith("UsrBase: descriptor.json is not valid JSON"), e.code
 
 
 def test_the_rules_find_what_the_old_scripts_found():
@@ -60,6 +67,61 @@ def test_the_rules_find_what_the_old_scripts_found():
         with_cyrillic = pipeline.check([pkg], cyrillic=True)
         assert sum("Cyrillic" in e for e in with_cyrillic) == 1, with_cyrillic  # the comment line passes, the literal does not
         assert pipeline.check([package(root, "UsrOk", schemas=["UsrA"])], cyrillic=True) == []
+
+
+def test_a_binding_or_sql_script_changed_without_a_new_descriptor_date_is_refused():
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "packages"
+        pkg = package(root, "UsrPkg")
+        for folder, body in (("Data/UsrSeed", "data.json"), ("SqlScripts/UsrView", "UsrView.sql")):
+            (pkg / folder).mkdir(parents=True)
+            (pkg / folder / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": folder.split("/")[1], "ModifiedOnUtc": "2026-01-01T00:00:00.000Z"}}), encoding="utf-8")
+            (pkg / folder / body).write_text("v1", encoding="utf-8")
+        git = lambda *a: subprocess.run(["git", "-C", tmp, *a], capture_output=True, text=True, check=True)
+        git("init", "-q"); git("config", "user.email", "ci@example.com"); git("config", "user.name", "ci"); git("add", "."); git("commit", "-q", "-m", "base")
+        (pkg / "Data/UsrSeed/data.json").write_text("v2", encoding="utf-8")
+        (pkg / "SqlScripts/UsrView/UsrView.sql").write_text("v2", encoding="utf-8")
+        errors = pipeline.changed_without_date([pkg], "HEAD")
+        assert len(errors) == 2 and all("ModifiedOnUtc is still 2026-01-01" in e for e in errors), errors
+        (pkg / "Data/UsrSeed/descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrSeed", "ModifiedOnUtc": "2026-02-01T00:00:00.000Z"}}), encoding="utf-8")
+        errors = pipeline.changed_without_date([pkg], "HEAD")
+        assert len(errors) == 1 and "SqlScripts" in errors[0], errors
+        assert pipeline.main(["check", str(root)]) == 0  # without --base the rule is off
+
+
+def test_build_backup_and_deploy_share_the_artifact_shape_and_its_order():
+    import zipfile
+    original = pipeline.run
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "packages"
+        pkgs = [package(root, "UsrBase"), package(root, "UsrApp", depends=["UsrBase"])]
+        pipeline.run = lambda cmd, cwd=None, check=True: (cwd / f"{cmd[2]}.gz").write_text("gz", encoding="utf-8") and 0  # compress / pull-pkg write <name>.gz
+        try:
+            archive = pipeline.build(pipeline.package_dirs(root, None), Path(tmp) / "Build")
+            assert zipfile.ZipFile(archive).read("order.txt").decode() == "UsrBase\nUsrApp\n"
+            # backup: UsrGone is not on the site (no file written, exit 1), the archive keeps what the site had
+            pipeline.run = lambda cmd, cwd=None, check=True: ((cwd / f"{cmd[2]}.gz").write_text("site", encoding="utf-8") and 0) if cmd[2] != "UsrGone" else 1
+            saved = pipeline.backup(["UsrBase", "UsrApp", "UsrGone"], "ci", Path(tmp) / "Backup")
+            assert saved.name.startswith("Pkg-") and zipfile.ZipFile(saved).read("order.txt").decode() == "UsrBase\nUsrApp\n"
+            # deploy from the artifact: the .gz files by path, in the order file's order, after the IsChanged rule
+            seen = []
+            pipeline.run = lambda cmd, cwd=None, check=True: seen.append(cmd) or 0
+            pipeline.deploy(pipeline.unpack(saved, Path(tmp) / "unpacked"), "ci", restart=False, redis=False, compile_all=False)
+            pushes = [c for c in seen if c[1] == "push-pkg"]
+            assert [Path(c[2]).name for c in pushes] == ["UsrBase.gz", "UsrApp.gz"] and all(Path(c[2]).is_absolute() for c in pushes)
+            assert seen[0][1] == "execute-sql-script" and seen[-1][1] == "healthcheck"
+            # verify: the kit's push.py verify per package, the worst exit code wins
+            pipeline.run = lambda cmd, cwd=None, check=True: seen.append(cmd) or (1 if "UsrApp" in cmd[3] else 0)
+            seen.clear()
+            assert pipeline.verify(pkgs, "ci") == 1 and all(c[2] == "verify" and c[-2:] == ["-e", "ci"] for c in seen) and len(seen) == 2
+        finally:
+            pipeline.run = original
+        try:
+            pipeline.unpack(Path(tmp) / "nowhere", Path(tmp) / "x")
+            assert False, "an empty artifact must stop"
+        except SystemExit as e:
+            assert "no package archive" in str(e)
 
 
 def test_deploy_runs_the_commands_in_order_with_the_flags_clio_accepts():
@@ -125,6 +187,22 @@ def test_the_ui_stage_writes_the_config_and_the_framework_defaults_but_never_pag
             assert seen[0][-3:] == ["--filter", "case", "--validate-only"] and "secret-value" not in " ".join(seen[0])
     finally:
         pipeline.run = original
+
+
+def test_what_pull_pkg_wrote_becomes_name_gz():
+    """clio 8.1 pull-pkg writes <name>.zip holding <name>.gz; an older clio the .gz itself (S35-T01: backup saved nothing)."""
+    import zipfile
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        before = pipeline.archives(folder)
+        assert pipeline.pulled_gz(folder, "UsrApp", before) is None  # nothing written: not on the site
+        with zipfile.ZipFile(folder / "UsrApp.zip", "w") as z:
+            z.writestr("UsrApp.gz", b"gz bytes")
+        assert pipeline.pulled_gz(folder, "UsrApp", before) == folder / "UsrApp.gz"
+        assert (folder / "UsrApp.gz").read_bytes() == b"gz bytes" and not (folder / "UsrApp.zip").exists()
+        before = pipeline.archives(folder)
+        (folder / "usrbase.gz").write_bytes(b"old clio")
+        assert pipeline.pulled_gz(folder, "UsrBase", before) == folder / "UsrBase.gz" and (folder / "UsrBase.gz").read_bytes() == b"old clio"
 
 
 if __name__ == "__main__":

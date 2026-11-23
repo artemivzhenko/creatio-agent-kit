@@ -6,7 +6,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//
 		//   "AttributeName": {
 		//       "modelConfig": { "path": "PDS.Type" },
-		//       "change": { "request": "usr.OnTypeChange" }
+		//       "change": { "request": "usr.ChangeTypeRequest" }
 		//   }
 		//
 		// The request is a normal custom request handled in `handlers`. Nothing
@@ -68,7 +68,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					// Simple case: a lookup drives a virtual flag.
 					"TypeField": {
 						"modelConfig": { "path": "PDS.Type" },
-						"change": { "request": "usr.OnTypeChange" }
+						"change": { "request": "usr.ChangeTypeRequest" }
 					},
 
 					// The flag the handler writes. No `change` here, so writing
@@ -78,15 +78,15 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					// Two numeric fields that recalculate each other.
 					"PDS_Amount_jdptfrx": {
 						"modelConfig": { "path": "PDS.Amount" },
-						"change": { "request": "usr.RecalculateShares" }
+						"change": { "request": "usr.RecalculateSharesRequest" }
 					},
 					"PDS_FirstShare_n7omdku": {
 						"modelConfig": { "path": "PDS.FirstShare" },
-						"change": { "request": "usr.RecalculateShares" }
+						"change": { "request": "usr.RecalculateSharesRequest" }
 					},
 					"PDS_FirstSharePercent_9a5adoy": {
 						"modelConfig": { "path": "PDS.FirstSharePercent" },
-						"change": { "request": "usr.RecalculateShares" }
+						"change": { "request": "usr.RecalculateSharesRequest" }
 					}
 				}
 			},
@@ -107,7 +107,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 
 			// Straightforward: read the new value, set a flag.
 			{
-				request: "usr.OnTypeChange",
+				request: "usr.ChangeTypeRequest",
 				handler: async (request, next) => {
 					const typeField = await request.$context.TypeField;
 					const typeId = typeField?.value;
@@ -125,7 +125,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 
 			// Mutually dependent fields - both guards applied.
 			{
-				request: "usr.RecalculateShares",
+				request: "usr.RecalculateSharesRequest",
 				handler: async (request, next) => {
 
 					// GUARD 1: skip the initial load, react to user edits only.

@@ -64,6 +64,7 @@ define("UsrMyEntity1Page", [], function() {
 				});
 				esq.addColumn("Id");
 				esq.getEntityCollection(function(result) {
+					// shortcut: `result` goes on unchecked to show Ext.callback alone; the caller checks result.success.
 					Ext.callback(callback, scope || this, [result]);
 				}, this);
 			},

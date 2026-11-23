@@ -20,6 +20,8 @@ public sealed class FakeExecutionSession : IExecutionSession
     public DateTime CaseStartedUtc { get; set; } = new DateTime(2026, 11, 21, 8, 0, 0, DateTimeKind.Utc);
     public DateTime PreviousLineStartedUtc { get; set; } = new DateTime(2026, 11, 21, 8, 0, 0, DateTimeKind.Utc);
     public void MarkLineStart() { }
+    public string? ActiveTabCode { get; set; }
+    public Func<ResolvedTarget, IUiElement>? MaterializeWith { get; set; }
     public void MarkChange() => LastChangeUtc = DateTime.UtcNow;
     public DateTime LastChangeUtc { get; set; } = DateTime.MinValue;
     public int ActiveTab => 1;
@@ -54,7 +56,7 @@ public sealed class FakeExecutionSession : IExecutionSession
     public IUiElement Materialize(ResolvedTarget target)
     {
         MaterializedCount++;
-        return new FakeUiElement(target.Code);
+        return MaterializeWith?.Invoke(target) ?? new FakeUiElement(target.Code);
     }
 
     public IReadOnlyDictionary<string, ProcessDefinition> Processes { get; init; } =

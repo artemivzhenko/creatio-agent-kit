@@ -12,18 +12,31 @@ agent as tools, and four agent skills (Claude Code, Codex, Copilot) that turn th
 |---|---|---|
 | [creatio-knowledge-base/](creatio-knowledge-base/README.md) | 177 code recipes (Classic UI, Freedom UI, C#, SQL), the clio reference, `no-code/tools/` (17 package toolkits, the describe layer, the environment layer), the `creatio-kb` MCP server (44 tools), the skills `creatio-kb`, `creatio-author`, `creatio-tester`, `creatio-loop`, the platform facts register | its README |
 | [automatic-creatio-tests/](automatic-creatio-tests/README.md) | the test framework: `.act` cases in a small DSL over Playwright for Freedom UI and Classic UI pages, process cases and OData backend cases without a browser, the `creatio-tests` MCP server (11 tools) | its README, [docs/dsl.md](automatic-creatio-tests/docs/dsl.md) |
-| [ci-cd/](ci-cd/README.md) | the pipeline of a package repository: `pipeline.py` with the stages check, build, register, deploy (IsChanged cleared, push-pkg, compile, restart, Redis), unit tests inside Creatio, UI cases; templates for GitHub Actions, GitLab CI and Jenkins; `clio-ext.py`, the developer's commands around clio (push-all in dependency order, hierarchy, localization and process checks, OAuth service); the check, hierarchy, lint, build, deploy and push-all stages are also `ci_*` tools of the knowledge-base MCP server | its README |
+| [ci-cd/](ci-cd/README.md) | the pipeline of a package repository: `pipeline.py` with the stages check (package rules, the descriptor-date rule against the merge base), build, register, backup, deploy from the built artifact (IsChanged cleared, push-pkg, compile, restart, Redis; a backup zip is the rollback), verify, unit tests inside Creatio, UI cases; templates for GitHub Actions, GitLab CI and Jenkins; `clio-ext.py`, the developer's commands around clio (push-all in dependency order, hierarchy, localization and process checks, OAuth service); the check, hierarchy, lint, build, deploy and push-all stages are also `ci_*` tools of the knowledge-base MCP server | its README |
 | [postman/](postman/) | a Postman collection for manual API checks against a site; a helper, not part of the pipeline | - |
 | [AGENTS.md](AGENTS.md) | the rules for any AI that changes this repository | - |
 
 ## Quick start
 
-Requires Python 3.10+, .NET 8 SDK, at least one agent CLI (Claude Code, Codex CLI or GitHub Copilot CLI), and
-clio for the package round trip.
+Requires Python 3.10+, .NET 8 SDK (or newer), Node.js (context7 runs through `npx`), clio for the package round
+trip, and at least one agent CLI (Claude Code, Codex CLI or GitHub Copilot CLI) - install the agent yourself.
 
-```bash
+On a clean Windows machine `bootstrap.ps1` installs or updates everything but the agent (winget, `dotnet tool`),
+downloads the Playwright browser of the test framework and ends with `agent_setup.py`:
+
+```powershell
 git clone <this repository>
 cd creatio-agent-kit
+.ootstrap.ps1 -Check                  # the table of what is present and what is missing; changes nothing
+.ootstrap.ps1                         # present -> updated in place, absent -> installed; -SkipBrowser, -With dotnet10,docker
+```
+
+Run it from an administrator console: the Git and .NET installers ask for elevation, and a cancelled prompt leaves the
+old version in place (the script says `kept`). Close the agents first, or a running MCP server keeps its tool files locked.
+
+With the software already there (or on macOS and Linux) run the registration alone:
+
+```bash
 py -3 agent_setup.py                 # python3 on macOS and Linux; --dry-run prints the commands, --check plans only
 py -3 agent_setup.py --agents codex  # one agent instead of every one found: claude, codex, copilot
 ```
@@ -49,7 +62,10 @@ files of a task folder and the proof tiers are the skill
 [creatio-loop](creatio-knowledge-base/skill/creatio-loop/SKILL.md); the roles are
 [creatio-author](creatio-knowledge-base/skill/creatio-author/SKILL.md) and
 [creatio-tester](creatio-knowledge-base/skill/creatio-tester/SKILL.md); the recipes come through
-[creatio-kb](creatio-knowledge-base/skill/creatio-kb/SKILL.md).
+[creatio-kb](creatio-knowledge-base/skill/creatio-kb/SKILL.md). At the end of the work the human asks either agent
+for `retrospective.md` ([the prompt](creatio-knowledge-base/skill/creatio-loop/templates/retrospective.md)): what the
+tools did well and badly, what was done by hand, and the Creatio platform facts learned, with evidence and without a
+name of the project - the file other teams and the kit's maintainers read.
 
 ## Tests
 

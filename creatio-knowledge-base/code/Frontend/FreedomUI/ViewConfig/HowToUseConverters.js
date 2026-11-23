@@ -31,14 +31,15 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 				"index": 0
 			},
 
-			// Custom converter: display boolean as "Yes" / "No"
+			// Custom converter: display a boolean as one of two page resource
+			// strings, YesCaption / NoCaption, passed as converter arguments.
 			{
 				"operation": "insert",
 				"name": "Label_Status",
 				"values": {
 					"layoutConfig": { "column": 1, "row": 2, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Label",
-					"caption": "$IsActive | usr.BoolToYesNo"
+					"caption": "$IsActive | usr.BoolToYesNo : $Resources.Strings.YesCaption : $Resources.Strings.NoCaption"
 				},
 				"parentName": "SideAreaProfileContainer",
 				"propertyName": "items",
@@ -62,9 +63,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		modelConfigDiff: /**SCHEMA_MODEL_CONFIG_DIFF*/[]/**SCHEMA_MODEL_CONFIG_DIFF*/,
 		handlers: /**SCHEMA_HANDLERS*/[]/**SCHEMA_HANDLERS*/,
 
-		// Custom converter - receives the attribute value, returns the display value
+		// Custom converter - receives the attribute value and the pipe arguments,
+		// returns the display value (no $context here: texts come in as arguments)
 		converters: /**SCHEMA_CONVERTERS*/{
-			"usr.BoolToYesNo": value => value ? "Yes" : "No"
+			"usr.BoolToYesNo": (value, yesCaption, noCaption) => value ? yesCaption : noCaption
 		}/**SCHEMA_CONVERTERS*/,
 
 		validators: /**SCHEMA_VALIDATORS*/{}/**SCHEMA_VALIDATORS*/

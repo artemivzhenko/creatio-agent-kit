@@ -28,6 +28,7 @@
 // A question to the user inside asyncValidate: the save's body mask is up, so
 // hide it first (this.hideBodyMask()) or the dialog renders behind it - see
 // Dialogs/HowToConfirmWithCustomButtons for the dialog and both answers.
+// validate() runs before callParent: the order decides which message shows first.
 // Style: frontend guide 2.4, 2.5, 2.6
 
 define("UsrMyEntity1Page", [], function() {
@@ -94,7 +95,11 @@ define("UsrMyEntity1Page", [], function() {
 
 				esq.getEntityCollection(function(result) {
 					if (!result.success) {
-						Ext.callback(callback, scope, [{ success: true }]);
+						// A failed query must not let the save through unchecked.
+						Ext.callback(callback, scope, [{
+							success: false,
+							message: this.get("Resources.Strings.ValidationQueryFailedMessage")
+						}]);
 						return;
 					}
 					if (result.collection.getCount() === 0) {

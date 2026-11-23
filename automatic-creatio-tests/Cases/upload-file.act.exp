@@ -2,7 +2,6 @@
 use Supervisor
 open UsrOrderPage for UsrOrderRecord
 set CardButtonToggleGroup "Attachments"
-wait 2 second
 upload AttachmentList "requisites-ok.xlsx"
 check dialog contains "loaded"
 answer "OK"

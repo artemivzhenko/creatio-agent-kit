@@ -6,8 +6,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A command on an element of another tab opens the tab (S11-T06).** `analyse` writes `tab` for a control shown on one page tab only (read from the per-tab passes of the walk); the executor clicks that tab before the first command on its elements, and again when a later line is on another tab. Validation inserts nothing and no longer warns "lies on tab"; the `click <Tab>` line stays valid. `--verbose` logs `opened tab <code>`.
+
 ### Fixed
 
+- **The first-run flake of `set` on a lookup (S11-T04, S34-T03).** The autocomplete panel re-renders when the search answers; the option found in the unfiltered list (`Nth(3)`) was gone by the click, and Playwright's `TimeoutException` (not a `PlaywrightException`) escaped the option-text read and waited the full element timeout. The read now has a short timeout and treats a vanished row as empty, the pick finds the option again when its click misses (4 attempts), and the option is awaited for the element budget instead of 5 s.
 - **`check X not exists` right after a change waits for the rule (S11-T13).** Within `elementTimeoutMs` of a `set` / `clear` / `click` / `answer` / `upload` line, absence is awaited for the element budget instead of `absenceTimeoutMs`; a pass returns at once.
 - **`analyse` of a Classic page without an active tab no longer throws (S11-T17).** The tab walk read a property of an empty `FirstOrDefault`; it now has no active index, and the output says `tabs: none`.
 - **`use` no longer launches a browser (S11-T16).** The browser context and its login are made when the first page is opened, so a backend case (`ProcessCases`) never starts Chromium. The lookup filter `<Col>/Id eq <guid>` (`ODataValues.FilterColumn`) was already in place.

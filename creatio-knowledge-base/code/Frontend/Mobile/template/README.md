@@ -61,18 +61,18 @@ Add a button to the mobile form page (take `parentName` from the designer):
 {
   "operation": "insert",
   "name": "UsrMyButton",
-  "parentName": "GridContainer_a1b2c3d",
-  "propertyName": "items",
-  "index": 0,
   "values": {
     "type": "crt.Button",
-    "caption": "Do the thing",
+    "caption": "#ResourceString(UsrMyButton_caption)#",
     "size": "medium",
     "clicked": {
       "request": "usr.MyRequest",
       "params": { "attributeName": "PDS_UsrName_a1b2c3d" }
     }
-  }
+  },
+  "parentName": "GridContainer_a1b2c3d",
+  "propertyName": "items",
+  "index": 0
 }
 ```
 

@@ -27,22 +27,24 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		modelConfigDiff: /**SCHEMA_MODEL_CONFIG_DIFF*/[]/**SCHEMA_MODEL_CONFIG_DIFF*/,
 
 		// --- How to navigate to another section or page ----------------------
-		// Use Terrasoft.workspaceBaseUrl to build an absolute URL and open it
-		// via window.open().
+		// Run crt.OpenPageRequest through request.$context.executeRequest with
+		// the list page schema of the section; it opens in the current tab.
 		//
-		// URL pattern for sections:
-		//   /Shell/#SectionModuleV2/SectionSchemaName
+		// schemaName - the section's list page, e.g. "UsrMyEntity_ListPage"
 		//
-		// "_blank" opens in a new tab; use "_self" to navigate in the current tab.
-		// .focus() brings the new tab to the foreground (browser may block it).
-		// Style: frontend guide 3.2, 3.4
+		// From a link (no handler), the Shell hash does the same: #Section/<ListPage>.
+		// Not Terrasoft.workspaceBaseUrl + window.open.
+		// Style: frontend guide 3.2, 3.4, 3.5
 
 		handlers: /**SCHEMA_HANDLERS*/[
 			{
 				request: "usr.OpenSectionRequest",
 				handler: async (request, next) => {
-					const url = Terrasoft.workspaceBaseUrl + "/Shell/#SectionModuleV2/SysAdminOperationSectionV2";
-					window.open(url, "_blank").focus();
+					await request.$context.executeRequest({
+						type: "crt.OpenPageRequest",
+						$context: request.$context,
+						schemaName: "UsrMyEntity_ListPage"
+					});
 
 					return next?.handle(request);
 				}

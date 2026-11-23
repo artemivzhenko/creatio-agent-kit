@@ -41,7 +41,9 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		//
 		// ===================== sdk.ModelParameterType ========================
 		//   sdk.ModelParameterType.Filter              a FilterGroup
-		//   sdk.ModelParameterType.PrimaryColumnValue  read one record by id
+		//   sdk.ModelParameterType.PrimaryColumnValue  the id in crt.DeleteDataRequest;
+		//                                              read by id through a Filter
+		//                                              (Id Equal), see below (P-8.1)
 		//   sdk.ModelParameterType.ColumnValue         a single column value
 		//
 		// ===================== SERVICES ======================================
@@ -73,13 +75,16 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 				handler: async (request, next) => {
 					const recordId = await request.$context.PDS_MyEntityId_a1b2c3d;
 
+					const filter = new sdk.FilterGroup();
+					await filter.addSchemaColumnFilterWithParameter(
+						sdk.ComparisonType.Equal, "Id", recordId);
+
 					const model = await sdk.Model.create("UsrRelatedEntity");
 					const records = await model.load({
 						attributes: ["UsrSender", "UsrDeliveryOption", "UsrPayer"],
 						parameters: [{
 							type: sdk.ModelParameterType.Filter,
-							value: (new sdk.FilterGroup()).addSchemaColumnFilterWithParameter(
-								sdk.ComparisonType.Equal, "Id", recordId)
+							value: filter
 						}]
 					});
 
@@ -111,16 +116,20 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 				}
 			},
 
-			// Reading a single record by its primary key.
+			// Reading a single record by its primary key: a Filter on Id.
 			{
 				request: "usr.LoadOneRecordRequest",
 				handler: async (request, next) => {
+					const filter = new sdk.FilterGroup();
+					await filter.addSchemaColumnFilterWithParameter(
+						sdk.ComparisonType.Equal, "Id", await request.$context.PDS_OrderId_c3d4e5f);
+
 					const model = await sdk.Model.create("UsrMyEntity");
 					const records = await model.load({
 						attributes: ["UsrName", "UsrStatus"],
 						parameters: [{
-							type: sdk.ModelParameterType.PrimaryColumnValue,
-							value: await request.$context.PDS_OrderId_c3d4e5f
+							type: sdk.ModelParameterType.Filter,
+							value: filter
 						}]
 					});
 					request.$context.MyAttribute = records[0]?.UsrName;

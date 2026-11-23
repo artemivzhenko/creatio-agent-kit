@@ -26,8 +26,9 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		modelConfigDiff: /**SCHEMA_MODEL_CONFIG_DIFF*/[]/**SCHEMA_MODEL_CONFIG_DIFF*/,
 
 		// --- How to open a record edit page or create a new record -----------
-		// Use sdk.HandlerChainService with crt.UpdateRecordRequest to open an
-		// existing record, or crt.CreateRecordRequest to open a blank edit page.
+		// Use request.$context.executeRequest with crt.UpdateRecordRequest to open
+		// an existing record, or crt.CreateRecordRequest to open a blank edit page.
+		// sdk.HandlerChainService.instance.process is for code without a $context.
 		//
 		// crt.UpdateRecordRequest:
 		//   entityName - schema name of the entity
@@ -44,12 +45,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			{
 				request: "usr.OpenRecordRequest",
 				handler: async (request, next) => {
-					const handlerChain = sdk.HandlerChainService.instance;
-
 					// Open an existing record by id
 					const recordId = await request.$context.PDS_ContactId_someAttr;
 
-					await handlerChain.process({
+					await request.$context.executeRequest({
 						type: "crt.UpdateRecordRequest",
 						$context: request.$context,
 						entityName: "Contact",
@@ -63,10 +62,8 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			{
 				request: "usr.CreateRecordRequest",
 				handler: async (request, next) => {
-					const handlerChain = sdk.HandlerChainService.instance;
-
 					// Open a blank edit page with pre-filled default values
-					await handlerChain.process({
+					await request.$context.executeRequest({
 						type: "crt.CreateRecordRequest",
 						$context: request.$context,
 						entityName: "Contact",

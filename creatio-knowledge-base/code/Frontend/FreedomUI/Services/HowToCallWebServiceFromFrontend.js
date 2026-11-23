@@ -30,7 +30,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// from inside a handler.
 		//
 		// Endpoint format: /rest/ServiceName/MethodName
-		//   ServiceName - class name of your C# service (e.g. ContactLookupService)
+		//   ServiceName - class name of your C# service (e.g. UsrContactLookupService)
 		//   MethodName  - method decorated with [OperationContract]
 		//
 		// GET:  httpClientService.get(url)
@@ -49,7 +49,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 					const httpClientService = new sdk.HttpClientService();
 
 					// GET request
-					const getResponse = await httpClientService.get("/rest/ContactLookupService/GetContactIdByName?name=John");
+					const getResponse = await httpClientService.get("/rest/UsrContactLookupService/GetContactIdByName?name=John");
 					const contactId = getResponse?.body?.GetContactIdByNameResult;
 
 					// POST request - payload is serialized to JSON automatically
@@ -57,7 +57,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 						param1: "value1",
 						param2: "value2"
 					};
-					const postResponse = await httpClientService.post("/rest/MyService/MyMethod", payload);
+					const postResponse = await httpClientService.post("/rest/UsrMyService/MyMethod", payload);
 					const postResult = postResponse?.body?.MyMethodResult;
 
 					request.$context.MyAttribute = postResult;

@@ -56,6 +56,12 @@ public interface IExecutionSession
     /// <summary>Moves the current tab to a configured page through the Shell address, without loading the application again.</summary>
     Task NavigatePageAsync(string pageName, string? recordId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The code of the page tab the executor last opened or clicked in the current browser tab; null when unknown (the page was just opened and
+    /// Creatio reopens it on the tab it was last left on). A command on an element of another tab opens that tab first (S11-T06).
+    /// </summary>
+    string? ActiveTabCode { get; set; }
+
     /// <summary>Called by the executor after a line that changes the page (set, clear, click, answer, upload).</summary>
     void MarkChange();
 

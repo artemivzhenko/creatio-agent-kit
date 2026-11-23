@@ -625,6 +625,9 @@ def test_ci_tools_run_the_pipeline_in_process_and_capture_its_output():
         with patch.object(server, "_ci", side_effect=lambda script, argv: " ".join(argv)):
             assert server.ci_deploy(str(root), "dev", package="UsrApp", restart=False) == f"deploy {root} -e dev --package UsrApp --no-restart"
             assert server.ci_build(str(root), "Build") == f"build {root} --out Build"
+            assert server.ci_deploy(str(root), "dev", artifact="Build/Pkg.zip", redis=False) == "deploy --artifact Build/Pkg.zip -e dev --no-redis"
+            assert server.ci_backup(str(root), "dev") == f"backup {root} -e dev --out Backup"
+            assert server.ci_verify(str(root), "dev", package="UsrApp") == f"verify {root} -e dev --package UsrApp"
             assert server.ci_push_all(str(root), "dev", retry=True) == f"push-all -p {root} -e dev --list {root.parent / 'error-pkg.txt'}"
 
 

@@ -14,8 +14,6 @@ TOOLS = Path(__file__).resolve().parent.parent
 KB = TOOLS.parent.parent
 KIT = KB.parent  # agent_setup.py is at the kit root
 FIXTURE = TOOLS / "pages" / "tests" / "fixtures" / "UsrPkg"
-# entry scripts other roles own are listed in the S33-T09 card (push/push.py, classicui/classicui.py); the MCP server speaks the protocol on stdout
-NOT_HERE = {"push/push.py", "classicui/classicui.py"}
 
 
 def test_a_cyrillic_caption_survives_a_pipe_without_pythonioencoding():
@@ -42,7 +40,7 @@ def test_every_entry_script_carries_the_guard():
         if 'if __name__ == "__main__":' not in text:
             continue
         entries.append(rel)
-        if "S33-T09" not in text and rel.removeprefix("creatio-knowledge-base/no-code/tools/") not in NOT_HERE:
+        if "S33-T09" not in text:
             missing.append(rel)
     assert len(entries) >= 25 and not missing, missing
 

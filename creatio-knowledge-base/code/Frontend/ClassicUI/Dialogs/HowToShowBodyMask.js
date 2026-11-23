@@ -65,7 +65,7 @@ define("UsrMyEntity1Page", [], function() {
 
 				const bq = Ext.create("Terrasoft.BatchQuery");
 				changes.forEach((change) => {
-					const update =Ext.create("Terrasoft.UpdateQuery", {
+					const update = Ext.create("Terrasoft.UpdateQuery", {
 						rootSchemaName: "UsrMyDetailEntity"
 					});
 					update.setParameterValue(change.field, change.value, change.type);

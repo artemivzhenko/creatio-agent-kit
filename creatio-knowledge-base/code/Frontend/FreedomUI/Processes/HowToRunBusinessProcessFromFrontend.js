@@ -26,8 +26,9 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		modelConfigDiff: /**SCHEMA_MODEL_CONFIG_DIFF*/[]/**SCHEMA_MODEL_CONFIG_DIFF*/,
 
 		// --- How to run a business process from the frontend -----------------
-		// Use sdk.HandlerChainService with crt.RunBusinessProcessRequest to invoke
-		// a server-side business process and read its output parameters.
+		// Use request.$context.executeRequest with crt.RunBusinessProcessRequest to
+		// invoke a server-side business process and read its output parameters.
+		// sdk.HandlerChainService.instance.process is for code without a $context.
 		//
 		// processName            - code of the process in Creatio
 		// processParameters      - key-value input parameters for the process
@@ -43,12 +44,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 			{
 				request: "usr.RunProcessRequest",
 				handler: async (request, next) => {
-					const handlerChain = sdk.HandlerChainService.instance;
-
 					const field1 = await request.$context.PDS_Field1_someAttr;
 					const field2 = await request.$context.PDS_Field2_someAttr;
 
-					const result = await handlerChain.process({
+					const result = await request.$context.executeRequest({
 						type: "crt.RunBusinessProcessRequest",
 						$context: request.$context,
 						processName: "UsrMyProcessCode",

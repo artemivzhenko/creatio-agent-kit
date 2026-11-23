@@ -39,7 +39,7 @@ define("UsrMyEntity1Page",
 		const No  = { value: "d5b0df38-08d9-48a0-b25f-929ddb513713", displayValue: "No" };
 
 		// Shared reference to the currently initialised view model.
-		var currentModule = null;
+		let currentModule = null;
 
 		return {
 			entitySchemaName: "UsrMyEntity",

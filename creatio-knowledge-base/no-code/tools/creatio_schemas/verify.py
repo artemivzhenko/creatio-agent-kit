@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import urllib.request
 from pathlib import Path
 
 from .push import SOURCES_SQL, _source_text, compile_script, creatio_bin, script_processes
@@ -56,15 +55,12 @@ def _body_file(folder: Path, name: str) -> Path | None:
 
 def served(env, name: str) -> str | None:
     """The text the site serves for a client schema (conf/content/<Schema>.js), None when it does not serve it."""
-    env.login()
-    req = urllib.request.Request(env.url + ("" if env.net_core else "0/") + f"conf/content/{name}.js")
-    req.add_header("Accept", "*/*")  # the environment's own requests ask for JSON, which this path refuses (406)
-    req.add_header("Cookie", "; ".join(f"{k}={v}" for k, v in env._cookies.items()))
+    env.login()  # a refused login raises, it is not "not served"
     try:
-        with env._opener.open(req, timeout=env.timeout) as resp:
-            return resp.read().decode("utf-8-sig", errors="replace")
-    except OSError:  # urllib's HTTPError and URLError are OSErrors
+        r = env.fetch(("" if env.net_core else "0/") + f"conf/content/{name}.js")
+    except RuntimeError:  # the site cannot be reached
         return None
+    return r.text if r.ok else None
 
 
 def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | None = None, fetch=None) -> list[tuple[str, str]]:

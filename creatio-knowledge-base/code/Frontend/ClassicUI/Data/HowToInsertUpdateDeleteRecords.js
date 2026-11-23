@@ -34,7 +34,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// INSERT
 			logCancelAttempt: function(orderId, callbackData) {
-				const insertQuery =Ext.create("Terrasoft.InsertQuery", {
+				const insertQuery = Ext.create("Terrasoft.InsertQuery", {
 					rootSchemaName: "UsrActionLog"
 				});
 
@@ -57,7 +57,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// UPDATE
 			setServiceState: function(serviceId, stateId) {
-				const update =Ext.create("Terrasoft.UpdateQuery", {
+				const update = Ext.create("Terrasoft.UpdateQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 
@@ -77,7 +77,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// DELETE
 			removeAccountLink: function(linkId) {
-				const deleteQuery =Ext.create("Terrasoft.DeleteQuery", {
+				const deleteQuery = Ext.create("Terrasoft.DeleteQuery", {
 					rootSchemaName: "UsrAccountInMyEntity"
 				});
 				deleteQuery.filters.add("IdFilter", Terrasoft.createColumnFilterWithParameter(

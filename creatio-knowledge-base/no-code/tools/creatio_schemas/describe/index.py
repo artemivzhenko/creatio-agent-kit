@@ -756,10 +756,10 @@ def lookups(path: Path | str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> st
         rows.append(f"  {n:<34} {caption!r:<30} {pkg:<16} "
                     + ("replacing " if "replacing" in summ else "parent ") + " -> ".join(chain + ["BaseLookup"])
                     + (f"  {own.group(1)} own columns" if own else "") + f"  bindings: {', '.join(bindings) if bindings else 'none'}  used by {users}")
-    out = [f"{len(rows)} lookups in {', '.join(p.name for p in pkgs)}"] + cut(rows, limit, offset=offset)
+    out = [f"{len(rows)} lookups in {', '.join(p.name for p in pkgs)}"] + cut(rows, limit, offset=offset, paged=True)
     if unknown:
         out.append(f"  not decided ({len(unknown)}; parent outside the workspace and the stock list):")
-        out.extend(cut([f"    {item}" for item in unknown], limit, offset=offset))
+        out.extend(cut([f"    {item}" for item in unknown], limit, offset=offset, paged=True))
     return "\n".join(ws.stale + out + _unreadable_line(indexes))
 
 
@@ -788,7 +788,7 @@ def find_schema(path: Path | str, name: str, limit: int = DEFAULT_LIMIT, offset:
                        + (", ".join(f"{c}={count}" for c, count in resources["missing"].items()) or "none"))
         bindings = [f"Data/{dn} ({rows} rows, {other})" for other, dn, rows in ws.bindings(n)]
         if bindings:
-            shown = cut(bindings, limit, offset=offset)
+            shown = cut(bindings, limit, offset=offset, paged=True)
             tail = shown.pop() if limit and len(shown) > limit else None
             out.append("  bindings: " + ", ".join(shown))
             if tail:
@@ -797,26 +797,26 @@ def find_schema(path: Path | str, name: str, limit: int = DEFAULT_LIMIT, offset:
         out += _file_lines(ws.dir[folder], e["files"])
         typed = [Edge.from_dict(d).line() for d in e.get("deps", [])]
         if typed:
-            shown = cut(typed, limit, offset=offset)
+            shown = cut(typed, limit, offset=offset, paged=True)
             tail = shown.pop() if limit and len(shown) > limit else None
             out.append("  depends on: " + "; ".join(shown))
             if tail:
                 out.append(tail)
         dependents = sorted(f"{fk} {fn}{'' if other == folder else ', ' + other} ({ed.via})" for other, fk, fn, ed in ws.dependents(n))
         if dependents:
-            shown = cut(dependents, limit, offset=offset)
+            shown = cut(dependents, limit, offset=offset, paged=True)
             tail = shown.pop() if limit and len(shown) > limit else None
             out.append("  dependents: " + "; ".join(shown))
             if tail:
                 out.append(tail)
         if e.get("refs"):
-            refs = cut(e["refs"], limit, offset=offset)
+            refs = cut(e["refs"], limit, offset=offset, paged=True)
             tail = refs.pop() if len(refs) > limit and limit else None
             out.append(f"  refers to: {', '.join(refs)}")
             if tail:
                 out.append(tail)
         users = [f"{un} ({uk}{'' if other == folder else ', ' + other})" for other, uk, un in ws.referrers(n)]
-        limited_users = cut(users, limit, offset=offset)
+        limited_users = cut(users, limit, offset=offset, paged=True)
         tail = limited_users.pop() if len(limited_users) > limit and limit else None
         out.append(f"  used by: {', '.join(limited_users)}" if users else "  used by: nothing in the workspace")
         if tail:

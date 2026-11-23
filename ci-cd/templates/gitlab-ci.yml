@@ -26,7 +26,7 @@ default:
 verify:
   stage: verify
   script:
-    - python3 kit/ci-cd/pipeline.py check packages $PKG_ARG
+    - python3 kit/ci-cd/pipeline.py check packages $PKG_ARG ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:+--base origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME}
     - 'if ls tests/**/*.csproj > /dev/null 2>&1; then dotnet test tests; fi'
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -48,7 +48,14 @@ deploy:
   environment: dev
   script:
     - python3 kit/ci-cd/pipeline.py register ci --url "$CREATIO_URL" --login "$CREATIO_LOGIN" --password "$CREATIO_PASSWORD"
-    - python3 kit/ci-cd/pipeline.py deploy packages -e ci $PKG_ARG
+    - python3 kit/ci-cd/pipeline.py backup packages -e ci --out Backup $PKG_ARG
+    - python3 kit/ci-cd/pipeline.py deploy --artifact Build/Pkg.zip -e ci   # the build job's artifact, what was tested
+    - python3 kit/ci-cd/pipeline.py verify packages -e ci $PKG_ARG
+  needs: [build]
+  artifacts:
+    when: always
+    paths: [Backup/*.zip]   # rollback: pipeline.py deploy --artifact <this zip> -e ci
+    expire_in: 1 month
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 

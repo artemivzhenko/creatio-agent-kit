@@ -34,6 +34,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         public IPage? Page;
         public string? Name;
         public string? CurrentPage;
+        public string? ActiveCode;
         public int Ordinal;
     }
 
@@ -83,6 +84,19 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
 
     private DateTime _lineStarted = DateTime.UtcNow;
     private DateTime _previousLineStarted = DateTime.UtcNow;
+
+    /// <inheritdoc />
+    public string? ActiveTabCode
+    {
+        get => CurrentTab?.ActiveCode;
+        set
+        {
+            if (CurrentTab is { } tab)
+            {
+                tab.ActiveCode = value;
+            }
+        }
+    }
 
     /// <summary>Records that a line just changed the page.</summary>
     public void MarkChange() => LastChangeUtc = DateTime.UtcNow;
@@ -417,6 +431,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         var page = await context.NewPageAsync().ConfigureAwait(false);
         page.SetDefaultTimeout(Settings.ElementTimeoutMs);
         tab.Page = page;
+        tab.ActiveCode = null;
         Watch(page, tab.Ordinal);
     }
 
@@ -508,6 +523,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         }
 
         CurrentPage = page.Name;
+        ActiveTabCode = null;
         _logger.LogDebug("Navigated to {Page} through {Hash}.", page.Name, url[at..]);
     }
 

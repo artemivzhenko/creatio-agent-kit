@@ -163,11 +163,11 @@ def _caption(item) -> str:
     return data.get("Caption", "") if isinstance(data, dict) else ""
 
 
-def cut(lines: list[str], limit: int = DEFAULT_LIMIT, hint: str = "", offset: int = 0) -> list[str]:
+def cut(lines: list[str], limit: int = DEFAULT_LIMIT, hint: str = "", offset: int = 0, paged: bool = False) -> list[str]:
     """The first `limit` lines (0 = all) and, when something was left out, one tail line saying how much.
 
     `offset` skips that many lines first (the page after the one a tail left): the tail then also says `next: offset=<offset + limit>`.
-    Without an offset the answer is what it always was. An offset past the end of a list is one note line, not an empty answer."""
+    Without an offset the answer is what it always was, unless `paged`: then the first page's tail names `next: offset=<limit>` too. An offset past the end of a list is one note line, not an empty answer."""
     if limit < 0 or offset < 0:
         raise QueryError("limit and offset must be non-negative integers")
     if offset and lines:
@@ -178,7 +178,8 @@ def cut(lines: list[str], limit: int = DEFAULT_LIMIT, hint: str = "", offset: in
             return window[:limit] + [NEXT_TAIL.format(more=len(window) - limit, next=offset + limit) + (f"; {hint}" if hint else "")]
         return window
     if limit and len(lines) > limit:
-        return lines[:limit] + [TAIL.format(more=len(lines) - limit) + (f"; {hint}" if hint else "")]
+        tail = NEXT_TAIL.format(more=len(lines) - limit, next=limit) if paged else TAIL.format(more=len(lines) - limit)
+        return lines[:limit] + [tail + (f"; {hint}" if hint else "")]
     return lines
 
 

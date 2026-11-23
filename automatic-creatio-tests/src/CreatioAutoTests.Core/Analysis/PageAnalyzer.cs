@@ -67,13 +67,16 @@ public sealed partial class PageAnalyzer
         await RevealLazyContentAsync(page).ConfigureAwait(false);
 
         var raw = await page.EvaluateAsync<JsonElement>(script).ConfigureAwait(false);
-        Collect(raw, includeHidden, elements, unknown, seen);
+        var shownOnArrival = new HashSet<string>(StringComparer.Ordinal);
+        Collect(raw, includeHidden, elements, unknown, seen, shownOnArrival);
 
         await WalkToggleTabsAsync(page, script, includeHidden, elements, unknown, seen).ConfigureAwait(false);
 
+        // What each page tab showed while it was the open one: a control shown on one tab only lies on that tab (S11-T06).
+        var shownPerTab = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         if (walkTabs)
         {
-            await WalkTabsAsync(page, script, includeHidden, elements, unknown, seen).ConfigureAwait(false);
+            await WalkTabsAsync(page, script, includeHidden, elements, unknown, seen, shownOnArrival, shownPerTab).ConfigureAwait(false);
         }
 
         await OpenPanelsAsync(page, script, includeHidden, elements, unknown, seen).ConfigureAwait(false);
@@ -90,6 +93,8 @@ public sealed partial class PageAnalyzer
         {
             _logger.LogInformation("Final pass: {Count} more control(s).", elements.Count - beforeFinal);
         }
+
+        AssignTabs(elements, shownPerTab);
 
         _logger.LogInformation(
             "Analysed {Page}: {Known} addressable control(s), {Unknown} without an element type.",
@@ -112,17 +117,44 @@ public sealed partial class PageAnalyzer
         };
     }
 
+    /// <summary>
+    /// Sets <c>Tab</c> on every control that was shown while exactly one tab was open and while no other was: a control outside the tab panel
+    /// (a header button, the tab headers themselves) is shown on every pass and keeps none. With fewer than two passes nothing can be told apart.
+    /// </summary>
+    internal static void AssignTabs(List<DiscoveredElement> elements, IReadOnlyDictionary<string, HashSet<string>> shownPerTab)
+    {
+        if (shownPerTab.Count < 2)
+        {
+            return;
+        }
+
+        for (var i = 0; i < elements.Count; i++)
+        {
+            var on = shownPerTab.Where(p => p.Value.Contains(elements[i].Code)).Select(p => p.Key).Take(2).ToArray();
+            if (on.Length == 1 && !string.Equals(elements[i].HostTag, TabHostTag, StringComparison.OrdinalIgnoreCase))
+            {
+                elements[i] = elements[i] with { Tab = on[0] };
+            }
+        }
+    }
+
     /// <summary>Adds what one extraction pass found, ignoring controls already recorded.</summary>
     private void Collect(
         JsonElement raw,
         bool includeHidden,
         List<DiscoveredElement> elements,
         List<UnknownControl> unknown,
-        HashSet<string> seen)
+        HashSet<string> seen,
+        ISet<string>? shownHere = null)
     {
         foreach (var item in raw.GetProperty("known").EnumerateArray())
         {
             var discovered = Map(item);
+            if (discovered is not null && discovered.Visible)
+            {
+                shownHere?.Add(discovered.Code);
+            }
+
             if (discovered is null || seen.Contains(discovered.Code))
             {
                 continue;
@@ -161,7 +193,9 @@ public sealed partial class PageAnalyzer
         bool includeHidden,
         List<DiscoveredElement> elements,
         List<UnknownControl> unknown,
-        HashSet<string> seen)
+        HashSet<string> seen,
+        HashSet<string> shownOnArrival,
+        Dictionary<string, HashSet<string>> shownPerTab)
     {
         var tabs = elements
             .Where(e => string.Equals(e.HostTag, TabHostTag, StringComparison.OrdinalIgnoreCase))
@@ -180,6 +214,7 @@ public sealed partial class PageAnalyzer
         if (startedOn is not null)
         {
             visited.Add(startedOn);
+            shownPerTab[startedOn] = shownOnArrival;
         }
 
         _logger.LogInformation("Page has {Count} tab(s): {Tabs}. Open on arrival: {Open}.",
@@ -206,7 +241,9 @@ public sealed partial class PageAnalyzer
 
             var raw = await page.EvaluateAsync<JsonElement>(script).ConfigureAwait(false);
             var before = elements.Count;
-            Collect(raw, includeHidden, elements, unknown, seen);
+            var shown = new HashSet<string>(StringComparer.Ordinal);
+            shownPerTab[tab] = shown;
+            Collect(raw, includeHidden, elements, unknown, seen, shown);
 
             _logger.LogInformation("Tab {Tab}: {Count} new control(s).", tab, elements.Count - before);
 

@@ -22,7 +22,10 @@ below names the dominant form and says so. Recipes show what to call; this guide
   `function` where `this` is the view model (Classic `methods`, Freedom validators).
 - No `"use strict"`, no file header, no copyright banner: a schema file starts with its `define`.
 - No trailing comma after the last member of an object in a schema: the designer rewrites these blocks and
-  keeps them as JSON.
+  keeps them as JSON. The `.prettierrc`'s `trailingComma: es5` is the core library's setting: prettier is not run
+  over schema files.
+- A template literal for a string that holds double quotes or several lines (an HTML fragment); otherwise double
+  quotes.
 - A `TODO` carries a ticket id: `// TODO: PRJ-123 remove after the lookup is renamed`.
 
 ### 1.2 TypeScript (remote modules and mobile)
@@ -90,7 +93,9 @@ define("UsrOrderPage", ["BusinessRuleModule", "UsrOrderPageResources", "ServiceH
   `/**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/`.
 - A layer that adds nothing returns `{}`.
 - Quoting: attribute, message and diff keys are quoted strings (`"IsDiscountVisible"`, `"operation"`); the config
-  keys inside them are bare (`dataValueType`, `value`, `mode`). The platform mixes both; choose this form.
+  keys inside them are bare (`dataValueType`, `value`, `mode`). The platform mixes both; choose this form for
+  the hand-written blocks; a block the designer owns (`details`, `modules`, `businessRules`, the wizard's `diff`)
+  keeps the designer's quoted keys and spacing, so a later designer save produces no diff noise.
 
 ### 2.2 Modules, mixins and utilities
 
@@ -144,8 +149,8 @@ define("UsrOrderUtilities", [], function() {
 - Messages are UpperCamel (`"UpdatePageHeaderCaption"`, `"CardSaved"`), each with a `@message` doc block and
   `mode` (`PTP`, `BROADCAST`) plus `direction` (`PUBLISH`, `SUBSCRIBE`, `BIDIRECTIONAL`).
 - Diff element names are UpperCamel with the role as suffix: `"DiscountContainer"`, `"RecalculateButton"`,
-  `"DeliveryTab"`, `"TotalsControlGroup"`. Diff key order: `"operation"`, `"name"` / `"parentName"`,
-  `"propertyName"`, `"values"`, then `"index"`.
+  `"DeliveryTab"`, `"TotalsControlGroup"`. Diff key order in Classic: `"operation"`, `"name"` / `"parentName"`,
+  `"propertyName"`, `"values"`, then `"index"` (Freedom UI orders them differently, 3.2).
 - CSS classes are kebab-case: `"wrapClass": ["order-totals-container"]`.
 - Business rule names say what they do: `"FiltrationCityByCountry"`, `"BindParameterEnabledDiscountToIsVip"`.
 - Localizable strings: in `diff` `{"bindTo": "Resources.Strings.X"}`; in `methods` `this.get("Resources.Strings.X")`
@@ -157,7 +162,9 @@ define("UsrOrderUtilities", [], function() {
 
 - A synchronous override calls `this.callParent(arguments)` first, then adds its work; when the parent's result is
   needed: `const items = this.callParent(arguments); items.addItem(...); return items;`.
-- An asynchronous override (`init`, `initData`, `onEntityInitialized` with a callback) wraps the continuation:
+- `this.callParent(arguments)` followed by synchronous wiring (subscriptions, attribute defaults) is the normal
+  `init`; the parent receives the caller's callback untouched. Wrap the continuation only when your work must run
+  after the parent's asynchronous part has finished (data the parent loads) or is asynchronous itself:
 
 ```javascript
 init: function(callback, scope) {
@@ -206,12 +213,14 @@ loadOrderProducts: function(callback, scope) {
 
 - Every ESQ callback opens with a `result.success` check. Guard a column that may be missing on an environment
   with `esq.rootSchema.findSchemaColumnByPath(path)` before adding it.
-- A service call on a view model: `this.callService(config, this.onServiceResponse, this)` with the config built by
-  a separate `get<Name>ServiceConfig()` returning `{serviceName, methodName, data: {request: {...}}}`. In a module
-  without a view model: `ServiceHelper.callService({serviceName, methodName, data, callback, scope})`.
+- A service call on a view model: `this.callService(config, this.onServiceResponse, this)`; a config that is reused
+  or longer than a few lines comes from a `get<Name>ServiceConfig()` returning `{serviceName, methodName, data:
+  {request: {...}}}`, a one-off config is inline. In a module without a view model:
+  `ServiceHelper.callService({serviceName, methodName, data, callback, scope})`.
 - Validation: register in `setValidationConfig` after `callParent`:
   `this.addColumnValidator("Email", EmailHelper.getEmailValidator);`. A validator returns `{invalidMessage}`
-  (optionally `fullInvalidMessage`) built from a resource string, and `{}` when valid.
+  (optionally `fullInvalidMessage`) built from a resource string, and `{invalidMessage: ""}` (or `{}`) when valid;
+  never nothing. In a save interceptor a failed query is a failed validation, not a pass.
 - Business rules in `rules`: `"<Attribute>": {"<RuleName>": {ruleType: BusinessRuleModule.enums.RuleType.X, ...}}`
   with `BusinessRuleModule.enums.RuleType` (`BINDPARAMETER`, `FILTRATION`, `AUTOCOMPLETE`,
   `POPULATE_ATTRIBUTE`), `.ValueType`, `.Property` (`VISIBLE`, `ENABLED`, `REQUIRED`, `READONLY`); hand-written
@@ -236,7 +245,8 @@ loadOrderProducts: function(callback, scope) {
 
 ### 2.7 JSDoc
 
-The platform documents nearly every method (JSDuck tags plus the custom `@virtual`, `@overridden`, `@message`):
+The platform documents nearly every method (JSDuck tags plus the custom `@virtual`, `@overridden`, `@message`).
+Package code does the same; a knowledge-base recipe shows the form once and teaches through its header prose:
 
 ```javascript
 /**
@@ -330,7 +340,8 @@ define("UsrOrders_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 - The declarative blocks are JSON: double-quoted keys and values, no trailing commas, no comments, no functions.
   Handlers use bare keys `request:` / `handler:`.
 - No JSDoc in Freedom UI schemas; a `//` comment only for the why the code cannot show
-  (`// Do not refresh page data while composer is visible.`) or a ticketed TODO.
+  (`// Do not refresh page data while composer is visible.`) or a ticketed TODO. A page in a package carries no
+  comment inside the declarative blocks (the designer drops them); a recipe may, it teaches there.
 
 ### 3.2 View config
 
@@ -378,8 +389,9 @@ define("UsrOrders_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
   with optional chaining, and the result returned: `return next?.handle(request);` (`return await` only when a
   `try`/`finally` needs the awaited value).
 - **Call `next` last** when the handler prepares state or guards (`crt.HandleViewModelInitRequest` setting
-  attributes, a validation that may veto: report through `crt.NotificationRequest` and `return false` without
-  `next`). **Call `next` first** when the handler needs the base result (`crt.LoadDataRequest`,
+  page-only attributes, a validation that may veto: report through `crt.NotificationRequest` and `return false`
+  without `next`). Exception in `crt.HandleViewModelInitRequest`: a handler that reads data-source attributes
+  (`PDS.*`, `$context.Id`) calls `next` first, they exist only after the base init. **Call `next` first** when the handler needs the base result (`crt.LoadDataRequest`,
   `crt.SaveRecordRequest` post-processing): `const result = await next?.handle(request); ...; return result;`.
   Wrap with a mask: `maskService.showBodyMask({delay: 0}); await next?.handle(request); maskService.hideBodyMask();`.
   A handler that replaces the chain does not call `next` and takes `(request)` only.
@@ -438,7 +450,12 @@ define("UsrOrders_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
   await request.$context.Resources.Strings.RecalculateFailed}); return false; }`. A success check reads the result:
   `if (!result.success) {...}`.
 - Messages: `crt.NotificationRequest` (`message`), `crt.ShowDialogRequest` (`dialogConfig: {data: {title,
-  message, actions: [{key: "OK", config: {color: "primary", caption}}]}}`) with resource strings.
+  message, actions: [{key: "OK", config: {color: "primary", caption}}]}}`; the platform's 8.3 schemas use this
+  shape, `message` / `actions` at the top level is the older form) with resource strings.
+- A legacy `Terrasoft.*` call stays only where the SDK has no counterpart (`Terrasoft.ServerChannel` for server
+  messages, `Terrasoft.getFileContentUrl` for a package file), with a one-line comment saying so; navigation goes
+  through `crt.OpenPageRequest` or the Shell hash (`#Section/<ListPage>`, P-C2), never `Terrasoft.workspaceBaseUrl`
+  + `window.open`.
 - No `document.*`, no jQuery, no `setTimeout` waits, no `window.location.reload`, no `console.*`, no GUID literals
   (read the lookup value by code or a system setting), no `var`.
 
@@ -530,7 +547,10 @@ From the official `ts_sdk_template_module` configs and the kit's template:
 ## 7. Platform facts (seen on 8.3, ids in `get_recipe("platform-facts")`)
 
 - Control ids in Classic are `{Schema}{DiffName}{Control}-el`, labels `{Schema}{Name}Label`; a `CheckBoxEdit` is a
-  hidden input; a value commits on focus out; a DCM stage click saves the record (P-7).
+  hidden input; a value commits on focus out; a DCM stage click saves the record; toolbar buttons are reliable by
+  `[data-item-marker="<Name>Button"]`, the id form is not always rendered; a zero-width field is in the DOM but
+  invisible; a dirty card hides `CloseButton`; a lookup searches on `keyup` and Enter opens the selection window;
+  tabs are `li[data-item-index]` with gaps for hidden tabs (P-7).
 - Calling a Classic page's `init()` again from a `Terrasoft.ServerChannel` handler duplicates its sandbox and
   channel subscriptions (P-6.3, P-6.4).
 - `sdk.Model.load({primaryColumnValue})` does not filter: filter by Id through a `FilterGroup` (P-8.1);
@@ -561,7 +581,8 @@ From the official `ts_sdk_template_module` configs and the kit's template:
 | `throw new Error("...")` in Classic code | The typed `Terrasoft.*Exception` with a resource message |
 | `var` and `let` mixed in one handler; an undeclared `result = await ...` | `const` / `let` |
 | `return next?.handle(request);;`, a trailing comma before `]/**SCHEMA_HANDLERS*/` | Clean syntax: the designer re-serializes these blocks |
-| `MaskHelper.ShowBodyMask`, `LookupUtilities.Open` (UpperCamel legacy API) | `this.showBodyMask(...)`, the lowerCamel class methods |
+| `MaskHelper.ShowBodyMask`, `LookupUtilities.Open` (UpperCamel legacy API) | `this.showBodyMask(...)`; `this.openLookup(config, callback, scope)` on a view model (`LookupUtilities.Open` stays in a module without one) |
+| A DOM-level technique a custom control or modal needs (`Ext.get`, `self` for DOM handlers) | Allowed there, with one comment line saying why; nowhere else |
 | A `#ResourceString(...)#` with no entry in the page's `resource.<culture>.xml` (`$Resources.Strings.null`) | Add the string before referencing it |
 
 ---

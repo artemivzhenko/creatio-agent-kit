@@ -43,7 +43,7 @@ define("UsrMyEntity1Page", [], function() {
 					return;
 				}
 
-				const esq =Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyEntity"
 				});
 
@@ -73,6 +73,7 @@ define("UsrMyEntity1Page", [], function() {
 					// Direct lookup column -> object.
 					const service = record.get("UsrDescription");
 
+					// shortcut: label literals keep the column reads in view; a real page formats a Resources.Strings template.
 					this.set("UsrInfoText",
 						"Document type: " + documentType + "\n" +
 						"Service: " + (service ? service.displayValue : ""));
@@ -99,7 +100,7 @@ define("UsrMyEntity1Page", [], function() {
 
 			// Iterate with each().
 			collectServiceIds: function(callback, scope) {
-				const esq =Ext.create("Terrasoft.EntitySchemaQuery", {
+				const esq = Ext.create("Terrasoft.EntitySchemaQuery", {
 					rootSchemaName: "UsrMyDetailEntity"
 				});
 				esq.addColumn("UsrService");

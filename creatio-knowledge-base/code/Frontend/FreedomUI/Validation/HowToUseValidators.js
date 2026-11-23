@@ -45,7 +45,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 						// The message is the page resource string "NameNotAllowedMessage".
 						"validators": {
 							"ValidateName": {
-								"type": "usr.ValidateFieldValue",
+								"type": "usr.FieldValueValidator",
 								"params": {
 									"invalidValue": "Request",
 									"message": "#ResourceString(NameNotAllowedMessage)#"
@@ -63,13 +63,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 
 		// Validator type declaration
 		validators: /**SCHEMA_VALIDATORS*/{
-			"usr.ValidateFieldValue": {
+			"usr.FieldValueValidator": {
 				"validator": function(config) {
 					return function(control) {
 						// Return null = valid; return object = invalid
 						return control.value !== config.invalidValue
 							? null
-							: { "usr.ValidateFieldValue": { message: config.message } };
+							: { "usr.FieldValueValidator": { message: config.message } };
 					};
 				},
 				"params": [

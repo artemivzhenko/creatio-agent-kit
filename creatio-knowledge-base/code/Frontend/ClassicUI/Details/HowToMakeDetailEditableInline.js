@@ -91,7 +91,7 @@ define("UsrMyDetail", ["ConfigurationGrid", "ConfigurationGridGenerator",
 						},
 						{
 							"className": "Terrasoft.Button",
-							"style": Terrasoft.controls.ButtonEnums.style.TRANSPARENT,
+							"style": this.Terrasoft.controls.ButtonEnums.style.TRANSPARENT,
 							"tag": "copy",
 							"markerValue": "copy",
 							"imageConfig": { "bindTo": "Resources.Images.CopyIcon" }

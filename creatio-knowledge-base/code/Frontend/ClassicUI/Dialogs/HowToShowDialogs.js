@@ -61,6 +61,7 @@ define("UsrMyEntity1Page", [], function() {
 			// Global form, for use where `this` is not the view model.
 			confirmFromDetachedHandler: function(self) {
 				Terrasoft.showConfirmation(
+					// shortcut: a message literal keeps the global form readable, a real page reads Resources.Strings.
 					"Add the missing details now?",
 					function(returnCode) {
 						if (returnCode === Terrasoft.MessageBoxButtons.YES.returnCode) {
@@ -71,7 +72,7 @@ define("UsrMyEntity1Page", [], function() {
 					self);
 			},
 
-			openCargoModal: function() {}
+			openDetailsModal: function() {}
 		},
 		diff: /**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/
 	};

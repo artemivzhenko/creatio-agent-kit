@@ -140,7 +140,6 @@ path and a file that is not there are validation errors, before a browser opens.
 
 ```
 set CardButtonToggleGroup "Attachments"
-wait 2 second                              # the list renders after the panel opens
 upload AttachmentList "requisites-broken.xlsx"
 check dialog contains "HeaderException"
 ```
@@ -712,7 +711,7 @@ All paths are relative to the working directory.
 | `creatio.env.config.json` (copy `creatio.env.config.example.json`) | `BaseUrl`, optional `AuthUrl`, `Users` (`Username`, `Password`, optional `Name`: what a case writes after `use` when the login should stay out of the cases), optional `CasesFolders`, `AnalysisFolders` and `ProcessCasesFolders`, optional `AllowDevOnly` and `ClioEnvironment` (`# dev-only` cases) |
 | `creatio.site.config.json` | `AuthPath`, optional `ODataBasePath`, optional `ProcessStartPath` (default `/0/ServiceModel/ProcessEngineService.svc/RunProcess`) |
 | `processes/*.json` | one file per process a case may start: `name` and `parameters` (`code`, `type`, `direction`) |
-| `pages/*.json` | one file per page: `name`, `url`, `type` (`FreedomUI`, the default, or `ClassicUI`), `schema` (Classic only: the page schema name), and `elements` (`code`, `label`, `type`, optional `tab` and `pinned`, plus type-specific options such as a Classic element's `name` or a Save button's `isSave`). The page is implied by the file, so elements never repeat it. |
+| `pages/*.json` | one file per page: `name`, `url`, `type` (`FreedomUI`, the default, or `ClassicUI`), `schema` (Classic only: the page schema name), and `elements` (`code`, `label`, `type`, optional `tab` (the page tab the control lies on: `analyse` writes it for a control shown on one tab only; a command on such a control opens that tab first, so no `click <Tab>` line is needed) and `pinned`, plus type-specific options such as a Classic element's `name` or a Save button's `isSave`). The page is implied by the file, so elements never repeat it. |
 | `objects.config.json` | `objects`: `name`, `sectionPage`, `formPage`, `newButton`, `saveButton`, `fields` mapping codes to static-value names |
 | `static.values.json` | object mapping static names to scalar values |
 | `run.config.json` | `headless`, `continueOnFailure`, `runAnalysis`, `viewportWidth`, `viewportHeight`, `elementTimeoutMs`, `absenceTimeoutMs`, `pageCheckTimeoutMs` (the `on <page>` check, 15000), `pollIntervalMs` (`wait-record` / `wait-count`, 1000), `testDataDirectory` (`upload`, `TestData`), `pageLoadTimeoutMs`, `captureConsole` (console errors into the reports), `trace` (a Playwright trace per case), `reportsDirectory`, `reports`, `skipFilePrefix` |

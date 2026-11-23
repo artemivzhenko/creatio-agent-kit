@@ -424,7 +424,7 @@ def merge_plan(workspace: Path | str, schemas: list[str] | None = None, env=None
     conflicts = sum(len(p["conflicts"]) for p in merged)
     last = (f"{len(merged)} schemas, {sum(p['remove'] for p in merged)} layers to remove, {conflicts} conflicts"
             + (f", {skipped} without a common lowest package" if skipped else ""))
-    return "\n".join(cut(body, limit, offset=offset) + [last]), conflicts
+    return "\n".join(cut(body, limit, offset=offset, paged=True) + [last]), conflicts
 
 
 # --------------------------------------------------------------------------- #

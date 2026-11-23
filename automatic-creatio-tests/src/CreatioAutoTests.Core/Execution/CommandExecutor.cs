@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CreatioAutoTests.Validation;
 using CreatioAutoTests.Commands;
 using CreatioAutoTests.Frontend;
 using Microsoft.Extensions.DependencyInjection;
@@ -132,6 +133,13 @@ public sealed class CommandExecutor
                 session.MarkLineStart();
             }
 
+            var tabBefore = session.ActiveTabCode;
+            await EnsureTabsAsync(step, session, cancellationToken).ConfigureAwait(false);
+            if (session.ActiveTabCode != tabBefore)
+            {
+                _logger.LogDebug("line {Line}: opened tab {Tab} for the elements of the line.", step.Command.LineNumber, session.ActiveTabCode);
+            }
+
             var elements = MaterializeTargets(step, session);
             var logger = _loggerFactory.CreateLogger(step.Registration.ImplementationType);
             var context = new CommandContext(step, elements, session, logger);
@@ -144,6 +152,7 @@ public sealed class CommandExecutor
 
             await command.ExecuteAsync(context, cancellationToken).ConfigureAwait(false);
 
+            TrackTab(step, session);
             if (ChangingKeywords.Contains(step.Registration.Keyword))
             {
                 session.MarkChange();
@@ -163,6 +172,55 @@ public sealed class CommandExecutor
             stopwatch.Stop();
             _logger.LogError(ex, "line {Line} threw.", step.Command.LineNumber);
             return new CommandOutcome(step, false, ex.GetType().Name + ": " + ex.Message, stopwatch.Elapsed);
+        }
+    }
+
+    private static bool IsTabControl(ResolvedTarget target) =>
+        target.Definition.Type is "Tab" or "TabPanel" or "ToggleTab";
+
+    /// <summary>
+    /// A command on an element that lies on another tab of the page opens that tab first, so a case no longer starts with 'click GeneralInfoTab'
+    /// (S11-T06). Validation inserts nothing; the page's tab is unknown after 'open', so the first command clicks its tab once.
+    /// </summary>
+    internal static async Task EnsureTabsAsync(ExecutionStep step, IExecutionSession session, CancellationToken cancellationToken)
+    {
+        foreach (var target in step.Targets)
+        {
+            var code = target.Definition.Tab;
+            if (string.IsNullOrWhiteSpace(code) || IsTabControl(target) || string.Equals(code, session.ActiveTabCode, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!session.Catalog.TryGetElement(target.Page, code, out var entry) || entry.Definition.Type != "Tab")
+            {
+                continue;
+            }
+
+            if (session.Materialize(new ResolvedTarget(code, entry)) is IClickable tab)
+            {
+                await tab.ClickAsync(cancellationToken).ConfigureAwait(false);
+                session.ActiveTabCode = code;
+            }
+        }
+    }
+
+    /// <summary>What the line left open: a clicked tab is known, a tab panel set by caption is not.</summary>
+    private static void TrackTab(ExecutionStep step, IExecutionSession session)
+    {
+        if (step.Targets.Count == 0)
+        {
+            return;
+        }
+
+        var keyword = step.Registration.Keyword;
+        if (keyword.Equals("click", StringComparison.OrdinalIgnoreCase) && step.Targets[0].Definition.Type == "Tab")
+        {
+            session.ActiveTabCode = step.Targets[0].Code;
+        }
+        else if (keyword.Equals("set", StringComparison.OrdinalIgnoreCase) && step.Targets[0].Definition.Type is "TabPanel" or "ToggleTab")
+        {
+            session.ActiveTabCode = null;
         }
     }
 

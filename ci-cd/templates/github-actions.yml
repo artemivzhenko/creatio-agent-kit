@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # the date rule of `check` diffs against the base branch
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.KIT_REPO }}
@@ -34,7 +35,7 @@ jobs:
         with: { dotnet-version: "8.0.x" }
       - run: dotnet tool install -g clio
       - name: package rules
-        run: python kit/ci-cd/pipeline.py check packages ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
+        run: python kit/ci-cd/pipeline.py check packages ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }} ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
       - name: build packages
         run: python kit/ci-cd/pipeline.py build packages --out Build ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
       - uses: actions/upload-artifact@v4
@@ -59,10 +60,18 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: "8.0.x" }
       - run: dotnet tool install -g clio
+      - uses: actions/download-artifact@v4
+        with: { name: packages, path: Build }   # what `verify` built and tested is what gets installed
       - name: register the site
         run: python kit/ci-cd/pipeline.py register ci --url "${{ secrets.CREATIO_URL }}" --login "${{ secrets.CREATIO_LOGIN }}" --password "${{ secrets.CREATIO_PASSWORD }}"
+      - name: backup what the site runs now
+        run: python kit/ci-cd/pipeline.py backup packages -e ci --out Backup ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
+      - uses: actions/upload-artifact@v4
+        with: { name: backup, path: Backup/*.zip }   # rollback: pipeline.py deploy --artifact <this zip> -e ci
       - name: install, compile, restart, clear Redis
-        run: python kit/ci-cd/pipeline.py deploy packages -e ci ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
+        run: python kit/ci-cd/pipeline.py deploy --artifact Build/Pkg.zip -e ci
+      - name: verify the site runs the pushed code
+        run: python kit/ci-cd/pipeline.py verify packages -e ci ${{ env.PACKAGES && format('--package {0}', env.PACKAGES) || '' }}
       - name: unit tests inside Creatio
         if: vars.UNIT_RUNNER != ''
         run: python kit/ci-cd/pipeline.py unit -e ci --runner "${{ vars.UNIT_RUNNER }}" --evidence unit-results.json

@@ -138,5 +138,5 @@ define("UsrFilterEditModule",
 			}
 		});
 
-		return Terrasoft.UsrFilterEditModule;
+		return UsrFilterEditModule;
 	});
