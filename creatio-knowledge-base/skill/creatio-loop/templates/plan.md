@@ -12,13 +12,16 @@ share it. The read-only rule is a page business rule on `UsrShipment_FormPage`. 
 
 ## Artifacts
 
-| Kind | Name | Change |
-|---|---|---|
-| object | `UsrShipment` | new column `UsrLabel` (Text 250) |
-| C# | `Files/cs/ShipmentLabel.cs`, `Files/cs/UsrShipmentEventListener.cs` | new |
-| unit tests | `tests/UsrPkg/ShipmentLabelTests.cs` | new |
-| process | `UsrShipmentLabel_Process` | new |
-| page | `UsrShipment_FormPage` | rule: `UsrLabel` read-only when status is Shipped |
+| Kind | Name | Change | How |
+|---|---|---|---|
+| object | `UsrShipment` | new column `UsrLabel` (Text 250) | `objects.py column add` |
+| C# | `Files/cs/ShipmentLabel.cs`, `Files/cs/UsrShipmentEventListener.cs` | new | `get_recipe("HowToUseEntityEventListener")`, `push.py` compile |
+| unit tests | `tests/UsrPkg/ShipmentLabelTests.cs` | new | `get_code_style("architecture")` 3.8 |
+| process | `UsrShipmentLabel_Process` | new | `proc.py` (`script set`, parameters) |
+| page | `UsrShipment_FormPage` | rule: `UsrLabel` read-only when status is Shipped | by hand: no toolkit writes Freedom UI business rules yet (`report_gap missing` when the step runs) |
+
+`How` is the kit tool or toolkit command that builds the artifact, or `by hand: <reason>` (no tool for X, tool Y does
+not support Z). The reason is decided here; when the step runs, the author records it with `report_gap`.
 
 ## Impact
 

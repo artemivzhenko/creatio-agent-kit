@@ -36,7 +36,8 @@ every list answer has a `limit`, default 40, and a `... N more` tail; `0` means 
 | `schema_impact(path, schemas, tasks?, current?, md?, limit?, kind?)` | The dependents of the schemas a task changes; with the loop's tasks folder, which other active task changes or affects them. Ends with `exit code 1` on a conflict. `md` gives the `## Impact` table for `plan.md`; `kind` keeps one kind of dependents (a lookup with a hundred). |
 | `schema_diff(package, schemas?, against?)` | The working copy against git HEAD, a revision, a folder with a pulled copy, or the site (`against="env:<name>"`: the named schemas' copies pulled from the site's tables): `+` / `-` / `~` lines per item, never a JSON hunk. |
 | `resolve_uid(path, text)` | What a UId names (a schema, `column X.Y`, a process element or parameter), the UId of a dotted name, or a text with every UId replaced by its name - the reverse of what the designer stores. |
-| `tool_stats(days?)` | Calls, characters and the largest answers per tool over the last days, and the share of answers cut with a `... N more` tail (from `mcp-server/.stats/`). |
+| `tool_stats(days?)` | Calls, characters and the largest answers per tool over the last days, the share of answers cut with a `... N more` tail (from `mcp-server/.stats/`), and the count of recorded gaps. |
+| `report_gap(kind, need, instead, script?, task?)` | Record, at the moment it happens, what you did outside the tools: `missing` (no tool), `misbehaved` (a tool answered wrong or unusably), `by-hand`; a script path is copied under `dev/gaps/scripts/`. The retrospective and the feedback round read these lines. |
 | `schema_layers(path_or_env, schema, rule?, workspace?)` | The SysSchema copies of a schema on an environment, applied first to last; `Custom layer present` means a copy on the site overrides what you push. |
 | `schema_snapshot(schema, env?, workspace?, columns?, out?, page_file?)` | An object or a page (folded elements, handlers / methods; `page_file` adds the live page from `analyse`) as text lines: the effective columns over the workspace's layers and / or the site's table, row count, column checksums and copies; `out` writes the evidence file. |
 | `merge_plan(path, schemas?, env?, limit?, offset?)` | Each schema replaced by more than one package (or the named ones): the target (the lowest package), `layer <pkg>: +n columns / elements / methods` in apply order, `siblings` when the order is guessed, `conflict` lines, `depends: <target> gains ...`; ends with the counts and `exit code 1` on a conflict. Writes nothing (safe on a client workspace). |
@@ -96,7 +97,12 @@ the knowledge base changes, so editing a recipe takes effect on the next call.
 `mcp-server/.stats/<date>.jsonl` (gitignored): `{ts, tool, args, chars, ms, truncated}` - `args` is the argument names with the length of each
 value, never a value; `truncated` is a `... N more` tail in the answer. `CREATIO_KB_STATS=0` turns it off, `CREATIO_KB_STATS_DIR` moves it
 (the tests). The tool `tool_stats(days=1)` and `python mcp-server/tool_stats.py [days]` print calls, characters, average and largest answer
-per tool, the ten largest answers and the truncated share.
+per tool, the ten largest answers and the truncated share, and end with the gap count.
+
+**What the agent did outside the tools.** `report_gap(kind, need, instead, script?, task?)` appends one line to `<kit>/dev/gaps/gaps.jsonl`
+(`dev/` is gitignored) and copies the script it names to `dev/gaps/scripts/<date>-<name>`; `CREATIO_KB_GAPS_DIR` moves the folder (the
+tests). The skills tell the author and the tester to call it before a self-written script runs, before a raw query no tool covers, and
+after a tool they had to work around. The feedback round clusters these lines into new tools; the scripts are the prototypes.
 
 ## Install
 

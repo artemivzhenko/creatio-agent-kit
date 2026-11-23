@@ -2935,6 +2935,31 @@ def test_find_in_processes_reads_scripts_conditions_filters_and_values():
         _rm_tree(root)
 
 
+def test_find_in_processes_reads_the_lookup_rows_once_per_workspace():
+    """1564 processes x 0.8 s: `setdefault(key, lookup_rows())` read the bindings for every process; the cache is checked first now."""
+    import shutil
+    import tempfile
+    from creatio_schemas.describe.writes import find_in_processes
+    from creatio_schemas.workspace import Workspace
+
+    root = Path(tempfile.mkdtemp())
+    try:
+        ws = _writes_workspace(root)
+        src = ws / "packages" / "UsrPkg" / "Schemas" / "UsrNotify_Process"
+        shutil.copytree(src, src.parent / "UsrNotify2_Process")  # a second process in the same workspace
+        calls = []  # the reads of the bindings, not the cache hits
+        original = Workspace.lookup_rows
+        Workspace.lookup_rows = lambda self: (calls.append(1) if getattr(self, "_rows", None) is None else None) or original(self)
+        try:
+            out = find_in_processes(ws, "UsrStatus =")
+        finally:
+            Workspace.lookup_rows = original
+        assert out.count("filter: UsrOrder where UsrStatus = Done") == 2, out
+        assert len(calls) == 1, calls
+    finally:
+        _rm_tree(root)
+
+
 def test_who_sets_and_who_reads_message_answer_across_kinds():
     import tempfile
     from creatio_schemas.describe.writes import who_reads_message, who_sets

@@ -78,7 +78,10 @@ _ROW_NAMES: dict = {}  # per call: the lookup row names of the workspace, read o
 
 def _open(package: Path, name: str) -> ProcessSchema:
     ps = ProcessSchema(package, name)
-    ps.workspace._rows = _ROW_NAMES.setdefault(str(package.parent), ps.workspace.lookup_rows())
+    key = str(package.parent)
+    if key not in _ROW_NAMES:  # not setdefault: its argument would read the bindings again for every process
+        _ROW_NAMES[key] = ps.workspace.lookup_rows()
+    ps.workspace._rows = _ROW_NAMES[key]
     return ps
 
 

@@ -67,6 +67,13 @@ package or in Custom, or a push whose changes are not visible - `schema_layers`;
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
 
+When no tool answers, record the gap before you go around it: `report_gap(kind, need, instead, script=, task=)`
+with `missing` before your own script runs or a query no tool covers is typed, `by-hand` after a value found in
+the designer or by trial, `misbehaved` after a tool you had to work around (what it answered, what you expected).
+Pass the script's path: the kit keeps a copy in `dev/gaps/scripts/`, so write it anywhere and never delete it. One
+line per gap, at the moment, not at the end; the retrospective is built from these lines and from `tool_stats`,
+and a gap that is not recorded does not become a tool.
+
 ## Platform facts the tiers rely on (`get_recipe("platform-facts")`)
 
 - **P-5.2** an OData `insert` / `update` runs the object's listeners and signal processes like a UI save: that is

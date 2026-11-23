@@ -357,8 +357,46 @@ def test_the_summary_over_a_fixture_log():
         assert "largest answers:" in lines and lines[lines.index("largest answers:") + 1].split()[:2] == ["9000", "get_recipe(path)"]
         assert lines[-1] == "4 calls, 15100 chars, 1 truncated (25%)", lines[-1]
         assert tool_stats.summarise([]) == "(no tool calls logged)"
-        with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder)}):
-            assert server.tool_stats(1).splitlines()[-1] == "4 calls, 15100 chars, 1 truncated (25%)"  # the tool reads the log, then logs itself
+        with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder), "CREATIO_KB_GAPS_DIR": str(folder / "gaps")}):
+            lines = server.tool_stats(1).splitlines()  # the tool reads the log, then logs itself
+            assert lines[-2] == "4 calls, 15100 chars, 1 truncated (25%)" and lines[-1] == "gaps: 0", lines[-2:]
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_report_gap_records_the_line_and_keeps_the_script():
+    import json
+    import tool_stats
+    folder = Path(tempfile.mkdtemp())
+    try:
+        with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder / "stats"), "CREATIO_KB_GAPS_DIR": str(folder / "gaps")}):
+            script = folder / "probe.sql"
+            script.write_text("select 1", encoding="utf-8")
+            first = server.report_gap("missing", "which lookup rows exist on the site", "env_sql over the lookup table", str(script), "012-labels")
+            assert first.startswith(f"recorded: {folder / 'gaps' / 'gaps.jsonl'} line 1; script kept as "), first
+            today = tool_stats.date.today().isoformat()
+            kept = folder / "gaps" / "scripts" / f"{today}-probe.sql"
+            assert kept.read_text(encoding="utf-8") == "select 1" and script.is_file(), "a copy, the original stays"
+            line = json.loads((folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            assert line["kind"] == "missing" and line["script"] == str(kept) and line["task"] == "012-labels" and set(line) == {"ts", "kind", "need", "instead", "script", "task"}
+            # the same name again the same day gets a suffix; a file already under scripts/ is not copied twice
+            script.write_text("select 2", encoding="utf-8")
+            second = server.report_gap("misbehaved", "the rows with captions", "describe_table, then SQL", str(script))
+            assert second.endswith(f"line 2; script kept as {folder / 'gaps' / 'scripts' / (today + '-probe-2.sql')}"), second
+            third = server.report_gap("by-hand", "the caption of a status", "read it in the designer", str(kept))
+            assert third.endswith(f"line 3; script kept as {kept}") and len(list((folder / "gaps" / "scripts").iterdir())) == 2, third
+            assert server.report_gap("missing", "a value", "typed it").endswith("line 4"), "no script is fine"
+            # refusals write nothing
+            before = (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8")
+            assert server.report_gap("other", "x", "y") == "refused: kind must be one of missing, misbehaved, by-hand"
+            assert server.report_gap("missing", " ", "y") == "refused: need and instead must both say something"
+            assert server.report_gap("missing", "x", "y", str(folder / "none.py")).startswith("refused: script not found")
+            assert server.report_gap("missing", "login with password=abc", "y").startswith("refused: the log is read by other agents")
+            assert (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8") == before
+            # the summary ends with the count by kind and the last gap
+            last = server.tool_stats(1).splitlines()[-1]
+            assert last.startswith("gaps: 4 (missing 2, misbehaved 1, by-hand 1); last: ") and last.endswith(" missing a value"), last
+            assert tool_stats.summarise([], []) == "(no tool calls logged)\ngaps: 0"
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 

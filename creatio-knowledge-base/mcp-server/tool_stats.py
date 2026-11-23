@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """What the MCP server returned to the agents: one JSONL line per tool call, and the summary of the lines.
 
-    python tool_stats.py [days]            calls and characters per tool, the ten largest answers, the truncated share
+    python tool_stats.py [days]            calls and characters per tool, the ten largest answers, the truncated share, the gap count
 
 `server.py` wraps every tool at its registration point and appends `{"ts", "tool", "args", "chars", "ms", "truncated"}` to
 `.stats/<date>.jsonl` next to it. `args` holds the argument NAMES and the length of each value, never a value (a path, a query or a
 password must not land in a log). `truncated` is true when the answer ends in a `... N more` tail. Off with `CREATIO_KB_STATS=0`.
+
+The gaps (`report_gap`): one line per thing an agent did outside the tools, `{"ts", "kind", "need", "instead", "script", "task"}` in
+`<kit>/dev/gaps/gaps.jsonl`, the script it wrote copied under `dev/gaps/scripts/` (`CREATIO_KB_GAPS_DIR` moves the folder). The
+feedback round reads them whole; the summary ends with their count.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -82,8 +87,77 @@ def read(days: int = 1, folder: Path | None = None) -> list[dict]:
     return out
 
 
-def summarise(rows: list[dict]) -> str:
-    """calls and characters per tool (the most characters first), the ten largest answers, the truncated share, the total."""
+# -- gaps: what the agent did outside the tools, recorded when it happened (S37-T01) ---------------------------------- #
+
+GAP_KINDS = ("missing", "misbehaved", "by-hand")
+_SECRET_RE = re.compile(r"\b(password|pwd)\s*[=:]", re.I)
+
+
+def gaps_folder() -> Path:
+    """`<kit>/dev/gaps` (the kit root is two levels above `creatio-knowledge-base/mcp-server/`); `CREATIO_KB_GAPS_DIR` names another (the tests)."""
+    return Path(os.environ.get("CREATIO_KB_GAPS_DIR") or Path(__file__).resolve().parents[2] / "dev" / "gaps")
+
+
+def record_gap(folder: Path, kind: str, need: str, instead: str, script: str = "", task: str = "") -> dict:
+    """Append one line to <folder>/gaps.jsonl and keep a copy of `script` under <folder>/scripts/; ValueError says why a call is refused."""
+    if kind not in GAP_KINDS:
+        raise ValueError(f"kind must be one of {', '.join(GAP_KINDS)}")
+    if not need.strip() or not instead.strip():
+        raise ValueError("need and instead must both say something")
+    if _SECRET_RE.search(need + " " + instead):
+        raise ValueError("the log is read by other agents: no password in need or instead")
+    kept = ""
+    if script:
+        src = Path(script)
+        if not src.is_file():
+            raise ValueError(f"script not found: {script}")
+        scripts = folder / "scripts"
+        if src.resolve().parent == scripts.resolve():
+            kept = str(src)
+        else:
+            scripts.mkdir(parents=True, exist_ok=True)
+            today = date.today().isoformat()
+            dest, n = scripts / f"{today}-{src.name}", 2
+            while dest.exists():
+                dest, n = scripts / f"{today}-{src.stem}-{n}{src.suffix}", n + 1
+            shutil.copy2(src, dest)
+            kept = str(dest)
+    line = {"ts": datetime.now().isoformat(timespec="seconds"), "kind": kind, "need": need.strip(), "instead": instead.strip(), "script": kept, "task": task}
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / "gaps.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+    return line
+
+
+def read_gaps(folder: Path | None = None) -> list[dict]:
+    """Every line of <folder>/gaps.jsonl (a bad line is skipped)."""
+    path = (folder or gaps_folder()) / "gaps.jsonl"
+    out = []
+    if path.is_file():
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            try:
+                out.append(json.loads(raw))
+            except ValueError:
+                continue
+    return out
+
+
+def gaps_line(gaps: list[dict]) -> str:
+    """`gaps: N (missing a, misbehaved b, by-hand c); last: <ts> <kind> <need>`, or `gaps: 0`."""
+    if not gaps:
+        return "gaps: 0"
+    counts = ", ".join(f"{k} {sum(1 for g in gaps if g.get('kind') == k)}" for k in GAP_KINDS)
+    last = gaps[-1]
+    return f"gaps: {len(gaps)} ({counts}); last: {last.get('ts')} {last.get('kind')} {str(last.get('need', ''))[:80]}"
+
+
+def summarise(rows: list[dict], gaps: list[dict] | None = None) -> str:
+    """calls and characters per tool (the most characters first), the ten largest answers, the truncated share, the total; with `gaps` the gap line last."""
+    text = _summarise_calls(rows)
+    return text if gaps is None else text + "\n" + gaps_line(gaps)
+
+
+def _summarise_calls(rows: list[dict]) -> str:
     if not rows:
         return "(no tool calls logged)"
     per: dict[str, list[int]] = {}
@@ -111,7 +185,7 @@ def main(argv=None) -> int:
     except ValueError:
         print("usage: tool_stats.py [days]", file=sys.stderr)
         return 2
-    print(summarise(read(days)))
+    print(summarise(read(days), read_gaps(gaps_folder())))
     return 0
 
 

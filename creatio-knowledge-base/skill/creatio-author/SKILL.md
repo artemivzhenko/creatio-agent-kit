@@ -22,8 +22,10 @@ folder.
 2. **Plan.** Copy answers the human gave in chat into `questions.md`. Run `describe.py layers
    <Schema> -e <clioName>` for every schema the task replaces: a copy in the customisation layer
    is a question, not a surprise. With the answers in `questions.md`, write `plan.md` (with its
-   `## Preconditions` as commands - run them) (approach, artifacts table,
-   acceptance criteria table with tiers) and `schemas.json`. Run `describe.py impact <workspace>
+   `## Preconditions` as commands - run them) (approach, artifacts table with a `How` column: the kit
+   tool or toolkit command that builds each, or `by hand: <reason>` - the reason is decided here, where it
+   still exists, and it becomes a `report_gap` line when the step runs; acceptance criteria table with
+   tiers) and `schemas.json`. Run `describe.py impact <workspace>
    <every schema of schemas.json> --tasks <paths.tasks> --current <this folder> --md` (MCP
    `schema_impact`): paste its `## Impact` table into `plan.md` and its `affects:` names into
    `schemas.json`. Exit 1 means another active task changes a schema of this plan or one of its
@@ -64,6 +66,13 @@ package or in Custom, or a push whose changes are not visible - `schema_layers`;
 `resolve_uid`, which lookup holds a status - `list_lookups`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
+
+When no tool answers, record the gap before you go around it: `report_gap(kind, need, instead, script=, task=)`
+with `missing` before your own script runs or a query no tool covers is typed, `by-hand` after a value found in
+the designer or by trial, `misbehaved` after a tool you had to work around (what it answered, what you expected).
+Pass the script's path: the kit keeps a copy in `dev/gaps/scripts/`, so write it anywhere and never delete it. One
+line per gap, at the moment, not at the end; the retrospective is built from these lines and from `tool_stats`,
+and a gap that is not recorded does not become a tool.
 
 ## Reading C#: `members` first, Roslyn for the graph
 

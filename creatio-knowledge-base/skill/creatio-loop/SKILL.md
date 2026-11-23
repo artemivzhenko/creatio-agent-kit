@@ -45,7 +45,7 @@ copied into a repository file.
 |---|---|---|---|
 | `task.md` | human | start | the business task, free form, numbered by the folder |
 | `questions.md` | author, then human | before the plan | the author's questions, the human's answers under each; `No questions.` when none |
-| `plan.md` | author | after the answers | how it will be built, the artifacts, the acceptance criteria table, the preconditions with the command that checks each |
+| `plan.md` | author | after the answers | how it will be built, the artifacts with how each is built (a kit tool, or `by hand` with the reason), the acceptance criteria table, the preconditions with the command that checks each |
 | `schemas.json` | author | with the plan, kept current | `schemas`: every schema the task creates or changes - the lock other tasks check; `affects`: their dependents from `impact` |
 | `evidence/` | tester | each run | command output behind every `fail` row |
 | `report-1.md` … `report-3.md` | tester | a run with at least one `fail` or `blocked` | one row per criterion |

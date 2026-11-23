@@ -1397,9 +1397,29 @@ def cases_from_package(package: str, out: str, env: str = "", user: str = "Super
 def tool_stats(days: int = 1) -> str:
     """What this server returned to the agents over the last `days` days (today included): calls, characters, the average and the
     largest answer per tool, the ten largest answers (tool and argument names, never values) and the share of answers that were cut
-    with a `... N more` tail. Read it to see which tool costs the most context. The same table is `python mcp-server/tool_stats.py [days]`.
-    Off when the server runs with CREATIO_KB_STATS=0. Reads `mcp-server/.stats/<date>.jsonl`, writes nothing."""
-    return stats_log.summarise(stats_log.read(days))
+    with a `... N more` tail, and ends with the count of gaps recorded by `report_gap` (all of them, not per day). Read it to see
+    which tool costs the most context and whether the gaps were recorded at all (zero gaps next to twenty `env_sql` calls is the
+    signal). The same table is `python mcp-server/tool_stats.py [days]`. Off when the server runs with CREATIO_KB_STATS=0. Reads
+    `mcp-server/.stats/<date>.jsonl` and `dev/gaps/gaps.jsonl`, writes nothing."""
+    return stats_log.summarise(stats_log.read(days), stats_log.read_gaps())
+
+
+@mcp.tool()
+def report_gap(kind: str, need: str, instead: str, script: str = "", task: str = "") -> str:
+    """You are about to write your own script, type a query no tool covers, look a value up by hand in the designer, or you just worked
+    around a tool that answered wrong, cut or in a shape you could not use: record it here first, at that moment, not at the end.
+    `kind`: `missing` (no tool does it), `misbehaved` (a tool did, wrongly or unusably: say what it answered and what you expected),
+    `by-hand` (you did it outside the tools). `need`: what you needed, as a question. `instead`: what you did. `script`: the path of the
+    script or SQL you wrote - the kit keeps a copy under `dev/gaps/scripts/`, so write it anywhere and never delete it. `task`: the task
+    folder when there is one. One line per gap; these lines and `tool_stats` are what the retrospective and the feedback round read,
+    and a gap that is not recorded does not become a tool. No password in the text. Answer: the log file, the line number, the kept copy."""
+    folder = stats_log.gaps_folder()
+    try:
+        line = stats_log.record_gap(folder, kind, need, instead, script, task)
+    except ValueError as exc:
+        return f"refused: {exc}"
+    n = len(stats_log.read_gaps(folder))
+    return f"recorded: {folder / 'gaps.jsonl'} line {n}" + (f"; script kept as {line['script']}" if line["script"] else "")
 
 
 def main() -> None:

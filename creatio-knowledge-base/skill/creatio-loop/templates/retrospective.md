@@ -3,7 +3,8 @@
 The human gives the text below the line to the author or the tester (any agent that worked with the kit's MCP
 servers on the project), during or after the work. The answer is one file, `retrospective.md` in the task folder,
 written so that it can be handed to other teams and other agents: the kit's maintainers merge its section 8 into
-the platform facts register and its sections 4-7 into new tools.
+the platform facts register and its sections 4-7 into new tools. The agent writes it from two logs, `tool_stats`
+and the `report_gap` lines in `dev/gaps/`, not from memory (rule 6).
 
 ---
 You are working on this project with the kit's MCP servers, skills and recipes. Write one Markdown file about that
@@ -27,6 +28,11 @@ own and must contain nothing that identifies the project.
 4. **English**, plain sentences, one idea per bullet. No praise, no apologies. Numbers in a table, not in prose.
 5. Sections in this order, every section present (write `nothing` if empty). Under this list write one line with
    the platform version and the database of the sites you worked on (`project.json` `environment.version`).
+6. **Start from the logs, not from memory.** Call `tool_stats(days=<the days of this work>)` and read
+   `dev/gaps/gaps.jsonl` of the kit (the file `report_gap` answers with). Section 4 starts from the `misbehaved`
+   lines; section 5 must account for every `env_sql` call in the stats table (what each was for, grouped); section
+   6 lists every script under `dev/gaps/scripts/` written for this work, with its `gaps.jsonl` line; section 7 is
+   derived from the `missing` lines. Add what the logs miss, but do not drop what they hold.
 
 ## 1. What was done
 
