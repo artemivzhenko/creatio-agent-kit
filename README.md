@@ -70,7 +70,8 @@ OData backend case, process case, `.act` UI case), keeps the evidence and writes
 files of a task folder and the proof tiers are the skill
 [creatio-loop](creatio-knowledge-base/skill/creatio-loop/SKILL.md); the roles are
 [creatio-author](creatio-knowledge-base/skill/creatio-author/SKILL.md) and
-[creatio-tester](creatio-knowledge-base/skill/creatio-tester/SKILL.md); the recipes come through
+[creatio-tester](creatio-knowledge-base/skill/creatio-tester/SKILL.md); a layer merge of objects with its backup,
+tests and snapshots is [creatio-merge](creatio-knowledge-base/skill/creatio-merge/SKILL.md); the recipes come through
 [creatio-kb](creatio-knowledge-base/skill/creatio-kb/SKILL.md). At the end of the work the human asks either agent
 for `retrospective.md` ([the prompt](creatio-knowledge-base/skill/creatio-loop/templates/retrospective.md)): what the
 tools did well and badly, what was done by hand, and the Creatio platform facts learned, with evidence and without a

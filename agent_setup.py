@@ -37,7 +37,7 @@ ARGS = sys.argv[1:]
 DRY_RUN = "--dry-run" in ARGS
 WIN = sys.platform == "win32"
 HOME = Path.home()
-SKILLS = ("creatio-kb", "creatio-author", "creatio-tester", "creatio-loop")
+SKILLS = ("creatio-kb", "creatio-author", "creatio-tester", "creatio-loop", "creatio-merge")
 SKILL_HOMES = {"claude": HOME / ".claude" / "skills", "codex": HOME / ".agents" / "skills", "copilot": HOME / ".agents" / "skills"}
 
 
