@@ -1,22 +1,25 @@
 ---
 name: creatio-loop
-description: The contract of the Creatio author/tester loop - a task folder whose files are the protocol (task.md, questions.md, plan.md, schemas.json, report-N.md, success-report.md, failed.md), project.json with the environment and the package, the schema lock between tasks, the evidence rules and the proof tiers (unit, integration, probe, backend, process, ui). Read it with creatio-author or creatio-tester; use for "task folder", "report round", "acceptance criteria", "project.json", "schemas.json".
-version: 2.1
+description: The contract of the Creatio author/dev/tester loop - a task folder whose files are the protocol (task.md, questions.md, plan.md, schemas.json, report-N.md, success-report.md, failed.md), project.json with the environment and the package, the schema lock between tasks, the evidence rules and the proof tiers (unit, integration, probe, backend, process, ui). Read it with creatio-author or creatio-tester; use for "task folder", "report round", "acceptance criteria", "project.json", "schemas.json".
+version: 3
 ---
 
-# The author / tester loop: the contract
+# The author / dev / tester loop: the contract
 
-One task, one human, two agents that never share a chat: the **author** builds the package
-artifacts, the **tester** proves them. They communicate only through files in the task folder;
-the human carries the task from one to the other. The author session starts with `CREATIO_KB_ROLE=author`, the tester
-session with `CREATIO_KB_ROLE=tester` (set in the shell before `claude`, `codex` or `copilot`; the MCP server inherits it
-and registers only that role's tools); without it both see every tool. This file is the contract both roles read
-first; [creatio-author](../creatio-author/SKILL.md) and [creatio-tester](../creatio-tester/SKILL.md)
-say what each role does with it.
+One task, one human, three roles: the **author** analyses the task, asks the questions, writes the plan with its
+acceptance criteria and judges what comes back; the **dev** builds the package artifacts the plan names; the
+**tester** proves them. The dev and the tester never share a chat and communicate only through files in the task
+folder. The author runs them as its subagents (since 2026-11-24: one session, the author spawns the dev and the
+tester in turn and reads their reports) - or, when the human prefers three sessions, the human carries the task
+between them. With subagents the MCP server runs with its `all` profile and the role split is the brief; with three
+sessions the dev's starts with `CREATIO_KB_ROLE=author` (the build tools) and the tester's with
+`CREATIO_KB_ROLE=tester`. This file is the contract every role reads first; [creatio-author](../creatio-author/SKILL.md),
+[creatio-dev](../creatio-dev/SKILL.md) and [creatio-tester](../creatio-tester/SKILL.md) say what each role does with it.
 
 ## Never
 
-- The author never edits `task.md`, `questions.md` after the human answered, or any report.
+- The author never edits `task.md`, `questions.md` after the human answered, or any report; the dev never edits
+  `plan.md` or the acceptance criteria - a plan change is the author's.
 - The tester never changes package files, `plan.md` or the acceptance criteria. It reports.
 - Nobody commits, branches or pushes to git: the human does.
 - Nobody runs a destructive command on the environment (drop, delete of system data, restore,
@@ -26,8 +29,8 @@ say what each role does with it.
 
 ## project.json
 
-One file per project, outside git (it holds the password), path given to both agents by the
-human. Template: [templates/project.example.json](templates/project.example.json). It names the
+One file per project, outside git (it holds the password), path given to the author by the human and to the
+dev and the tester by the author's brief. Template: [templates/project.example.json](templates/project.example.json). It names the
 environment (clio name, url, login, password, platform version - clio's `describe-environment` prints it - whether it may be broken), the
 package (name, schema prefix, workspace path, dependencies), the paths (the task folders, this
 knowledge base, the test framework, the unit-test project), the read-only workspaces and the
@@ -53,34 +56,37 @@ copied into a repository file.
 | `report-1.md` … `report-3.md` | tester | a run with at least one `fail` or `blocked` | one row per criterion |
 | `success-report.md` | tester | a run where every criterion passes | the task is done |
 | `failed.md` | tester | the 4th failing run | where the result still diverges from the criteria; the human removes it |
-| `retrospective.md` | author or tester, when the human asks | during or after the work | what went well and badly, the tools that misbehaved, what was done by hand, the scripts written, the tools missed, the Creatio platform facts learned - with evidence, platform not project, no real names; the prompt is [templates/retrospective.md](templates/retrospective.md) |
+| `retrospective.md` | the dev or the tester, when the author or the human asks | during or after the work | what went well and badly, the tools that misbehaved, what was done by hand, the scripts written, the tools missed, the Creatio platform facts learned - with evidence, platform not project, no real names; the prompt is [templates/retrospective.md](templates/retrospective.md) |
 
 Templates for every file: [templates/](templates/).
 
 ## Lifecycle
 
 1. The human writes `task.md`.
-2. The author reads `project.json`, `task.md`, the knowledge base; writes `questions.md`; stops
-   and says so in chat. The human answers in the same file.
-3. The author copies answers given in chat into `questions.md`, runs the layers probe for every
-   schema the task replaces (a `Custom` layer goes into the questions), writes `plan.md` with its
-   preconditions and `schemas.json`, checks the lock (below), runs the preconditions, builds, pushes,
-   probes, runs its unit tests, and says "done" in chat. No approval step: the plan is built
-   as written. Anything that turns out unplanned is a question in chat, not a silent change.
-4. The human opens the tester. The tester reads `task.md`, `questions.md`, `plan.md`,
-   `schemas.json` and the previous reports; runs the preconditions first (a failed one is `blocked`
-   before any criterion); writes and runs the tests of every criterion; writes
-   `success-report.md` or the next `report-N.md`. Three reports and still red: `failed.md`.
-5. The human brings the report to the author. The author reads it, answers in chat (what was
-   fixed, or what question the report raises), fixes, pushes, says "done". Back to 4.
-6. `success-report.md` closes the task. `failed.md` parks it until the human deletes it
-   (with the old reports, if a fresh count is wanted).
+2. The author reads `project.json`, `task.md`, the knowledge base; writes `questions.md`; stops and says so in
+   chat. The human answers in the same file (or in chat; the author copies them under the questions). An unattended
+   run answers them as assumptions, marked so.
+3. The author runs the layers probe for every schema the task replaces (a `Custom` layer goes into the questions),
+   writes `plan.md` with its preconditions, the artifacts table and the acceptance criteria, and `schemas.json`,
+   checks the lock (below). No approval step: the plan is built as written.
+4. The author spawns the dev with the task folder. The dev runs the preconditions, builds, pushes, probes, runs its
+   unit tests and reports. The author reviews the report against the plan, the push log and `verify_pushed`; a gap
+   goes back to the same dev with the exact rows.
+5. The author spawns the tester. The tester reads `task.md`, `questions.md`, `plan.md`, `schemas.json` and the
+   previous reports; runs the preconditions first (a failed one is `blocked` before any criterion); writes and runs
+   the tests of every criterion; writes `success-report.md` or the next `report-N.md`. Three reports and still red:
+   `failed.md`.
+6. The author reads the report: the `fail` rows with evidence go to the dev (back to 4); a row that reveals what the
+   plan did not think of is the author's plan change or the human's question; `blocked` is the human's decision.
+7. `success-report.md` closes the task; the author has the retrospective written and reports the outcome and its
+   cost to the human. `failed.md` parks the task until the human deletes it (with the old reports, if a fresh count
+   is wanted).
 
 ## Preconditions, answers, sub-criteria
 
 A precondition is a fact the plan relies on, written as the command that checks it (`describe.py
 layers UsrOrderPage -e dev` -> no `Custom` layer; `push.py ... --dry-run` -> no drift; the test
-package installed). The author runs them before building, the tester as its first step. The
+package installed). The dev runs them before building, the tester as its first step. The
 human's answers are a file, not a chat: given in chat, the author copies them under the question
 in `questions.md` before the plan. A criterion the tester can only half prove is split by the
 author into `AC-05a`, `AC-05b` when asked; the tester proposes the split in the report and never
@@ -130,7 +136,7 @@ a schema clio wrote on the site comes back through `export-schema` or `pkg-to-fi
 
 ## Retrospective
 
-When the human asks (usually after `success-report.md`, sometimes mid-task), the agent writes `retrospective.md` from the
+When the author or the human asks (usually after `success-report.md`, sometimes mid-task), the dev or the tester writes `retrospective.md` from the
 prompt in [templates/retrospective.md](templates/retrospective.md): ten sections, the platform facts with how each was
 seen and on which version, nothing that identifies the project. It is the one file the human hands to other teams;
 the kit's maintainers turn its facts into the platform facts register and its "by hand" and "missed tools" sections

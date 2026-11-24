@@ -30,8 +30,8 @@ using Terrasoft.Core.Entities;
 /// against many rules this way is slow — fetch the candidate rules once, and keep the
 /// per-record loop as short as you can. RowCount = 1 is important: you only need existence.
 ///
-/// SECURITY. Set UseAdminRights = false so the evaluation sees what the user sees; otherwise a
-/// rule can match on a record the caller has no access to. See HowToControlAdminRights.
+/// SECURITY. Keep UseAdminRights = true (the default: the caller's rights are checked) so the evaluation sees what
+/// the user sees; false would let a rule match on a record the caller has no access to. See HowToControlAdminRights.
 ///
 /// UseLocalization = true makes localised columns resolve in the current culture, which matters
 /// when the stored filter compares against a localised text column.
@@ -80,7 +80,7 @@ namespace Terrasoft.Configuration
 			};
 			var esq = select.BuildEsq(UserConnection);
 
-			esq.UseAdminRights = false;
+			esq.UseAdminRights = true; // the default, said out loud: the caller's rights
 			esq.UseLocalization = true;
 			// Existence check only.
 			esq.RowCount = 1;
@@ -99,7 +99,7 @@ namespace Terrasoft.Configuration
 		/// </summary>
 		public virtual Guid FindMatchingRule(Entity entity) {
 			var esq = new EntitySchemaQuery(UserConnection.EntitySchemaManager, "UsrRule") {
-				UseAdminRights = false
+				UseAdminRights = true // the caller's rights
 			};
 			esq.AddColumn("Id");
 			esq.AddColumn("UsrFilters");

@@ -7,6 +7,7 @@ Push a package to an environment: clear IsChanged, push-pkg, check compilation, 
     python push.py <package> -e <environment> --dry-run print commands only
     python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
     python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
+    python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas import Clio  # noqa: E402
 from creatio_schemas.cli import resolve_package  # noqa: E402
-from creatio_schemas.push import push  # noqa: E402
+from creatio_schemas.push import push, resolve_task  # noqa: E402
 
 
 def verify_main(argv: list[str]) -> int:
@@ -43,10 +44,39 @@ def verify_main(argv: list[str]) -> int:
     return 1 if any(not s.startswith("same") for _, s in results) else 0
 
 
+def page_main(argv: list[str]) -> int:
+    from creatio_schemas.environment import open_environment
+    from creatio_schemas.push_page import push_page
+    from creatio_schemas.verify import verify
+
+    p = argparse.ArgumentParser(prog="push.py page", description="One Freedom UI page of a package to the site with clio update-page "
+                                "(replace, into this package, against the checksum get-page reads first), then verify of that schema. "
+                                "No package install: the package's bindings, processes and other schemas are not touched.")
+    p.add_argument("package")
+    p.add_argument("page", help="the page schema name (a folder Schemas/<Page>/ with <Page>.js)")
+    p.add_argument("-e", "--env", required=True, help="clio environment name")
+    p.add_argument("--project", type=Path)
+    p.add_argument("--dry-run", action="store_true", help="update-page --dry-run: validate, save nothing, no verify")
+    p.add_argument("--force", action="store_true", help="overwrite a site copy changed since get-page (no checksum)")
+    args = p.parse_args(argv)
+    try:
+        package = resolve_package(args.package, args.project)
+        env = None if args.dry_run else open_environment(args.env)
+        lines, code = push_page(package, args.page, args.env, Clio(args.env), lambda pkg, names: verify(pkg, env, names),
+                                dry_run=args.dry_run, force=args.force)
+    except (FileNotFoundError, KeyError, ValueError, RuntimeError, OSError) as e:
+        print(f"error: {type(e).__name__}: {e.args[0] if e.args else e}", file=sys.stderr)
+        return 2
+    print("\n".join(lines + [f"exit code {code}"]))
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["verify"]:
         return verify_main(argv[1:])
+    if argv[:1] == ["page"]:
+        return page_main(argv[1:])
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("package", help="path to the package folder, or its name (packages/<name> here or next to --project)")
     p.add_argument("-e", "--env", required=True, help="clio environment name")
@@ -61,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-foreign-files", action="store_true", help="skip the task ownership check")
     p.add_argument("--skip-sql-dates", action="store_true", help="do not stamp changed SQL descriptors")
     p.add_argument("--skip-compile-package", action="store_true", help="skip the assembly package build")
+    p.add_argument("--skip-stale-bin", action="store_true",
+                   help="push an assembly package whose Files/Bin/<Pkg>.dll is older than Files/cs, on purpose")
     p.add_argument("--allow-removed", metavar="SCHEMA,...", default="",
                    help="schemas the package lost on purpose (a merge): pushed only when absent from the folder and no site "
                         "row references them")
@@ -70,10 +102,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return push(resolve_package(args.package, args.project), args.env, Clio(args.env), args.probe, args.dry_run,
-                    project=args.project, tasks=args.tasks, task=args.task, force=args.force, baseline=args.baseline,
+                    project=args.project, tasks=args.tasks, task=resolve_task(args.task, args.tasks, args.project), force=args.force, baseline=args.baseline,
                     skip_drift=args.skip_drift, skip_foreign_files=args.skip_foreign_files,
                     skip_sql_dates=args.skip_sql_dates, skip_compile_package=args.skip_compile_package, bin_dir=args.bin,
-                    allow_removed=args.allow_removed.split(","))
+                    allow_removed=args.allow_removed.split(","), skip_stale_bin=args.skip_stale_bin)
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2

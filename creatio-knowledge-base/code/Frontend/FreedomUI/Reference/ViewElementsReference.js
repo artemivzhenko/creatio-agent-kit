@@ -55,6 +55,26 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		//   crt.AccountCompactProfile / crt.CommunicationOptions  stock profile blocks
 		//   crt.TimelineTile          timeline entry
 		//
+		// COMPONENTS OF CLIENT PAGES (S42-T02; description = clio get-component-info, 2026-11-24)
+		//   crt.Summaries / crt.SummaryItem  chip strip of aggregates over a list data source; the item
+		//                             is composite-only: its value comes from _designOptions.value
+		//                             (HowToConfigureDataGridAndSummaries.js)
+		//   crt.ApprovalList          approvals (visas) of the record in a grid with a WebSocket
+		//                             subscription; composite "Approval list"
+		//   crt.Playbook              read-only knowledge-base articles attached to the current DCM stage
+		//                             of the open record; switches when the record changes stage
+		//   crt.NextSteps / crt.NextStepTile  planned activities and tasks of the record, add button;
+		//                             composite "Next steps" (the add request is not in get-request-info)
+		//   crt.Timer                 a timer element (no description in the catalogue)
+		//   crt.FolderTree / crt.FolderTreeActions  dynamic and static folders as a record filter, with
+		//                             favourites; the actions component is the quick menu of the tree
+		//   crt.Calendar              calendar / scheduler with tile templates, filtering and date-range
+		//                             navigation
+		//   crt.EmailInput            text input with e-mail validation (bound by `control` like crt.Input)
+		//   crt.MultiSelect           multi-value lookup with chips, label, placeholder, required
+		//   crt.ToTileFilterGroup     named on client pages; in neither get-component-info nor a converter
+		//                             list of the catalogue: read the page that uses it before relying on it
+		//
 		// CUSTOM ELEMENTS registered by a Module schema appear with the package
 		// prefix instead of crt., e.g. "usr.FrameComponent", "usr.CardHeader",
 		// "usr.Detail". See ClassicUI/Modules/HowToUseCssAndCustomViewElementModules.js

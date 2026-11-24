@@ -11,7 +11,7 @@ re-registers without duplicates.
   roslyn-codelens  MCP      Roslyn semantic analysis of C# solutions (needs the .NET 10 SDK)
   clio             MCP      clio's own server (`clio mcp-server`): rights, settings, DataService batches, bindings from the
                             site, the component catalogue, browser sessions; its telemetry is declined once (needs clio on PATH)
-  skills           files    creatio-kb, creatio-author, creatio-tester, creatio-loop
+  skills           files    creatio-kb, creatio-author, creatio-dev, creatio-tester, creatio-loop, creatio-merge
   ponytail, graphify        Claude Code only: a plugin and a skill
     py -3 agent_setup.py                     # every agent found on PATH (python3 on macOS and Linux)
     py -3 agent_setup.py --agents codex      # one or more of claude, codex, copilot (comma-separated)
@@ -37,7 +37,7 @@ ARGS = sys.argv[1:]
 DRY_RUN = "--dry-run" in ARGS
 WIN = sys.platform == "win32"
 HOME = Path.home()
-SKILLS = ("creatio-kb", "creatio-author", "creatio-tester", "creatio-loop", "creatio-merge")
+SKILLS = ("creatio-kb", "creatio-author", "creatio-dev", "creatio-tester", "creatio-loop", "creatio-merge")
 SKILL_HOMES = {"claude": HOME / ".claude" / "skills", "codex": HOME / ".agents" / "skills", "copilot": HOME / ".agents" / "skills"}
 
 

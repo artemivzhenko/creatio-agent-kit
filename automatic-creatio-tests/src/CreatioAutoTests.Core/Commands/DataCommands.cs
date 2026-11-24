@@ -10,18 +10,51 @@ namespace CreatioAutoTests.Commands;
 /// triggers react the same way. The Id becomes <c>$alias</c>; the record is deleted when the case ends,
 /// passed or not, unless the line says <c>keep</c>.
 ///   insert UsrOrder as Order set UsrName=Listener bed;UsrAmount=500
+/// With <c>expect error "text"</c> the write must be refused, with the text in the error; no alias is bound.
 /// </summary>
-[Command("insert", Validator = typeof(InsertValidator), Usage = "insert <object> as <alias> [keep] set Column=Value;...")]
+[Command("insert", Validator = typeof(InsertValidator), Usage = "insert <object> as <alias> [keep] set Column=Value;... [expect error \"<text>\"]")]
 public sealed class InsertCommand : ICommand
 {
     /// <summary>Inserts the record and binds its Id to the alias.</summary>
     public async Task ExecuteAsync(CommandContext context, CancellationToken cancellationToken = default)
     {
         var keep = DataShapes.Is(context.Command, 3, "keep");
-        var values = context.Assignments(context.Command.Arguments.Skip(keep ? 5 : 4));
-        var id = await context.Session.InsertRecordAsync(context.Command.ValueAt(0)!, Resolve(context, values), keep, cancellationToken)
-            .ConfigureAwait(false);
-        context.Session.Variables[CaseVariables.NameOf(context.Command.ValueAt(2)!)] = id;
+        var expect = DataShapes.ExpectError(context.Command);
+        var skip = keep ? 5 : 4;
+        var values = context.Assignments(context.Command.Arguments.Skip(skip).Take(expect.Count - skip));
+        var write = () => context.Session.InsertRecordAsync(context.Command.ValueAt(0)!, Resolve(context, values), keep, cancellationToken);
+        if (expect.Expected)
+        {
+            await ExpectRefusal(write, expect.Text).ConfigureAwait(false);
+            return;
+        }
+
+        context.Session.Variables[CaseVariables.NameOf(context.Command.ValueAt(2)!)] = await write().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a write that must be refused. Passes when it fails with an error holding <paramref name="text"/> (case-blind;
+    /// any error when null); a saved record fails the step naming its id (the session's cleanup deletes it).
+    /// </summary>
+    internal static async Task ExpectRefusal(Func<Task<string>> write, string? text)
+    {
+        string saved;
+        try
+        {
+            saved = await write().ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var said = DataShapes.ErrorText(ex.Message);
+            if (text is not null && !said.Contains(text, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new CommandFailedException("expected an error containing \"" + text + "\" but the write failed with: " + said);
+            }
+
+            return;
+        }
+
+        throw new CommandFailedException("expected an error" + (text is null ? string.Empty : " containing \"" + text + "\"") + " but the record was saved: " + saved);
     }
 
     /// <summary>A value naming a static value is written as that value, as in the filters.</summary>
@@ -29,17 +62,29 @@ public sealed class InsertCommand : ICommand
         values.Select(v => context.Session.StaticValues.TryGetValue(v.Value, out var s) ? v with { Value = s } : v).ToArray();
 }
 
-/// <summary>Changes columns of a record over OData: <c>update UsrOrder $Order set UsrAmount=5000</c>.</summary>
-[Command("update", Validator = typeof(UpdateValidator), Usage = "update <object> $alias|<guid> set Column=Value;...")]
+/// <summary>Changes columns of a record over OData: <c>update UsrOrder $Order set UsrAmount=5000</c>; <c>expect error "text"</c> makes a refusal the pass.</summary>
+[Command("update", Validator = typeof(UpdateValidator), Usage = "update <object> $alias|<guid> set Column=Value;... [expect error \"<text>\"]")]
 public sealed class UpdateCommand : ICommand
 {
     /// <summary>Patches the record.</summary>
-    public Task ExecuteAsync(CommandContext context, CancellationToken cancellationToken = default) =>
-        context.Session.UpdateRecordAsync(
-            context.Command.ValueAt(0)!,
-            context.Substitute(context.Command.ValueAt(1)!),
-            InsertCommand.Resolve(context, context.Assignments(context.Command.Arguments.Skip(3))),
-            cancellationToken);
+    public async Task ExecuteAsync(CommandContext context, CancellationToken cancellationToken = default)
+    {
+        var expect = DataShapes.ExpectError(context.Command);
+        var id = context.Substitute(context.Command.ValueAt(1)!);
+        var values = InsertCommand.Resolve(context, context.Assignments(context.Command.Arguments.Skip(3).Take(expect.Count - 3)));
+        var write = async () =>
+        {
+            await context.Session.UpdateRecordAsync(context.Command.ValueAt(0)!, id, values, cancellationToken).ConfigureAwait(false);
+            return id;
+        };
+        if (expect.Expected)
+        {
+            await InsertCommand.ExpectRefusal(write, expect.Text).ConfigureAwait(false);
+            return;
+        }
+
+        await write().ConfigureAwait(false);
+    }
 }
 
 /// <summary>Deletes a record over OData: <c>delete UsrOrder $Order</c>. The alias leaves the cleanup list.</summary>

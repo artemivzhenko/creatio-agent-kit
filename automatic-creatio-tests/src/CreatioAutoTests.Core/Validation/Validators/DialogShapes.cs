@@ -101,3 +101,13 @@ public sealed class AnswerValidator : ICommandValidator
             ? ValidationResult.Ok()
             : ValidationResult.Fail("'answer' takes the caption of one button: 'answer \"Yes\"'.");
 }
+
+/// <summary>Shape of 'select-in-dialog': the display values of the rows to tick, separated by semicolons.</summary>
+public sealed class SelectInDialogValidator : ICommandValidator
+{
+    /// <summary>One argument, not empty; which rows the window shows is only known at run time.</summary>
+    public ValidationResult Validate(ParsedCommand command, ValidationContext context) =>
+        command.ArgumentCount == 1 && !string.IsNullOrWhiteSpace(command.ValueAt(0))
+            ? ValidationResult.Ok()
+            : ValidationResult.Fail("'select-in-dialog' takes the display values of the rows to tick: 'select-in-dialog \"Supervisor; Sales\"'.");
+}

@@ -1,6 +1,6 @@
 ---
 name: creatio-tester
-description: The tester role of the Creatio author/tester loop - read project.json, task.md, questions.md and plan.md, write and run tests for every acceptance criterion with whatever tier it needs (unit, probe, OData backend cases, process cases, .act UI cases), keep evidence, write success-report.md, report-N.md or failed.md. Never changes package files. Use for "tester", "test the task", "verify the AC", "write the report".
+description: The tester role of the Creatio author/dev/tester loop - read project.json, task.md, questions.md and plan.md, write and run tests for every acceptance criterion with whatever tier it needs (unit, probe, OData backend cases, process cases, .act UI cases), keep evidence, write success-report.md, report-N.md or failed.md. Never changes package files. Use for "tester", "test the task", "verify the AC", "write the report".
 version: 2
 ---
 
@@ -28,7 +28,7 @@ say so in chat and stop.
    about rights is proved through clio's MCP: `inspect-role` / `inspect-user` / `inspect-access` read who may do what (`role_members`, `user_roles` and `role_diff` answer from the site's tables when the roles of one user or two roles are the question),
    `manage-role` / `manage-access` / `set-record-rights` set a role up for a case (through `clio-run` when the tool is not
    in the list; `env_sql` only for what they do not answer).
-   `describe.py diff <package>` (MCP `schema_diff`) shows what the author changed in schema terms - a `+`
+   `describe.py diff <package>` (MCP `schema_diff`) shows what the dev changed in schema terms - a `+`
    column or element the plan does not mention is a criterion to ask about, not to skip. `describe_item(path, Page, "where <name>")`
    is the call before touching a page element: its caption, control, column and parent chain; `about <name>` adds the rules, handlers,
    validators and the framework's cases that touch it (the regression rows of the impact table). `where` alone on a page prints its
@@ -42,15 +42,15 @@ say so in chat and stop.
    the browser sees that the schema does not. An entity event listener or a SQL script is proved by a backend case
    (`ProcessCases/`, `# writes`): `insert` / `update` over OData, then `check-record ... has` / `check-count` on what the
    backend did - a lookup filter as `Col/Id=$alias`. Seed rows a case does not own (a lookup value, a parent record)
-   go through clio's `execute-dataservice-batch` (1-100 records, validators and listeners run) - never SQL inserts. The record a case inserts comes from `make_fixture(env, entity)` (made-up values of the object's shape); a real record is read with `sample_records`, never copied into a case. Backend cases over OData, process cases, probes (`objects.py probe`, `rules.py probe`, `sqlscripts.py probe`; a process is proved by a process case),
-   unit tests in `paths.unitTests` for a class the author left untested (`run_tests` runs them inside Creatio; `cases_from_package` drafts the backend cases a package's listeners and scripts call for). Name the files by the
+   go through clio's `execute-dataservice-batch` (1-100 records, validators and listeners run) - never SQL inserts. A listener or a required column that must refuse a write is proved with `insert|update ... expect error "<text>"` in a backend case (a refused insert binds no alias; a write that is saved fails the step). The record a case inserts comes from `make_fixture(env, entity)` (made-up values of the object's shape); a real record is read with `sample_records`, never copied into a case. Backend cases over OData, process cases, probes (`objects.py probe`, `rules.py probe`, `sqlscripts.py probe`; a process is proved by a process case),
+   unit tests in `paths.unitTests` for a class the dev left untested (`run_tests` runs them inside Creatio; `cases_from_package` drafts the backend cases a package's listeners and scripts call for). Name the files by the
    task id (`012-shipment-label.act`). Test data carries the prefix `project.json` names and is
    removed by the case.
 4. **Run.** Validate before a live run. Keep the full output of every failing command in
    `evidence/AC-nn-report-N.txt`.
 5. **Report.** Every criterion passed: `success-report.md`. Otherwise `report-N.md` where N is
    one more than the reports present; one row per criterion, results from the vocabulary, a
-   `Tests written` list, a short `Notes for the author` with what the evidence shows - not how
+   `Tests written` list, a short `Notes for the author` (the author reads it and hands the rows to the dev) with what the evidence shows - not how
    to fix it. The third report exists and the run is still red: write `failed.md` with the
    divergence table and stop.
 6. **Say it in chat.** Which file you wrote and the one-line verdict.
@@ -78,7 +78,9 @@ the script's path (the kit keeps a copy; never delete it). No password or token 
 recorded does not become a tool.
 
 clio's `core-rules` guide (its server asks you to read it) assumes an interactive DB-first session. In the loop the
-tiers of `plan.md` decide the proof: a `.act` case is the UI evidence, not `page-smoke`; OData writes are the backend
+tiers of `plan.md` decide the proof: a `.act` case is the UI evidence, not `page-smoke` (its one call after a page push -
+the fields, the buttons and the console errors of the live page - is the first look that catches a duplicated layer at
+once; it fills nothing and sees no selection window); OData writes are the backend
 tier by design, not a fallback; a case deletes its own rows without asking; a runtime check is never optional. Take
 from it: a new object's OData controller appears 1-2 minutes after the push (retry, do not fail the criterion); an OData
 foreign-key rejection may come from an entity event handler, read `on table` and `referenced` before changing the

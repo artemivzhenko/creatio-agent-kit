@@ -13,7 +13,7 @@ namespace CreatioAutoTests.Frontend.Composite;
 /// Neither implies the other, so all four combinations occur.
 /// </summary>
 [UiElement("DataGrid", HostTag = "crt-data-grid", Options = typeof(DataGridOptions), LabeledByPanel = true)]
-public sealed class DataGrid : FreedomElementBase, IEditableAware, IColumned, IRecordAddable
+public sealed class DataGrid : FreedomElementBase, IEditableAware, IColumned, IRecordAddable, IRowed
 {
     /// <summary>
     /// The columns a person sees, and nothing else.
@@ -264,6 +264,97 @@ public sealed class DataGrid : FreedomElementBase, IEditableAware, IColumned, IR
         }
 
         Logger.LogDebug("Added a row to grid {Code} with {Count} value(s).", Code, assignments.Count);
+    }
+
+    private const string RowSelector = "[role=\"row\"]";
+    private const int RowsShown = 20;
+
+    /// <summary>The cells of a row given as <c>Column=Value</c> that a rendered row (caption -> text) matches, or the first column that does not.</summary>
+    internal static bool RowMatches(IReadOnlyDictionary<string, string> row, IReadOnlyList<RecordAssignment> cells) =>
+        cells.All(c => row.TryGetValue(c.Column, out var text) && string.Equals(text, c.Value, StringComparison.Ordinal));
+
+    /// <summary>The rendered rows as caption -> text, read in one call (a list re-renders under a per-cell enumeration).</summary>
+    private async Task<List<Dictionary<string, string>>> ReadRowsAsync()
+    {
+        var raw = await Root.EvaluateAsync<string[][]>(
+            @"(el, args) => { const [headers, rowSel] = args;
+                const captions = [...el.querySelectorAll(headers)].map(h => (h.innerText || h.textContent || '').trim());
+                return [...el.querySelectorAll(rowSel)].map(r => {
+                    const cells = [...r.querySelectorAll('[role=""gridcell""], td')].map(c => (c.innerText || c.textContent || '').trim());
+                    return cells.length ? [captions.join(''), ...cells] : null; }).filter(r => r); }",
+            new[] { AllColumnHeadersSelector, RowSelector }).ConfigureAwait(false) ?? Array.Empty<string[]>();
+
+        var rows = new List<Dictionary<string, string>>();
+        foreach (var r in raw)
+        {
+            var captions = r[0].Split('');
+            var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < captions.Length && i + 1 < r.Length; i++)
+            {
+                var caption = NormalizeLabel(captions[i]);
+                if (caption.Length > 0)
+                {
+                    row.TryAdd(caption, r[i + 1]);
+                }
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> HasRowAsync(IReadOnlyList<RecordAssignment> cells, CancellationToken cancellationToken = default)
+    {
+        if (!await ExistsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw NotFound();
+        }
+
+        return (await ReadRowsAsync().ConfigureAwait(false)).Any(r => RowMatches(r, cells));
+    }
+
+    /// <inheritdoc />
+    public async Task SelectRowAsync(IReadOnlyList<RecordAssignment> cells, CancellationToken cancellationToken = default) =>
+        await (await RequireRowAsync(cells).ConfigureAwait(false)).ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task OpenRowAsync(IReadOnlyList<RecordAssignment> cells, CancellationToken cancellationToken = default)
+    {
+        var row = await RequireRowAsync(cells).ConfigureAwait(false);
+        var link = row.Locator("a").First;
+        if (await link.CountAsync().ConfigureAwait(false) > 0)
+        {
+            await link.ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
+            return;
+        }
+
+        await row.DblClickAsync(new LocatorDblClickOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task DeleteRowAsync(IReadOnlyList<RecordAssignment> cells, CancellationToken cancellationToken = default) =>
+        throw new CommandFailedException("'delete-row' is not supported on a Freedom UI grid; delete the record over OData ('delete-record').");
+
+    private async Task<ILocator> RequireRowAsync(IReadOnlyList<RecordAssignment> cells)
+    {
+        if (!await ExistsAsync().ConfigureAwait(false))
+        {
+            throw NotFound();
+        }
+
+        var rows = await ReadRowsAsync().ConfigureAwait(false);
+        var at = rows.FindIndex(r => RowMatches(r, cells));
+        if (at < 0)
+        {
+            var shown = rows.Take(RowsShown).Select(r => "{" + string.Join("; ", r.Select(p => p.Key + "=" + p.Value)) + "}");
+            throw new CommandFailedException("Grid '" + Code + "' has no row " + string.Join(";", cells.Select(c => c.Column + "=" + c.Value)) +
+                                             ". It shows " + rows.Count + " row(s)" + (rows.Count == 0 ? "." : ": " + string.Join(", ", shown) + "."));
+        }
+
+        // rows with no cell (the header row) are filtered out of ReadRowsAsync the same way, so the index lines up
+        return Root.Locator(RowSelector).Filter(new LocatorFilterOptions { Has = Page.Locator("[role=\"gridcell\"], td") }).Nth(at);
     }
 
     /// <summary>

@@ -68,7 +68,7 @@ def layers_command(args) -> int:
         env = open_environment(args.env, args.project)
         result = schema_layers(env, args.schema, args.rule, custom or CUSTOM_LAYER, args.workspace)
     except (ValueError, KeyError, FileNotFoundError, RuntimeError) as e:
-        print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+        print(f"error: {_message(e)}", file=sys.stderr)
         return 2
     print(to_json(result) if args.json else render(result, env.clio_name or env.url))
     return 1 if result["custom"] else 0
@@ -89,12 +89,19 @@ def snapshot_command(args) -> int:
         lines = snapshot(args.workspace, args.schema, env, [c.strip() for c in args.columns.split(",") if c.strip()] or None,
                          page_file=args.page_file)
     except (ValueError, KeyError, OSError, RuntimeError) as e:
-        print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+        print(f"error: {_message(e)}", file=sys.stderr)
         return 2
     if args.out:
         Path(args.out).write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return 0
+
+
+def _message(e: Exception) -> str:
+    """The error's text; a bare key or index (`KeyError(2)`) names its type, so `error: 2` never happens."""
+    if e.args and isinstance(e.args[0], str) and e.args[0]:
+        return e.args[0]
+    return f"{type(e).__name__}: {e}"
 
 
 def main(argv=None) -> int:
@@ -240,7 +247,7 @@ def main(argv=None) -> int:
         try:
             print(render(review(args.package, args.keep, args.apply and args.keep is not None)))
         except (FileNotFoundError, RuntimeError, QueryError) as e:
-            print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+            print(f"error: {_message(e)}", file=sys.stderr)
             return 2
         return 0
     if args.command == "precommit":
@@ -249,7 +256,7 @@ def main(argv=None) -> int:
             notes: list[str] = []
             problems = precommit(args.workspace, notes)
         except (FileNotFoundError, RuntimeError) as e:
-            print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+            print(f"error: {_message(e)}", file=sys.stderr)
             return 2
         for note in notes:
             print(note, file=sys.stderr)
@@ -265,7 +272,7 @@ def main(argv=None) -> int:
             text, code = merge_run(args.path, args.child, args.into, args.evidence, args.env, args.apply, args.resume,
                                    Engines(Path(args.path), args.env, args.tests_root))
         except (ValueError, KeyError, OSError, RuntimeError, QueryError) as e:
-            print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+            print(f"error: {_message(e)}", file=sys.stderr)
             return 2
         print(text)
         return code
@@ -276,7 +283,7 @@ def main(argv=None) -> int:
             env = open_environment(args.env, args.project) if args.env or args.project else None
             text, code = merge_package(args.path, args.child, args.into, env, args.apply)
         except (ValueError, KeyError, OSError, RuntimeError, QueryError) as e:
-            print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+            print(f"error: {_message(e)}", file=sys.stderr)
             return 2
         print(text)
         return code
@@ -291,7 +298,7 @@ def main(argv=None) -> int:
                 text, conflicts = merge_plan(args.path, args.schemas, env, args.limit, args.offset, args.direction)
                 code = 1 if conflicts else 0
         except (ValueError, KeyError, OSError, RuntimeError, QueryError) as e:
-            print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+            print(f"error: {_message(e)}", file=sys.stderr)
             return 2
         print(text)
         return code
@@ -335,8 +342,8 @@ def main(argv=None) -> int:
             print(resolve_caption(args.path, args.text, args.kind, args.culture, args.limit, args.offset))
         else:
             print(describe_item(args.package, args.schema, args.query))
-    except (FileNotFoundError, KeyError, QueryError) as e:
-        print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+    except (OSError, KeyError, ValueError, QueryError) as e:
+        print(f"error: {_message(e)}", file=sys.stderr)
         return 2
     return 0
 

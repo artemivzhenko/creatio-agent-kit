@@ -8,6 +8,7 @@ using CreatioAutoTests.Runner;
 using CreatioAutoTests.Session;
 using CreatioAutoTests.Tests.Support;
 using CreatioAutoTests.Validation;
+using CreatioAutoTests.Validation.Validators;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -99,6 +100,57 @@ public sealed class WritingCaseTests
             Assert.That(Validate("use Supervisor", "check console no errors except \"favicon\"").IsValid, Is.True);
             Assert.That(Validate("use Supervisor", "check console errors").DescribeIssues(), Does.Contain("'check console' reads"));
         });
+    }
+
+    private const string Refusal =
+        "insert into 'UsrOrder' failed with 500: {\"error\":{\"code\":\"500\",\"message\":\"An error occurred\",\"innererror\":{\"message\":\"Column UsrName is required\"}}}";
+
+    /// <summary>S45-T05: <c>expect error</c> turns a refused write into the pass.</summary>
+    [Test]
+    public void Expect_error_is_a_tail_of_insert_and_update_only()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error \"required\"").IsValid, Is.True);
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error").IsValid, Is.True, "without the text");
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error", "update UsrOrder $Order set UsrAmount=1").DescribeIssues(),
+                Does.Contain("'$Order' is used before a line defines it"), "a refused insert binds no alias");
+            Assert.That(Validate("# writes", "use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error \"x\"").IsValid, Is.True, "nothing to delete");
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5", "update UsrOrder $Order set UsrAmount=1 expect error \"no\"").IsValid, Is.True);
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set expect error \"x\"").DescribeIssues(), Does.Contain("needs 'Column=Value"));
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5", "delete UsrOrder $Order expect error \"x\"").DescribeIssues(),
+                Does.Contain("belongs to 'insert' and 'update'"));
+        });
+    }
+
+    [Test]
+    public async Task A_refused_write_passes_a_saved_one_fails_naming_its_id_and_a_wrong_text_names_both()
+    {
+        var refused = new FakeExecutionSession { OnWrite = _ => Refusal };
+        var ok = await Run(refused, "use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error \"IS REQUIRED\"",
+            "insert UsrOrder as Any set UsrAmount=5 expect error", "update UsrOrder 00000009-0000-0000-0000-000000000000 set UsrAmount=1 expect error \"required\"");
+        Assert.That(ok.Success, Is.True, ok.FailureSummary);
+        Assert.That(refused.Writes, Is.Empty);
+        Assert.That(refused.Variables.ContainsKey("Order"), Is.False);
+
+        var saved = new FakeExecutionSession();
+        var failed = await Run(saved, "use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error \"required\"");
+        Assert.That(failed.Success, Is.False);
+        Assert.That(failed.FailureSummary, Does.Contain("expected an error containing \"required\" but the record was saved: 00000001-0000-0000-0000-000000000000"));
+        Assert.That(saved.Writes[^1], Is.EqualTo("delete UsrOrder 00000001-0000-0000-0000-000000000000"), "the session cleanup deletes it");
+
+        var updated = await Run(new FakeExecutionSession(), "use Supervisor", "update UsrOrder 00000009-0000-0000-0000-000000000000 set UsrAmount=1 expect error");
+        Assert.That(updated.FailureSummary, Does.Contain("but the record was saved: 00000009"));
+
+        var wrong = await Run(new FakeExecutionSession { OnWrite = _ => Refusal }, "use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error \"too long\"");
+        Assert.That(wrong.FailureSummary, Does.Contain("containing \"too long\"").And.Contain("Column UsrName is required"));
+    }
+
+    [Test]
+    public void The_error_text_is_the_message_and_the_inner_messages()
+    {
+        Assert.That(DataShapes.ErrorText(Refusal), Is.EqualTo("An error occurred | Column UsrName is required"));
+        Assert.That(DataShapes.ErrorText("update failed with 500: {\"error\":{\"message\":\"cut"), Does.Contain("cut"));
     }
 
     [Test]

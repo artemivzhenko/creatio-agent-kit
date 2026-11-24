@@ -133,13 +133,39 @@ def schema_copies(env, process: str) -> list[dict]:
     return env.sql(COPIES_SQL.format(cond=cond))
 
 
+def element_tasks(env, element: str, process: str | None = None, zone: str | None = None) -> dict:
+    """{tasks [task], copies}: the elements of `element` (its caption, or its `SchemaElementUId`) still open in `SysProcessElementLog`
+    (no end date, no error), newest first, of a process (every copy of that schema) when `process` is given. A task is {run, start,
+    record}: the run id, its start, and the record the run holds in `SysProcessEntity` (its display value, else the id), if any."""
+    where = ['e."CompleteDate" is null', "coalesce(e.\"ErrorDescription\", '') = ''",
+             f"e.\"SchemaElementUId\" = '{guid(element)}'" if GUID_RE.fullmatch(element.strip()) else f'e."Caption" = {quote(element)}']
+    copies = []
+    if process:
+        copies = schema_copies(env, process)
+        if not copies:
+            return {"tasks": [], "copies": []}
+        where.append('l."SysSchemaId" in (' + ", ".join(f"'{guid(c['id'])}'" for c in copies) + ")")
+    rows = env.sql('select e."SysProcessId"::text as "run", e."StartDate", (select coalesce(n."EntityDisplayValue", n."EntityId"::text) '
+                   'from "SysProcessEntity" n where n."SysProcessId" = e."SysProcessId" offset 0 rows fetch first 1 rows only) as "record" '
+                   'from "SysProcessElementLog" e join "SysProcessLog" l on l."Id" = e."SysProcessId" where ' + " and ".join(where)
+                   + ' order by e."StartDate" desc')
+    return {"tasks": [{"run": str(r["run"]).lower(), "start": local_time(r.get("StartDate"), zone), "record": r.get("record") or ""} for r in rows],
+            "copies": copies}
+
+
 def process_runs(env, process: str | None = None, record: str | None = None, since: str | None = None, until: str | None = None,
-                 limit: int = 20, window: int = 30, noise=(), zone: str | None = None, steps: bool = False) -> dict:
+                 limit: int = 20, window: int = 30, noise=(), zone: str | None = None, steps: bool = False,
+                 element: str | None = None, status: str | None = None) -> dict:
     """{runs [run], hidden, windows}: the newest `limit` runs of a process (`process` = its name or UId - every copy of
     that schema), or every run that started within `window` seconds of a change of `record` (`<Entity>:<Id>`, its
     details included), oldest first. `noise` (names or prefixes, `project.json` `environment.noiseProcesses`) hides
     runs of those processes unless `process` names one; `hidden` counts them. `steps` adds to each run its elements (`steps`: caption,
-    status, start, end, error); `loggingOff` is true when no run is found and `SysProcessLog` holds no row at all."""
+    status, start, end, error); `loggingOff` is true when no run is found and `SysProcessLog` holds no row at all.
+    `element` (a caption or an element UId) with `status="running"` (or "waiting") answers {tasks, copies} instead: see `element_tasks`."""
+    if element:
+        if (status or "running").lower() not in ("running", "waiting"):
+            raise ValueError(f"status {status!r}: only running (waiting) tasks are listed")
+        return element_tasks(env, element, process, zone)
     where, copies = [], []
     if process:
         copies = schema_copies(env, process)
@@ -305,6 +331,10 @@ def render_log(log: dict | None, process_id: str = "") -> str:
 
 def render_runs(answer: dict) -> str:
     lines = []
+    if "tasks" in answer:
+        tasks = answer["tasks"]
+        return "\n".join([f"{len(tasks)} running task{'' if len(tasks) == 1 else 's'}"]
+                          + [f"{k['start']}  run {k['run']}" + (f"  waits on {k['record']}" if k["record"] else "") for k in tasks])
     copies = answer.get("copies") or []
     if copies:
         asked = {c["name"] for c in copies}

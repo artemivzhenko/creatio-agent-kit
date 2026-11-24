@@ -42,6 +42,28 @@ define("UsrMyPage_ListPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// as observed from generated schemas rather than as a published contract,
 		// and prefer configuring summaries in the designer when you can.
 		//
+		// SUMMARY ITEMS (crt.SummaryItem, clio get-component-info crt.SummaryItem). The Designer's form:
+		// a chip inside crt.Summaries, no attribute to declare, the runtime generates <Item>_Value.
+		//
+		//   { "operation": "insert", "name": "SummaryItem_total", "parentName": "DataTable_Summaries",
+		//     "propertyName": "items", "index": 0,
+		//     "values": { "type": "crt.SummaryItem",
+		//                 "label": "#ResourceString(SummaryItem_total_label)#",
+		//                 "_designOptions": { "value": {
+		//                     "attribute": "SummaryItem_total_Value",
+		//                     "modelName": "PDS",
+		//                     "expression": { "function": "sum",
+		//                                     "columns": [{ "type": "Column", "path": "UsrAmount" }],
+		//                                     "resultDataValueType": 32 } } } } }
+		//
+		// modelName is the parent panel's modelName and must be a LIST data source (a form page's PDS
+		// holds one record, so the chip sums only that record and shows no error). function: count on the
+		// primary column (resultDataValueType 4), sum / avg / min / max on numbers, min / max on dates.
+		// label's resource key goes in update-page `resources`, or the chip is blank. A `merge` replaces
+		// _designOptions as a whole: carry the complete object. The older numeric expression form above
+		// (expressionType / functionType / aggregationType) is what the designer wrote for a grid summary
+		// column; use SummaryItem for a new chip strip.
+		//
 		// The collection itself is wired in viewModelConfigDiff - see
 		// HowToWorkWithCollectionAttributes.js. Selection-driven actions use the
 		// "<GridName>_SelectionState" attribute - see StockConvertersReference.js.

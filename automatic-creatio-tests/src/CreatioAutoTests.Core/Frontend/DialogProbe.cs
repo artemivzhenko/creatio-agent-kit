@@ -46,6 +46,85 @@ public static class DialogProbe
         return 1;
     }";
 
+    private const string TickMark = "data-act-tick";
+
+    // Marks every body row of the topmost dialog's grid whose cell text equals a wanted value (the row's checkbox exists only while the row is hovered).
+    // Returns { dialog, rows: first 20 rows as text, found: wanted values that are rows }.
+    private const string TickScript = @"(args) => {
+        const visible = e => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
+            return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+        document.querySelectorAll('[' + args.mark + ']').forEach(e => e.removeAttribute(args.mark));
+        const all = [...document.querySelectorAll(args.selector)].filter(visible);
+        const top = all.filter(e => !all.some(o => o !== e && o.contains(e)));
+        const dialog = top[top.length - 1];
+        if (!dialog) return { dialog: false, rows: [], found: [] };
+        const rows = [...dialog.querySelectorAll('tbody tr[role=row], tbody tr')];
+        const texts = rows.map(r => [...r.querySelectorAll('td')].map(c => (c.innerText || '').trim()).filter(t => t));
+        const found = [];
+        rows.forEach((r, i) => {
+            const hit = args.wanted.find(w => texts[i].some(t => t.toLowerCase() === w.toLowerCase()));
+            if (!hit) return;
+            found.push(hit);
+            r.setAttribute(args.mark, '1');
+        });
+        return { dialog: true, rows: texts.slice(0, 20).map(t => t.join(' | ')), found };
+    }";
+
+    /// <summary>
+    /// Ticks the rows of the topmost dialog's grid (a record selection window) whose display value equals each wanted text, case-blind.
+    /// Returns the wanted values that are not rows, with the rows the window showed (the first 20); null when every row was found and ticked.
+    /// <paramref name="windowShown"/> is false when there is no dialog at all.
+    /// </summary>
+    public static async Task<(bool WindowShown, IReadOnlyList<string> Missing, IReadOnlyList<string> Rows)?> TickRowsAsync(
+        IPage page, IReadOnlyList<string> wanted, int timeoutMs, CancellationToken cancellationToken)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        string? lastRows = null;
+        while (true)
+        {
+            var read = await page.EvaluateAsync<System.Text.Json.JsonElement>(TickScript, new { selector = Selector, mark = TickMark, wanted }).ConfigureAwait(false);
+            var shown = read.GetProperty("dialog").GetBoolean();
+            var rows = read.GetProperty("rows").EnumerateArray().Select(r => r.GetString() ?? string.Empty).ToArray();
+            var found = read.GetProperty("found").EnumerateArray().Select(r => r.GetString() ?? string.Empty).ToArray();
+            var missing = wanted.Where(w => !found.Contains(w, StringComparer.OrdinalIgnoreCase)).ToArray();
+
+            // the window's grid re-renders while its rows load and a tick made before that is lost: tick only when two readings agree
+            var snapshot = string.Join("|", rows);
+            var steady = snapshot == lastRows;
+            lastRows = snapshot;
+            if (shown && missing.Length == 0 && steady)
+            {
+                // the checkbox of a row is rendered while the row is hovered only: hover, then tick it unless it is ticked
+                foreach (var row in await page.Locator("[" + TickMark + "]").AllAsync().ConfigureAwait(false))
+                {
+                    await row.HoverAsync(new LocatorHoverOptions { Timeout = timeoutMs }).ConfigureAwait(false);
+                    var box = row.Locator("mat-checkbox").First;
+                    if (!await IsTickedAsync(box).ConfigureAwait(false))
+                    {
+                        await box.Locator(".mat-checkbox-layout").ClickAsync(new LocatorClickOptions { Timeout = timeoutMs }).ConfigureAwait(false);
+                    }
+
+                    if (!await IsTickedAsync(box).ConfigureAwait(false))
+                    {
+                        throw new Execution.CommandFailedException("'select-in-dialog': the checkbox of a row did not tick.");
+                    }
+                }
+
+                return null;
+            }
+
+            if (DateTime.UtcNow >= until)
+            {
+                return (shown, missing, rows);
+            }
+
+            await Task.Delay(PollMs, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<bool> IsTickedAsync(ILocator checkbox) =>
+        (await checkbox.GetAttributeAsync("class").ConfigureAwait(false) ?? string.Empty).Contains("mat-checkbox-checked", StringComparison.Ordinal);
+
     /// <summary>The visible dialogs now, in DOM order; empty while the page is navigating.</summary>
     public static async Task<IReadOnlyList<DialogSnapshot>> ReadAsync(IPage page)
     {

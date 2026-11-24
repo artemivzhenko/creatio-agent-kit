@@ -85,3 +85,51 @@ public sealed class UploadTests
         Assert.That(problem, Is.Not.Empty);
     }
 }
+
+/// <summary>S45-T08: a button whose handler opens its own chooser takes the file through it.</summary>
+[TestFixture]
+public sealed class UploadThroughButtonTests
+{
+    private sealed class FakeChooser : Microsoft.Playwright.IFileChooser
+    {
+        public string? Set;
+        public Microsoft.Playwright.IElementHandle Element => throw new NotSupportedException();
+        public bool IsMultiple => false;
+        public Microsoft.Playwright.IPage Page => throw new NotSupportedException();
+        public Task SetFilesAsync(string files, Microsoft.Playwright.FileChooserSetFilesOptions? options = null) { Set = files; return Task.CompletedTask; }
+        public Task SetFilesAsync(IEnumerable<string> files, Microsoft.Playwright.FileChooserSetFilesOptions? options = null) => throw new NotSupportedException();
+        public Task SetFilesAsync(Microsoft.Playwright.FilePayload files, Microsoft.Playwright.FileChooserSetFilesOptions? options = null) => throw new NotSupportedException();
+        public Task SetFilesAsync(IEnumerable<Microsoft.Playwright.FilePayload> files, Microsoft.Playwright.FileChooserSetFilesOptions? options = null) => throw new NotSupportedException();
+    }
+
+    [Test]
+    public async Task The_file_goes_into_the_chooser_the_click_opened()
+    {
+        var chooser = new FakeChooser();
+
+        await CreatioAutoTests.Frontend.Controls.Button.UploadThroughChooserAsync("ParseButton", "C:/td/a.xlsx", () => Task.FromResult<Microsoft.Playwright.IFileChooser>(chooser));
+
+        Assert.That(chooser.Set, Is.EqualTo("C:/td/a.xlsx"));
+    }
+
+    [Test]
+    public void A_button_that_opens_no_chooser_fails_naming_the_button()
+    {
+        var ex = Assert.ThrowsAsync<CreatioAutoTests.Execution.CommandFailedException>(() =>
+            CreatioAutoTests.Frontend.Controls.Button.UploadThroughChooserAsync("ParseButton", "a", () => throw new TimeoutException()));
+
+        Assert.That(ex!.Message, Is.EqualTo("no file chooser opened by ParseButton"));
+    }
+
+    [Test]
+    public void A_button_is_a_target_of_upload()
+    {
+        var catalog = CatalogBuilder.Build(CatalogBuilder.Element("ParseButton", "Button", "UsrOrderPage"));
+        var services = new ServiceCollection();
+        services.AddSingleton<ValueCompatibilityPolicy>();
+        var plan = new ScriptValidator(CommandRegistry.Discover(), services.BuildServiceProvider()).Validate("up", "up.act",
+            new ScriptParser().Parse(new[] { "use tester", "open UsrOrderPage", "upload ParseButton \"a.xlsx\"" }),
+            new ValidationContext(catalog, new Dictionary<string, string>(), new[] { "tester" }, new Dictionary<string, ObjectDefinition>()));
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+    }
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -47,6 +48,8 @@ class Clio:
                                  capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
             if sql_failed(run.returncode, run.stdout + run.stderr):
                 raise RuntimeError(f"sql: {err_line(run.stdout + run.stderr)}")
+            if not out.is_file() and re.search(r"^(\[INF\] - )?Done\s*$", run.stdout, re.M):  # an older clio writes no file for zero rows, then Done
+                return []
             if not out.is_file():
                 raise RuntimeError(f"clio execute-sql-script wrote no result (environment {self.env!r}?): {run.stdout[-500:]}{run.stderr[-500:]}")
             text = out.read_text(encoding="utf-8-sig").strip()
@@ -61,3 +64,11 @@ class Clio:
     def execute_sql_rows(self, sql: str) -> list[dict]:
         """Return SQL result rows using the file and JSON export form."""
         return self.sql(sql)
+
+    def version(self) -> str:
+        """The installed clio's version from `clio ver`, `unknown` when it does not answer."""
+        try:
+            found = re.search(r"clio:\s*(\S+)", self.run(["ver"]))
+        except RuntimeError:
+            return "unknown"
+        return found.group(1) if found else "unknown"

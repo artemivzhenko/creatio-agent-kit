@@ -92,8 +92,15 @@ FTS5 = has_fts5()
 def connect(path: Path, write: bool = True) -> sqlite3.Connection:
     """The store at `path`, a 5 s busy timeout; for a writer also WAL and the tables, created when missing (a reader
     writes nothing: a missing table is the caller's OperationalError)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(path, timeout=5.0)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:  # a junction or link whose target is gone answers FileExistsError / FileNotFoundError on mkdir
+        raise OSError(f"{path.parent}: the index folder cannot be opened ({e.strerror or e}); a junction or symlink whose target "
+                      f"no longer exists? create the target or remove the link, then index again") from None
+    try:
+        con = sqlite3.connect(path, timeout=5.0)
+    except sqlite3.OperationalError as e:
+        raise OSError(f"{path}: the index store cannot be opened ({e})") from None
     con.execute("pragma busy_timeout = 5000")
     con.create_function("fold", 1, lambda s: s.casefold() if isinstance(s, str) else s, deterministic=True)  # LIKE folds ASCII only
     if not write:

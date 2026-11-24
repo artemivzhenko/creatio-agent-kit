@@ -2,7 +2,9 @@
 """Synchronize the test framework's environment configuration from project.json."""
 
 import argparse
+import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -99,13 +101,61 @@ def sync(project_file: Path, framework: Path | None = None) -> list[str]:
     return changed
 
 
+def tasks_from_csv(csv_file: Path, tasks: Path, key: str, title: str, text: str, status: str,
+                   done: set[str], dry_run: bool = False) -> list[str]:
+    """One <tasks>/<key>/task.md per CSV row; done rows and existing task.md are left alone."""
+    with csv_file.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing = [c for c in (key, title, text, status) if c not in (reader.fieldnames or [])]
+        if missing:
+            raise KeyError(f"missing column {', '.join(missing)}; the file has: {', '.join(reader.fieldnames or [])}")
+        rows = list(reader)
+    lines, counts = [], {"wrote": 0, "kept": 0, "skipped (done)": 0}
+    for row in rows:
+        folder = re.sub(r"[^A-Za-z0-9_-]", "_", row[key].strip())
+        if row[status].strip() in done:
+            verdict = "skipped (done)"
+        elif (tasks / folder / "task.md").is_file() and (tasks / folder / "task.md").stat().st_size:
+            verdict = "kept"
+        else:
+            verdict = "wrote"
+            if not dry_run:
+                (tasks / folder).mkdir(parents=True, exist_ok=True)
+                (tasks / folder / "task.md").write_text(
+                    f"# {row[key].strip()} {row[title].strip()}\n\n{row[text].strip()}\n", encoding="utf-8")
+        counts[verdict] += 1
+        lines.append(f"{'would write' if dry_run and verdict == 'wrote' else verdict} {folder}")
+    return lines + [", ".join(f"{k} {v}" for k, v in counts.items())]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     command = sub.add_parser("sync", help="write the framework environment from project.json")
     command.add_argument("project", type=Path)
     command.add_argument("--framework", type=Path)
+    cmd = sub.add_parser("tasks-from-csv", help="one task folder per row of a tracker's CSV export")
+    cmd.add_argument("csv_file", type=Path)
+    cmd.add_argument("tasks", type=Path)
+    cmd.add_argument("--key", default="Issue key")
+    cmd.add_argument("--title", default="Summary")
+    cmd.add_argument("--text", default="Description")
+    cmd.add_argument("--status", default="Status")
+    cmd.add_argument("--done", default="", help="comma-separated statuses to skip")
+    cmd.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "tasks-from-csv":
+        try:
+            done = {d.strip() for d in args.done.split(",") if d.strip()}
+            print("\n".join(tasks_from_csv(args.csv_file, args.tasks, args.key, args.title, args.text,
+                                           args.status, done, args.dry_run)))
+        except KeyError as exc:
+            print(f"tasks-from-csv: {exc.args[0]}", file=sys.stderr)
+            return 2
+        except OSError as exc:
+            print(f"tasks-from-csv failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
     try:
         changed = sync(args.project, args.framework)
     except (OSError, ValueError) as exc:

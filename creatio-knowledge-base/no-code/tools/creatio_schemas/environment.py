@@ -92,8 +92,8 @@ def unwrap_xml_string(text: str) -> str:
 
 
 class Response:
-    def __init__(self, status: int, text: str):
-        self.status, self.text = status, text
+    def __init__(self, status: int, text: str, content: bytes = b""):
+        self.status, self.text, self.content = status, text, content  # `content`: the raw bytes (a file), `text`: the same decoded
         self.error = None if 200 <= status < 300 else f"{status}: {reduce_fault(text) or 'no body'}"
 
     @property
@@ -183,13 +183,13 @@ class Environment:
         return path
 
     def _send(self, method: str, path: str, body: Any = None, params: dict | None = None, literal: bool = False,
-              accept: str = "application/json") -> Response:
+              accept: str = "application/json", content_type: str = "application/json; charset=utf-8") -> Response:
         # a path typed by hand may hold spaces (`$filter=Name eq 'x'`); what is already percent-encoded stays as it is
         where = urllib.parse.quote(path if literal else self._path(path), safe="/?=&$'(),:;@+%#!*")
         url = self.url + where + ("?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote) if params else "")
         data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode("utf-8"))
         req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("Content-Type", "application/json; charset=utf-8")
+        req.add_header("Content-Type", content_type)
         req.add_header("Accept", accept)
         req.add_header("ForceUseSession", "true")
         if self._cookies:
@@ -208,7 +208,7 @@ class Environment:
             jar.load(header)
             self._cookies.update({k: m.value for k, m in jar.items()})
         raw = resp.read() or b""
-        return Response(status, raw.decode("utf-8-sig", errors="replace"))
+        return Response(status, raw.decode("utf-8-sig", errors="replace"), raw)
 
     def login(self) -> None:
         """AuthService.svc/Login once; the session cookies and BPMCSRF are kept for every later call."""
@@ -221,14 +221,19 @@ class Environment:
             raise RuntimeError(f"login to {self.url} as {self.login_name!r} refused: {reason}")
         self._logged_in = True
 
-    def request(self, method: str, path: str, body: Any = None, params: dict | None = None) -> Response:
+    def request(self, method: str, path: str, body: Any = None, params: dict | None = None, content_type: str | None = None) -> Response:
+        """`body` as bytes goes out as it is (with `content_type`, e.g. a multipart form); anything else as JSON."""
         self.login()
-        return self._send(method, path, body, params)
+        return self._send(method, path, body, params, **({"content_type": content_type} if content_type else {}))
 
-    def fetch(self, path: str, accept: str = "*/*") -> Response:
-        """GET a non-JSON path as the logged-in user (`conf/content/<Schema>.js` refuses `Accept: application/json` with 406)."""
+    def fetch(self, path: str, accept: str = "*/*", binary: bool = False) -> Response:
+        """GET a non-JSON path as the logged-in user (`conf/content/<Schema>.js` refuses `Accept: application/json` with 406).
+        `Response.content` always holds the raw bytes; `binary=True` is for a file: an error answer then keeps no decoded text."""
         self.login()
-        return self._send("GET", path, accept=accept)
+        r = self._send("GET", path, accept=accept)
+        if binary and r.ok:
+            r.text = ""
+        return r
 
     def get(self, path: str, params: dict | None = None) -> Response:
         return self.request("GET", path, params=params)
@@ -326,10 +331,11 @@ class Environment:
 
 # a database error as some clio builds print it: the SQLSTATE and the message, then `Done` and exit 0 - no `[ERR]`
 _SQLSTATE_RE = re.compile(r"^[0-9A-Z]{5}: \S")
+_MSSQL_RE = re.compile(r"^Msg \d+, Level \d+")  # MS SQL's form of the same: `Msg 208, Level 16, State 1, Line 1`
 
 
 def _is_error(line: str) -> bool:
-    return "[ERR]" in line or bool(_SQLSTATE_RE.match(line.strip()))
+    return "[ERR]" in line or bool(_SQLSTATE_RE.match(line.strip()) or _MSSQL_RE.match(line.strip()))
 
 
 def sql_failed(code: int, output: str) -> bool:

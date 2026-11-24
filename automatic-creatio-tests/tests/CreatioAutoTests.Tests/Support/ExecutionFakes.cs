@@ -92,10 +92,17 @@ public sealed class FakeExecutionSession : IExecutionSession
     public Func<string, IReadOnlyList<string>, string, int, IReadOnlyList<IReadOnlyDictionary<string, string>>>? OnQuery { get; init; }
     public Func<string, string, long>? OnCount { get; init; }
     public Func<string, string>? OnDelete { get; init; }
+    /// <summary>Refuses an insert or an update: gets "insert|update <entity>", returns the failure text, or null to save.</summary>
+    public Func<string, string?>? OnWrite { get; init; }
     private int _next;
 
     public Task<string> InsertRecordAsync(string entity, IReadOnlyList<RecordAssignment> values, bool keep, CancellationToken cancellationToken = default)
     {
+        if (OnWrite?.Invoke("insert " + entity) is { } refusal)
+        {
+            throw new InvalidOperationException(refusal);
+        }
+
         var id = new Guid(++_next, 0, 0, new byte[8]).ToString();
         Writes.Add("insert " + entity + " " + id + " " + string.Join(";", values));
         if (!keep)
@@ -108,6 +115,11 @@ public sealed class FakeExecutionSession : IExecutionSession
 
     public Task UpdateRecordAsync(string entity, string id, IReadOnlyList<RecordAssignment> values, CancellationToken cancellationToken = default)
     {
+        if (OnWrite?.Invoke("update " + entity) is { } refusal)
+        {
+            throw new InvalidOperationException(refusal);
+        }
+
         Writes.Add("update " + entity + " " + id + " " + string.Join(";", values));
         return Task.CompletedTask;
     }

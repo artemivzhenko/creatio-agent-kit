@@ -28,7 +28,7 @@ def layers_sql(schema: str, custom_layer: str = CUSTOM_LAYER) -> str:
   coalesce(octet_length(b."Content"), octet_length(s."MetaData"), 0)::text "size",
   coalesce(md5(b."Content"), md5(s."MetaData"), '')::text "md5",
   coalesce(convert_from(b."Content", 'UTF8'), '')::text "body",
-  coalesce(h."SchemaLevel"::text, '-1') "sl", coalesce(h."PackageLevel"::text, '-1') "pl"
+  coalesce(h."SchemaLevel"::text, '-1') "sl", coalesce(h."PackageLevel"::text, '-1') "pl", p."HierarchyLevel"::text "hl"
 from "SysSchema" s
 join "SysPackage" p on p."Id" = s."SysPackageId"
 left join "Contact" c on c."Id" = s."ModifiedById"
@@ -83,14 +83,39 @@ def site_name_of(env, workspace, schema: str) -> str | None:
     return next((n for n in names if n != schema), None) if schema not in names else None
 
 
+def _runtime_order(rows: list[dict]) -> list[dict]:
+    """The replacing copies re-sorted the way the runtime folds them - `SysPackage.HierarchyLevel`, then the package name -
+    in the places the design-time function gave them; that function has no tiebreak for siblings and printed a chain's
+    upper package before the lower one (S27-T09). The same rule as `merge.layers_in_order`. Unchanged when a copy has no level."""
+    replacing = [r for r in rows if str(r.get("extendParent", "")).lower() == "true"]
+    if len(replacing) < 2 or any(not str(r.get("hl") or "").lstrip("-").isdigit() for r in replacing):
+        return rows
+    ordered, ids = iter(sorted(replacing, key=lambda r: (int(r["hl"]), r["package"]))), {id(r) for r in replacing}
+    return [next(ordered) if id(r) in ids else r for r in rows]
+
+
+def _is_postgres(env) -> bool:
+    """`select version()` names PostgreSQL; on MS SQL the query itself fails."""
+    try:
+        return any("postgresql" in str(r.get("v", "")).lower() for r in env.sql('select version()::text "v"'))
+    except RuntimeError:
+        return False
+
+
 def schema_layers(env, schema: str, rule: str | None = None, custom_layer: str = CUSTOM_LAYER, workspace=None) -> dict:
     """{schema, rule, customLayer, layers: [...] applied first to last, custom: [packages of the customisation layer]}.
-    With `workspace`, a schema the site renamed is read under the site's name (`siteName`)."""
+    With `workspace`, a schema the site renamed is read under the site's name (`siteName`). A failed query raises, never "no copy"."""
     site_name = site_name_of(env, workspace, schema) if workspace else None
-    rows = env.sql(layers_sql(site_name or schema, custom_layer))
+    try:
+        rows = env.sql(layers_sql(site_name or schema, custom_layer))
+    except RuntimeError as e:  # an empty answer would read as "no copy" (S45-T02)
+        where = env.clio_name or env.url
+        line = str(e.args[0] if e.args else e).removeprefix("sql: ")
+        raise RuntimeError(("" if _is_postgres(env) else f"{where} is not PostgreSQL - the kit's site SQL is PostgreSQL\n")
+                           + f"the layers query failed on {where}: {line}") from e
     outside = [r for r in rows if r.get("sl") in (None, "", "-1")]  # not in the customisation package's hierarchy: listed first, applied nowhere above it
     out = []
-    for r in outside + merge_order([r for r in rows if r not in outside]):
+    for r in outside + _runtime_order(merge_order([r for r in rows if r not in outside])):
         layer = {k: r.get(k, "") for k in ("package", "extendParent", "modifiedOn", "modifiedBy", "isChanged", "manager", "size", "md5")}
         layer["level"] = None if r.get("pl") in (None, "", "-1") else int(r["pl"])
         if rule:

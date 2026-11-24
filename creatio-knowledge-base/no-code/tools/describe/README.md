@@ -100,6 +100,10 @@ second writer waits; a reader sees the last committed package). A `<Package>.jso
 line on stderr) and the package rebuilt from disk; a corrupt store file is deleted and rebuilt. A Python whose SQLite lacks FTS5
 gets a plain `captions` table (`meta.fts5 = 0`); the readers then use `LIKE`.
 
+**What the answer says about broken items.** The `index` line of a package ends with `unreadable (N): <item> - <reason>` for
+up to five items and the `errors.log` path; a store folder that cannot be opened (a junction or symlink whose target is gone)
+is `error: <folder>: the index folder cannot be opened ...`, not a traceback.
+
 **Operating the store (S26-T03).** `describe.py index <workspace> --stats` (MCP `index_workspace(path, stats=True)`) adds,
 after the refresh lines: the file, its size (with the WAL), `meta.format` and FTS5, the platform version when S31-T09 wrote
 one, rows per table, and per package its build time (`refreshed_at`: when its rows were last written) and unreadable count.
@@ -168,7 +172,10 @@ needs neither: the index header carries a registry fingerprint and rebuilds itse
 A broken item costs one line, never the answer: a schema, C# file or data binding that cannot be
 read (an empty `data.json`, a `Data/` folder without its descriptor, a parser error) is stored as
 `{"error": "<type>: <message>"}` - the message names the file - and listed as `cannot read:` in
-`describe.py package`; `describe.py package <pkg> --kind error` lists only those. `find` and
+`describe.py package`; `describe.py package <pkg> --kind error` lists only those, and every build appends them to
+`errors.log` next to `index.sqlite` (`<built>\t<package>\t<kind>\t<item>\t<error>`, the file to read when the parsers
+choke on a client package). A page keeps its commented-out blocks (valid JS, not JSON: the reader strips the comments); a
+data binding with `"PackageData": null` or no `data.json` yet is a binding with 0 rows, not an error. `find` and
 `lookups` skip them and end with `N items unreadable (describe.py package <pkg> --kind error lists
 them)`; asked for a broken item by name, `find` answers its error in one line. A file that is not
 UTF-8 is read as cp1251 (a `.cs` saved in the Windows code page) and its item's summary ends with
@@ -679,7 +686,7 @@ precedence. Package, find and lookup lists accept `--limit` on the CLI and `limi
 | --- | --- |
 | every schema | `files`, `resources [culture=]`, `resource <key>`, `missing [culture=] [from=en-US]` (keys a culture lacks) |
 | object | `columns [type=Lookup] [flag=required] [own=true] [culture=]` (the caption of the package's primary culture follows the name: `UsrDate  'Date'  DateTime`; a column with no caption in it prints nothing extra),  `column <Name>` (line + raw JSON), `flags`, `base`, `map [culture=]` (the columns grouped by type - lookups with their object, text, dates, numbers, flags, other - each with its caption; `(caption not in workspace)` for a base column) |
-| process | `elements [kind=FormulaTask]`, `element <Name>` (values, flows in and out), `params [direction=In]`, `flows [from=] [to=]`, `script <Element>` |
+| process | `elements [kind=FormulaTask]`, `element <Name>` (values, flows in and out; a page task adds `buttons:` - code, caption, `-> <flow> to <element>` or `-> (no flow)`), `params [direction=In]`, `flows [from=] [to=]` (a flow that waits for a page button ends `when button <code>`), `script <Element>` |
 | rules | `rules [enabled=false]`, `rule <Name|caption|uid>` |
 | sql | `body`, `deps` |
 | dcm | `stages`, `stage <name|caption>` (steps, conditions, moves in and out), `steps [stage=]`, `step <name>`, `moves [from=] [to=]`, `filter [raw=true]` |

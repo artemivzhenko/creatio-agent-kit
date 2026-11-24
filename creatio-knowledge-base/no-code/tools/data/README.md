@@ -72,7 +72,7 @@ Data/<Name>/Localization/data.<c>.json  the localisable columns per culture: [{S
 - `"null"` (a string) is a null value. Lookup cells (`Lookup`, `ImageLookup`) carry the record's
   UId in `Value` and its caption in `DisplayValue`, which only the designer reads.
 - A localisable column (`Name`, `Description` of a lookup) is in `Localization/` and never in
-  `data.json`; a binding without a `Localization` folder keeps even a localisable `Name` in
+  `data.json` (`"PackageData": null` and a missing `data.json` read as no rows; a write creates the file); a binding without a `Localization` folder keeps even a localisable `Name` in
   `data.json` (seen for `SysSettings` and `CaseStatus`). Every culture file has one row per row of `data.json`.
 - The base columns (`Id`, `Name`, `Description`, `CreatedOn` ...) have fixed UIds everywhere;
   `create` takes them, the types and the localisable flag from the object

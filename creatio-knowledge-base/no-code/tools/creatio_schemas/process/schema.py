@@ -68,6 +68,13 @@ def _without_lcz_text(value):
     return [_without_lcz_text(v) for v in value] if isinstance(value, list) else value
 
 
+def _flow_buttons(flow: dict) -> list[str]:
+    """The button UIds in a flow's `GV2`: `{"<completion parameter UId>": ["<button UId>", ...]}`."""
+    raw = flow.get("GV2")
+    found = json.loads(raw) if isinstance(raw, str) and raw.startswith("{") else raw
+    return [u for v in (found.values() if isinstance(found, dict) else []) for u in v]
+
+
 def _disagree(value: dict | None, mapping: dict | None) -> bool:
     """Both carry a value and the values differ. One side empty is the designer's own form (localizable texts live in the
     mapping only; a mapping row without a value leaves the parameter's), so it is not reported."""
@@ -203,6 +210,28 @@ class ProcessSchema(Schema):
             if p["A2"] == name:
                 return p
         raise KeyError(f"element {element['A2']} has no parameter {name!r}; have {[p['A2'] for p in self.element_params(element)]}")
+
+    def buttons(self, element: dict) -> list[dict]:
+        """The buttons of a page task: [{uid, code, caption, flows: [(flow, target element)]}]; the flows are the conditional ones
+        whose `GV2` completion parameter names the button. The caption is the item's own text, else a resource under its UId, else the code."""
+        try:
+            raw = self.element_param(element, "Buttons").get("L8", {}).get("GS2")
+        except KeyError:
+            return []
+        names = {x["UId"]: x["A2"] for x in self.elements}
+        texts = self.resources.cultures.get("en-US", {})
+        out = []
+        for b in json.loads(raw)["$values"] if raw else []:
+            uid, code = b["ItemUId"], (b.get("Name") or {}).get("value") or b["ItemUId"]
+            caption = (b.get("Caption") or {}).get("value") or next((v for k, v in texts.items() if uid in k), None) or code
+            flows = [(f["A2"], names.get(f.get("CI2"), "?")) for f in self.flows() if f.get("CI1") == element["UId"] and uid in _flow_buttons(f)]
+            out.append({"uid": uid, "code": code, "caption": caption, "flows": flows})
+        return out
+
+    def flow_buttons(self, flow: dict) -> list[str]:
+        """The codes of the buttons a conditional flow waits for (`GV2`), or []."""
+        source = self.element_by_uid(flow.get("CI1"))
+        return [b["code"] for b in self.buttons(source) if b["uid"] in _flow_buttons(flow)] if source else []
 
     def _require(self, element: dict, cls: str, what: str) -> None:
         if short_type(element) != cls:
@@ -781,6 +810,7 @@ class ProcessSchema(Schema):
         lines.append("  flows:")
         for f in self.flows():
             cond = f" if {self.expressions.decode(f['CI3'])}" if f.get("CI3") not in (None, "null", "") else ""
+            cond += "".join(f" when button {c}" for c in self.flow_buttons(f))
             lines.append(f"    {f['A2']}: {by_uid.get(f.get('CI1'), '?')} -> {by_uid.get(f.get('CI2'), '?')}{cond}")
         problems = self.validate()
         if problems:

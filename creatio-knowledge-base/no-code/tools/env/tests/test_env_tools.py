@@ -1,5 +1,6 @@
 """Checks for the environment layer:  python tests/test_env_tools.py  (a fake HTTP opener and a fake clio; no environment)."""
 
+import base64
 import contextlib
 import email.message
 import importlib.util
@@ -52,7 +53,7 @@ class FakeOpener:
     def open(self, req, timeout=None):
         url = urllib.parse.urlsplit(req.full_url)
         self.requests.append({"method": req.get_method(), "path": url.path, "query": url.query, "headers": dict(req.header_items()),
-                              "body": json.loads(req.data) if req.data else None})
+                              "body": json.loads(req.data) if req.data and "json" in req.get_header("Content-type", "json") else req.data})
         answer = self.routes.get((req.get_method(), url.path), (404, "<html><title>Not Found</title></html>"))
         status, body = answer(req) if callable(answer) else answer
         cookies = ("BPMCSRF=csrf123; path=/", ".ASPXAUTH=auth456; path=/; HttpOnly") if url.path.endswith("AuthService.svc/Login") else ()
@@ -449,6 +450,47 @@ def test_references_to_the_layers_a_merge_removes():
     clean = FakeClio(rows=[ids, fks, []])
     assert references(Environment("https://s", "u", "p", clio_name="dev", clio_run=clean), "Contact", ["UsrB", "UsrC"]) == []
     assert references(Environment("https://s", "u", "p", clio_name="dev", clio_run=FakeClio(rows=[[]])), "Contact", ["UsrB"]) == []  # no layer on the site
+
+
+def test_binary_fetch_keeps_the_bytes():
+    blob = bytes(range(256))
+    e, _ = env({("GET", "/files/x.bin"): (200, blob)})
+    r = e.fetch("files/x.bin", binary=True)
+    assert r.ok and r.content == blob and r.text == "", r
+
+
+def test_call_with_a_file_multipart_and_field():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = settings_file(Path(tmp))
+        f = Path(tmp) / "doc.pdf"
+        f.write_bytes(b"%PDF\xff\x00data")
+        opener = FakeOpener({("POST", "/rest/UsrSvc/Parse"): (200, json.dumps({"ok": 1}))})
+        code, out = run_cli("call", ["-e", "dev", "POST", "rest/UsrSvc/Parse", "--upload", str(f)], settings=s, opener=opener)
+        sent = opener.requests[-1]
+        ctype = sent["headers"]["Content-type"]
+        boundary = ctype.split("boundary=")[1]
+        assert code == 0 and ctype.startswith("multipart/form-data") and sent["body"].startswith(f"--{boundary}\r\n".encode()), out
+        assert b'name="file"; filename="doc.pdf"' in sent["body"] and b"Content-Type: application/pdf" in sent["body"], sent["body"]
+        assert b"%PDF\xff\x00data\r\n--" + boundary.encode() + b"--" in sent["body"]
+        code, out = run_cli("call", ["-e", "dev", "POST", "rest/UsrSvc/Parse", '{"kind": "a"}', "--upload", str(f), "--field", "content"], settings=s, opener=opener)
+        body = opener.requests[-1]["body"]
+        assert code == 0 and body == {"kind": "a", "content": "JVBERv8AZGF0YQ=="}, body
+        assert run_cli("call", ["-e", "dev", "POST", "rest/X", "--field", "c"], settings=s, opener=opener)[0] == 2
+
+
+def test_file_get_writes_the_bytes_and_prints_the_size():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = settings_file(Path(tmp))
+        out_path, pid = Path(tmp) / "got.txt", "aaaaaaaa-0000-0000-0000-000000000003"
+        data = b"hello\nworld " * 20
+        b64 = base64.encodebytes(data).decode()  # PostgreSQL wraps base64 at 76 characters
+        clio = FakeClio(rows=[[{"Name": "note.txt", "B64": b64}]])
+        code, out = run_cli("file", ["get", "UsrOrderFile", pid, "-e", "dev", "--out", str(out_path)], settings=s, clio_run=clio)
+        assert code == 0 and out.strip() == f"{out_path}: {len(data)} bytes, text/plain" and out_path.read_bytes() == data, out
+        assert "encode(\"Data\", 'base64')" in clio.scripts[0] and f"'{pid}'" in clio.scripts[0]
+        code, out = run_cli("file", ["get", "UsrOrderFile", pid, "-e", "dev", "--out", str(out_path)], settings=s, clio_run=FakeClio(rows=[[]]))
+        assert code == 1 and "no record" in out
+        assert run_cli("file", ["get", "Usr;drop", pid, "-e", "dev", "--out", str(out_path)], settings=s, clio_run=FakeClio())[0] == 2
 
 
 if __name__ == "__main__":

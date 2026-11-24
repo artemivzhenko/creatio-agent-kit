@@ -2,6 +2,8 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 	return {
 
 		// --- How to open a record picker and create link records --------------
+		// DEPRECATED request: crt.OpenLookupPageRequest is kept for old schemas; write new pages with
+		// crt.OpenSelectionWindowRequest (HowToOpenASelectionWindowAndLinkRecords.js).
 		// crt.OpenLookupPageRequest opens the modal record-selection window. It
 		// is the Freedom UI answer to "let the user pick several records and add
 		// them to a detail".

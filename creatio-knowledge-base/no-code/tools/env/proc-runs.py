@@ -3,6 +3,7 @@
 
     python proc-runs.py runs  -e <env> --process UsrOrder_Process [--limit 20] [--since 2026-11-11] [--until ...]
     python proc-runs.py runs  -e <env> --record UsrOrder:<id> [--window 30] [--steps]
+    python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<caption or element UId>" [--status running]
     python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
     python proc-runs.py fire  --project project.json --process UsrOrder_Process --record UsrOrder:<id> [--timer "1 d."] [--delay 20]
     python proc-runs.py error -e <env> <log id>
@@ -10,6 +11,7 @@
 `runs --record` lists every run that started within --window seconds of a change of the record or of a row pointing at
 it (its details), oldest first. The processes `environment.noiseProcesses` of --project names (names or prefixes) are
 hidden from `--record` and the unfiltered list, with a line saying how many. Times are UTC and `environment.timeZone`.
+`--element` lists instead the tasks of that element (a page task, say) still open in `SysProcessElementLog`, newest first, the count in the first line.
 `--steps` prints under each run the elements it went through (`SysProcessElementLog`: caption, status, start .. end, UTC). `timers` lists the
 pending timers of a process (a `qrtz_triggers` row whose `job_group` is the run's element id) with the fire time in the project's zone. `fire`
 moves one pending timer to now + `--delay` seconds (default 20); it is refused (exit 2, `refused: <env> is not a dev environment`) unless the
@@ -49,6 +51,8 @@ def main(argv=None, **env_kw) -> int:
     runs.add_argument("--limit", type=int, default=20)
     runs.add_argument("--window", type=int, default=30, help="--record: seconds around each change (default 30)")
     runs.add_argument("--steps", action="store_true", help="the elements each run went through")
+    runs.add_argument("--element", help="a caption or an element UId: its open tasks, counted")
+    runs.add_argument("--status", help="with --element: running (the default) or waiting")
     timers = commands.add_parser("timers", help="the pending timers of a process")
     timers.add_argument("--process", required=True)
     timers.add_argument("--record", help="<Entity>:<Id>: only runs that started around its changes")
@@ -67,9 +71,9 @@ def main(argv=None, **env_kw) -> int:
     try:
         env, zone = open_environment(a.env, a.project, **env_kw), zone_of(a.project)
         if a.command == "runs":
-            answer = process_runs(env, a.process, a.record, a.since, a.until, a.limit, a.window, noise_of(a.project), zone, a.steps)
+            answer = process_runs(env, a.process, a.record, a.since, a.until, a.limit, a.window, noise_of(a.project), zone, a.steps, a.element, a.status)
             print(render_runs(answer))
-            return 0 if answer["runs"] else 1
+            return 0 if answer.get("runs", answer.get("tasks")) else 1
         if a.command == "timers":
             timers = process_timers(env, a.process, a.record, a.window, zone)
             print(render_timers(timers))

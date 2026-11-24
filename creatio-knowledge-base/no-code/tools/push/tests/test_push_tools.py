@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,7 +17,7 @@ sys.path.insert(0, str(HERE.parent.parent))
 
 from creatio_schemas import Clio, ProcessSchema  # noqa: E402
 from creatio_schemas import push as push_module  # noqa: E402
-from creatio_schemas.push import compile_script, creatio_bin, push  # noqa: E402
+from creatio_schemas.push import NO_RESULT, compile_script, creatio_bin, push  # noqa: E402
 
 TABLES = ("SysSchema", "SysPackageSchemaData", "SysPackageSqlScript")
 CLEARS = [f'update "{table}" set "IsChanged"=false' for table in TABLES]
@@ -57,9 +58,12 @@ class FakeClio:
     def execute_sql(self, sql):
         self.run(["execute-sql-script", sql, "-e", self.env])
 
+    def version(self):
+        return "8.1.0.158"
+
     def execute_sql_rows(self, sql):
         self.calls.append((["sql-rows", sql], None))
-        if '"Schema" from "SysSchema"' in sql:
+        if 's."Name" "Schema"' in sql:
             return self.site_schemas
         return self.sources if '"SysSchemaSource"' in sql else self.rows
 
@@ -157,7 +161,7 @@ def test_dry_run_and_non_process_metadata():
         sent = ("drift", "dependencies", "clear IsChanged", "push-pkg", "compilation log", "publish")
         steps = [line for line in logs if line.split(":")[0] in sent]
         assert len(steps) == len(sent) and all(line.endswith("dry run") for line in steps if not line.startswith("publish"))
-        assert logs[-1] == "dry run of UsrPkg -> dev: 12 of 14 steps would run, nothing sent" and not any("pushed" in line for line in logs)  # foreign files and baseline are skipped, not counted
+        assert logs[-1] == "dry run of UsrPkg -> dev: 13 of 15 steps would run, nothing sent" and not any("pushed" in line for line in logs)  # foreign files and baseline are skipped, not counted
 
 
 def test_clio_run_and_sql_errors():
@@ -208,6 +212,19 @@ def test_probes_select_items_and_surface_failures():
             logs.clear()
             assert push(pkg, "dev", FakeClio(), probe=True, dry_run=True, log=logs.append) == 0
             assert not run.called and any("UsrEntity" in line for line in logs)
+
+
+def test_probes_line_counts_the_skipped_objects():
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        for name in ("UsrEntity", "UsrOther"):
+            (pkg / "Schemas" / name).mkdir(parents=True)
+            (pkg / "Schemas" / name / "descriptor.json").write_text(json.dumps({"Descriptor": {"ManagerName": "EntitySchemaManager"}}))
+        logs = []
+        skip = subprocess.CompletedProcess([], 0, "skipped: parent Base not in the workspace (objects.py base ...)\n", "")
+        with patch("creatio_schemas.push.subprocess.run", return_value=skip), patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", FakeClio(), probe=True, log=logs.append, skip_drift=True, skip_sql_dates=True) == 0
+        assert "probes: ok (2 skipped: UsrEntity, UsrOther)" in logs
 
 
 def test_caption_probe_names_a_schema_whose_site_caption_stayed_old():
@@ -536,6 +553,7 @@ def test_bindings_that_would_overwrite_the_site_stop_the_push():
         assert '  SysSettings_UsrMaxRows: not compared (sql: 42P01: relation "SysSettings" does not exist)' in logs  # nothing there to overwrite
         assert not any('"UsrOrderStatus"' in s for s in site.selects)  # only localized columns besides the key: nothing to compare
         assert logs[-1] == "push FAILED at bindings" and not any(args[0] == "push-pkg" for args, _ in site.calls)
+        assert any("push.py page" in line and "P-2.18" in line for line in logs), logs  # the way out of a stop it cannot lift
         select = next(s for s in site.selects if '"SysSettingsValue"' in s)
         assert '"SysAdminUnitId"' in select and '"BinaryValue"' not in select and "\"Id\" = 'df1c9dc6-328f-4b8b-89f6-f82effb2fa05'" in select, select
         assert not any('"Name"' in s for s in site.selects if '"SysSchema"' not in s)  # localized columns are not compared
@@ -735,6 +753,104 @@ def test_a_package_with_fewer_schemas_than_head_or_the_site_stops_even_forced():
 
 
 
+def test_a_renamed_schema_is_a_note_and_a_real_deletion_still_stops():
+    """A site row whose UId is a folder here under another name is a rename (HEAD may still hold the old name); a UId
+    absent from the folder is a deletion."""
+    from creatio_schemas.push import missing_schemas
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pkg = package(root)
+        folder = pkg / "Schemas" / "UsrNewName"
+        folder.mkdir(parents=True)
+        (folder / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrNewName",
+                                                                          "UId": "5d2a1c3e-0000-4000-8000-000000000001"}}), encoding="utf-8")
+        head = {"Schemas/UsrOldName/descriptor.json": ""}
+        fake, logs = FakeClio(), []
+        fake.site_schemas = [{"Schema": "UsrOldName", "UId": "5D2A1C3E-0000-4000-8000-000000000001"}]
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root, head=head)):
+            assert push(pkg, "dev", fake, log=logs.append, skip_sql_dates=True) == 0, logs
+        assert "package schemas: ok; renamed UsrOldName -> UsrNewName" in logs, logs
+        assert logs[0] == "clio: 8.1.0.158"
+        query = next(a[1] for a, _ in fake.calls if a[0] == "sql-rows" and '"Schema"' in a[1])
+        assert 's."UId"::text "UId"' in query
+        fake, logs = FakeClio(), []  # another UId: the old row goes, the stop as before
+        fake.site_schemas = [{"Schema": "UsrOldName", "UId": "5d2a1c3e-0000-4000-8000-000000000002"}]
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root, head=head)):
+            assert push(pkg, "dev", fake, log=logs.append, skip_sql_dates=True) == 1
+        assert "package schemas: FAILED package install deletes schemas absent from the package: UsrOldName" in logs, logs
+        assert missing_schemas(pkg, {"UsrOldName"}, None) == (["UsrOldName"], [])  # no site answer: HEAD names decide
+        assert missing_schemas(pkg, None, {"UsrNewName": "5d2a1c3e-0000-4000-8000-000000000001", "UsrGone": ""}) == (["UsrGone"], [])
+
+
+def test_an_empty_select_is_an_empty_answer_and_a_silent_clio_is_no_result():
+    clio = Clio("dev")
+    done = "select 1 where false\n\nDone\n"  # an older clio: zero rows, no -d file, Done
+    with patch("creatio_schemas.clio.subprocess.run", return_value=subprocess.CompletedProcess([], 0, done, "")):
+        assert clio.execute_sql_rows("select 1 where false") == []
+    with patch("creatio_schemas.clio.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "[INF] - Done\n", "")):
+        assert clio.sql("select 1 where false") == []
+    with patch("creatio_schemas.clio.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+        try:
+            clio.sql("select 1")
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert NO_RESULT in str(e)
+    with patch("creatio_schemas.clio.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "[INF] - clio:   8.1.0.158\n", "")):
+        assert clio.version() == "8.1.0.158"
+    with patch("creatio_schemas.clio.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "")):
+        assert clio.version() == "unknown"
+
+
+def test_compile_package_without_wait_polls_the_compile_history():
+    class OldClio(FakeClio):
+        """A clio that refuses --wait; the package's CompilationHistory row changes on the third poll."""
+
+        def __init__(self, result=True, polls=2):
+            super().__init__()
+            self.answers = [[{"at": "2026-11-01 10:00:00", "ok": True}]] * (polls + 1) + [[{"at": "2026-11-24 10:00:00", "ok": result}]]
+
+        def version(self):
+            return "8.0.1.20"
+
+        def run(self, args, cwd=None):
+            if args[0] == "compile-package" and "--wait" in args:
+                self.calls.append((args, cwd))
+                raise RuntimeError("clio exited 1: ERROR(S):\n  Option 'wait' is unknown.\n")
+            return super().run(args, cwd)
+
+        def execute_sql_rows(self, sql):
+            if '"CompilationHistory"' in sql:
+                self.calls.append((["sql-rows", sql], None))
+                return self.answers.pop(0)
+            return super().execute_sql_rows(sql)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        desc = pkg / "descriptor.json"
+        data = json.loads(desc.read_text())
+        data["Descriptor"]["Type"] = 1
+        desc.write_text(json.dumps(data))
+        quiet = dict(skip_drift=True, skip_sql_dates=True)
+        with patch("creatio_schemas.push._git", return_value=None), patch("creatio_schemas.push.time.sleep") as sleep:
+            fake, logs = OldClio(), []
+            assert push(pkg, "dev", fake, log=logs.append, **quiet) == 0, logs
+            assert logs[0] == "clio: 8.0.1.20"
+            assert any(line.startswith("compile-package: ok (clio 8.0.1.20: no --wait, polled ") for line in logs), logs
+            assert ["compile-package", "UsrPkg", "-e", "dev"] in [a for a, _ in fake.calls] and sleep.call_count == 2
+            assert "\"ProjectName\" = 'UsrPkg.csproj'" in next(a[1] for a, _ in fake.calls if a[0] == "sql-rows" and "CompilationHistory" in a[1])
+            fake, logs = OldClio(result=False, polls=0), []
+            assert push(pkg, "dev", fake, log=logs.append, **quiet) == 1
+            assert logs[-2].startswith("compile-package: FAILED CompilationHistory: UsrPkg.csproj failed") and logs[-1] == "push FAILED at compile-package"
+
+            class Refusing(FakeClio):  # another failure of compile-package is not the fallback
+                def run(self, args, cwd=None):
+                    if args[0] == "compile-package":
+                        raise RuntimeError("clio exited 1: build failed")
+                    return super().run(args, cwd)
+            logs = []
+            assert push(pkg, "dev", Refusing(), log=logs.append, **quiet) == 1 and "compile-package: FAILED clio exited 1: build failed" in logs
+
+
 class SiteWithLayer(FakeClio):
     """The package's site rows hold `UsrGone` (an object layer a merge removed); `refs` is the count one key holds."""
 
@@ -798,6 +914,129 @@ def test_a_failed_compile_says_whose_errors_they_are():
             assert push(pkg, "dev", fake, log=logs.append, skip_drift=True, skip_sql_dates=True) == 1
         assert "compilation log: FAILED compile FAILED: 2 error(s) in UsrOther, 1 error(s) in UsrThird (none in UsrPkg)" in logs, logs
         assert "  UsrProbeService.UsrOther.cs(15,3): Error CS0246 : The type or namespace name 'X' could not be found" in logs
+
+
+
+class PageClio:
+    """get-page and update-page answers as clio prints them (`[INF] - {json}`); records each call."""
+
+    def __init__(self, update=None, leaf="UsrPkg", checksum="cs-1", fail=None, design=""):
+        self.calls, self.leaf, self.checksum, self.update, self.fail, self.design = [], leaf, checksum, update, fail, design
+
+    def run(self, args, cwd=None):
+        self.calls.append((args, cwd))
+        if args[0] == "get-page":
+            return "[INF] - " + json.dumps({"success": True, "page": {"currentLeafPackageName": self.leaf, "designPackageUId": self.design},
+                                            "editable": {"checksum": self.checksum}})
+        if self.fail:
+            raise RuntimeError("clio exited 1: [INF] - " + json.dumps(self.fail))
+        return "[INF] - " + json.dumps(self.update or {"success": True, "newChecksum": "cs-2", "warnings": ["resources unchanged"]})
+
+
+def _page_package(root):
+    pkg = package(root)
+    folder = pkg / "Schemas" / "UsrOrder_FormPage"
+    folder.mkdir(parents=True)
+    (folder / "UsrOrder_FormPage.js").write_text('define("UsrOrder_FormPage", [], function() { return { viewConfigDiff: '
+                                                  '/**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/ }; });\n', encoding="utf-8")
+    return pkg
+
+
+def test_push_page_sends_update_page_into_the_package_then_verifies():
+    from creatio_schemas.push_page import push_page
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = _page_package(Path(tmp))
+        clio, verified = PageClio(), []
+        lines, code = push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, names: verified.append(names) or [("UsrOrder_FormPage", "same")])
+        assert code == 0 and lines == ["update-page: saved (UsrPkg, replace, checksum cs-2)", "  warning: resources unchanged",
+                                       "verify: UsrOrder_FormPage same"], lines
+        get, update = clio.calls[0], clio.calls[1][0]
+        assert get[0][:3] == ["get-page", "--schema-name", "UsrOrder_FormPage"] and get[1] is not None  # a scratch folder for .clio-pages
+        assert update[:2] == ["update-page", "--schema-name"] and "--mode" in update and update[update.index("--mode") + 1] == "replace"
+        assert update[update.index("--target-package-uid") + 1] == "00000000-0000-0000-0000-000000000001"
+        assert update[update.index("--expected-checksum") + 1] == "cs-1" and "--dry-run" not in update and verified == [["UsrOrder_FormPage"]]
+        # a dry run: update-page --dry-run, no verify
+        clio, verified = PageClio(), []
+        lines, code = push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, n: verified.append(n) or [], dry_run=True)
+        assert code == 0 and lines[0].startswith("update-page: dry run ok") and "--dry-run" in clio.calls[1][0] and verified == []
+        # the site's top copy in another package: said; a verify difference: exit 1
+        lines, code = push_page(pkg, "UsrOrder_FormPage", "dev", PageClio(leaf="UsrOther"), lambda p, n: [("UsrOrder_FormPage", "differs: body")])
+        assert code == 1 and lines[0].startswith("note: the site's top copy of UsrOrder_FormPage is in UsrOther") and lines[-1] == "verify: UsrOrder_FormPage differs: body"
+        # a conflict (the site changed since get-page): refused, nothing verified; --force sends no checksum
+        clio = PageClio(fail={"success": False, "conflict": True, "error": "modified outside this session"})
+        lines, code = push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, n: 1 / 0)
+        assert code == 1 and lines[-1].startswith("update-page: FAILED conflict"), lines
+        clio = PageClio(fail={"success": False, "error": 'Unable to save changes for item "UsrOrder_FormPage". It is either created by '
+                                                      'third-party publisher or installed from the file archive'})
+        lines, code = push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, n: 1 / 0)
+        assert code == 1 and "the site does not let the designer edit UsrPkg" in lines[-1] and "push.py UsrPkg -e dev" in lines[-1], lines
+        clio = PageClio()
+        push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, n: [("UsrOrder_FormPage", "same")], force=True)
+        assert "--force" in clio.calls[1][0] and "--expected-checksum" not in clio.calls[1][0]
+        # the package is not the page's default design package: clio refuses a replace there without --force, and the
+        # working copy is that package's own layer - saved with --force, said (seen on the test site, S44-T03)
+        clio = PageClio(design="5D2A1C3E-0000-4000-8000-000000000009")
+        lines, code = push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, n: [("UsrOrder_FormPage", "same")])
+        assert code == 0 and lines[0].startswith("note: UsrPkg is not the page's default design package"), lines
+        assert "--force" in clio.calls[1][0] and "--expected-checksum" not in clio.calls[1][0]
+        clio = PageClio(design="00000000-0000-0000-0000-000000000001")  # the package itself (case-blind): the checksum, no force
+        push_page(pkg, "UsrOrder_FormPage", "dev", clio, lambda p, n: [("UsrOrder_FormPage", "same")])
+        assert "--force" not in clio.calls[1][0] and clio.calls[1][0][clio.calls[1][0].index("--expected-checksum") + 1] == "cs-1"
+        # not a page of this package, not a Freedom page
+        for name, kind in (("UsrNope", FileNotFoundError), ("UsrClassic", ValueError)):
+            if name == "UsrClassic":
+                (pkg / "Schemas" / name).mkdir()
+                (pkg / "Schemas" / name / f"{name}.js").write_text('define("UsrClassic", [], function() { return { diff: [] }; });', encoding="utf-8")
+            try:
+                push_page(pkg, name, "dev", PageClio(), lambda p, n: [])
+                assert False, name
+            except kind:
+                pass
+
+
+
+def test_a_stale_bin_dll_stops_an_assembly_package():
+    """S44-T06: Files/Bin/<Pkg>.dll older than Files/cs (an edit, or a source deleted: the folder's time) stops the push;
+    --skip-stale-bin passes and says so; no Files/cs or not an assembly package is n/a; a fresh dll is ok."""
+    from creatio_schemas.push import stale_bin
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        (pkg / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001",
+                                                                       "Type": 1}}), encoding="utf-8")
+        assert stale_bin(pkg, "UsrPkg") is None  # no Files/cs at all
+        cs = pkg / "Files" / "cs"
+        cs.mkdir(parents=True)
+        (cs / "UsrOrderHelper.cs").write_text("class UsrOrderHelper { }", encoding="utf-8")
+        assert stale_bin(pkg, "UsrPkg") == "Files/Bin/UsrPkg.dll is missing while Files/cs holds sources"
+        dll = pkg / "Files" / "Bin" / "UsrPkg.dll"
+        dll.parent.mkdir(parents=True)
+        dll.write_bytes(b"MZ")
+        now = time.time()
+        for f in (cs, cs / "UsrOrderHelper.cs"):
+            os.utime(f, (now - 600, now - 600))
+        os.utime(dll, (now - 300, now - 300))
+        assert stale_bin(pkg, "UsrPkg") is None  # built after the last edit
+        os.utime(cs / "UsrOrderHelper.cs", (now, now))
+        assert stale_bin(pkg, "UsrPkg") == "Files/Bin/UsrPkg.dll is older than Files/cs (Files/cs/UsrOrderHelper.cs, 5 min newer)"
+        os.utime(cs / "UsrOrderHelper.cs", (now - 600, now - 600))
+        os.utime(cs, (now, now))  # a source deleted after the build: only the folder's time moves
+        assert stale_bin(pkg, "UsrPkg").startswith("Files/Bin/UsrPkg.dll is older than Files/cs (Files/cs/ (a file deleted or added there)")
+        logs = []
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True) == 1
+            assert any(l.startswith("stale bin: FAILED Files/Bin/UsrPkg.dll is older than Files/cs") and "--skip-stale-bin" in l for l in logs), logs
+            logs = []
+            fake = FakeClio()
+            push(pkg, "dev", fake, log=logs.append, skip_drift=True, skip_sql_dates=True, skip_stale_bin=True, skip_compile_package=True)
+            assert any(l.startswith("stale bin: skipped (--skip-stale-bin): Files/Bin/UsrPkg.dll is older") for l in logs), logs
+            assert any(a[0] == "push-pkg" for a, _ in fake.calls)
+        os.utime(dll, (now + 60, now + 60))
+        assert stale_bin(pkg, "UsrPkg") is None
+        logs = []
+        with patch("creatio_schemas.push._git", return_value=None):
+            (Path(tmp) / "plain").mkdir()
+            push(package(Path(tmp) / "plain"), "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True)
+        assert "stale bin: n/a (not an assembly package)" in logs, logs
 
 
 def test_a_publish_error_is_printed_whole_and_names_the_pushed_schema():
@@ -928,6 +1167,23 @@ def test_served_goes_through_environment_fetch():
     env = Environment("https://site.example/", "u", "p", opener=Opener())
     assert served(env, "UsrPage") == "define(1)" and served(env, "UsrMissing") is None
     assert seen[1] == ("https://site.example/0/conf/content/UsrPage.js", "*/*"), seen
+
+
+def test_resolve_task_meets_the_projects_tasks_folder():
+    """A bare task name from an MCP call goes under the project's paths.tasks, not the server's cwd; an existing or absolute path stays."""
+    import json
+    from creatio_schemas.push import resolve_task
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tasks" / "001-labels").mkdir(parents=True)
+        (root / "project.json").write_text(json.dumps({"paths": {"tasks": "tasks"}}), encoding="utf-8")
+        assert resolve_task("001-labels", None, root / "project.json") == root / "tasks" / "001-labels"
+        assert resolve_task("001-labels", root / "tasks", None) == root / "tasks" / "001-labels"
+        assert resolve_task(root / "elsewhere", root / "tasks", None) == root / "elsewhere"
+        assert resolve_task("tasks/UsrTask", Path("tasks"), None) == Path("tasks") / "UsrTask"  # a path with the folder in it keeps its name only
+        assert resolve_task("002-new", None, None) == Path("002-new") and resolve_task(None, None, None) is None
+        (root / "project.json").write_text("{}", encoding="utf-8")
+        assert resolve_task("003", None, root / "project.json") == Path("003")  # no paths.tasks: as given
 
 
 if __name__ == "__main__":

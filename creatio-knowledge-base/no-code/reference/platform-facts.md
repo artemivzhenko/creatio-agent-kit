@@ -49,10 +49,14 @@ cannot be read by SQL. Two copies of one process with the same signal both run o
 interleave within milliseconds. 8.3, sql. used by: `process_runs`, `process_error`, `process_runs steps=`
 (S33-T06), `check-process` (S34-T07).
 
-**P-A9 `SysProcessDisabled` exists (`SysSchemaId`); a row there does not stop a process.** On 8.2.3 (S40-T06) a
-row for a process left it running both through `ProcessEngineService.svc/<P>/Execute` and from its record signal
-(the run count rose the same with the row as without it; no cache was reset). What the designer's "deactivate"
-writes was not looked up. N-5 deleted.
+**P-A9 A process is off when `SysProcessDisabled` holds its `SysSchema.Id` (or its parent's) - read once, when the
+site starts.** `VwProcessLib.Enabled` = no row with `SysSchemaId` in (`Id`, `ParentId`). The library's Deactivate
+(`ProcessEngineService.svc/DisableProcess?sysSchemaId=`) writes exactly that row (`Name` '', `ProcessListeners` 0),
+nothing in `SysSchema`, and refreshes the engine at once: the signal no longer starts it, `Execute` is refused ("The
+process is not active"). A row inserted by SQL turns `Enabled` false but both starts go on until `clio restart-web-app`; after
+the restart both stop (S40-T06's "a row does not stop a process" was the unrestarted half). `EnableProcess`
+deletes the row. A process with only a signal start refuses `Execute` / `RunProcess` ("only contains automatic
+start events"). 8.2.3, run (S45-T04). used by: `code/Backend/SQL/HowToDisableAProcessFromAPackage_PostgreSQL.sql`.
 
 **P-1.1 The runtime reads element parameter values from the schema mappings, not from the element.** The value is
 stored twice: `BK4[].BP2[].L8` in the element and `BK15[]` in the mappings (`GT2 = [Element:{uid}].[Parameter:{uid}]`,
@@ -179,6 +183,14 @@ of the test package). used by: `push` bindings check and binding dates.
 changed, P-2.13): a row of a lookup binding deleted on the site was back after the next push. 8.2.3, run
 (S40-T05; N-12 and N-25 settled - the N-12 sighting is explained by an unchanged date). used by: `tools/data/README.md`.
 
+**P-2.18 A package pushed without its `Data/` folder loses its bindings on the site; the rows they installed stay.** A probe
+package with a setting binding pair: installed with `Data/` -> 2 `SysPackageSchemaData` rows of the package, the setting
+and its value on the site; the value changed on the site; the same package pushed from a copy without `Data/` -> 0
+`SysPackageSchemaData` rows, the setting and the site's value untouched. So skipping a binding is not "leave it as it is":
+the package on the site no longer carries it (a pull loses it, the next full push installs it again as new). `push.py` has
+no `--without-bindings`; its force-update stop names `push.py page` for a one-page change. 8.2.3, run + sql (S44-T03).
+used by: `push` (the bindings stop), `push/README.md`.
+
 **P-2.15 `push-pkg` sets a process's `SysSchema.ModifiedOn` to its descriptor's `ModifiedOnUtc`, and leaves an
 object's and a page's `ModifiedOn` alone even when their body changed** (an object whose layer md5 changed and a page
 pushed six times kept their old dates). `ModifiedOn` says nothing about a push: compare the body (`push.py verify`).
@@ -235,6 +247,15 @@ platform itself (Author and Owner: read, edit, delete; Default for "All employee
 `DBSecurityEngine.SetEntitySchemaRecordRightLevel(unit, schema, record, Read, Allow, <Manual source id>, false)` for
 "All employees" left nine rows - its read row now with source Manual and the level the call gave. Rights a detail
 grants go through that call, not through inserted rows. 8.2.3, run + sql (S42-T01). used by: `HowToManageRecordAccessRights`.
+
+**P-3.13 `UseAdminRights = true` (the default of EntitySchemaQuery and Entity) CHECKS the caller's rights; `false` lifts
+them.** Read from the platform's code (Terrasoft.Core 8.2.3 and 8.3.2 decompiled): `EntitySchemaQuery.AddRightCondition`
+returns at once when `!UseAdminRights`, `CreateSelect` reads the schema only when `!UseAdminRights` or reading is allowed,
+and `Entity`'s insert / update / delete check the operation and column rights only when `UseAdminRights`. A user in System
+administrators gets no rights condition either way: a probe service counted a Contact with all its right rows deleted as
+1 for Supervisor with true and with false, and the SQL text of both was the same plain select. So test a rights path as an
+ordinary user. source + run (S42-T01 N-27 settled). used by: `HowToControlAdminRights` (corrected: it said true bypasses),
+`HowToEvaluateStoredUiFilterAgainstRecord`, `HowToOverrideFileUploader`, `HowToAggregateWithESQ`, the creatio-kb skill.
 
 **P-3.11 An ESQ filter on a lookup takes the column name, not `<Name>Id`.** `CreateFilterWithParameters(Equal,
 "UsrStatus", guid)` compiles to `"UsrStatusId" = @P1`; the path `"UsrStatusId"` throws `ItemNotFoundException`
@@ -398,6 +419,28 @@ with no `columns` stops the whole page (`TypeError ... is not iterable` in `_set
 attribute and data source, it showed the record's file from `SysFile` (the object has no `<Entity>File`). 8.2.3, run
 (S40-T05). used by: `HowToUploadAndShowFiles`, the frontend guide 10.
 
+**P-8.8 A `crt.QuickFilter` of type `lookup` builds an inner combobox `<Chip>_ComboBox`;** its list is the attribute
+`<Chip>_ComboBox_List` (with `<Chip>_ComboBox_List_Filter` and `_List_Sorting` beside it), loaded by the data source
+`<Chip>_ComboBox_List_DS` (names read from `$context` and `dataSchemas` of a running list page, 8.2.3). Setting
+`$context.<Chip>_ComboBox_List_Filter` to an `sdk.FilterGroup` and dispatching `crt.LoadDataRequest` for the `_List_DS`
+changes the list at once (5 values, then 3, then 1 in the same session); the load request itself carries no filter
+(`parameters` null), the filter lives in the attribute. A handler on `crt.LoadDataRequest` that pushes
+`{type: "filter", value: <FilterGroup>}` into `request.parameters` filters the list's own (first) load, but only with a
+COPY of the group (`Object.assign({}, g)` with `items` set back): the group itself gave "No data". A reload sent by a
+handler did not refresh the shown list in that variant. The clio catalogue documents only the static
+`config.recordsFilter` of the chip. 8.2.3, run (S44-T04). used by: `HowToFilterQuickFilterLookup`.
+
+**P-8.9 `sdk.FilterGroup` has `addNotExistsFilter(path, subFilter)` and `addExistsFilter`** (the method list of the
+prototype also has `addSchemaColumnInFilterWithParameters`, `addPrimarySchemaColumnInFilter`, the is-null and between
+filters); with `[<LinkObject>:<column>].Id` and the links of one master as the subfilter, a selection window
+(`crt.OpenSelectionWindowRequest`) lists only the records that have no link to that master. 8.2.3, run (S42-T02).
+used by: `HowToOpenASelectionWindowAndLinkRecords`.
+
+**P-8.10 A page handler on `crt.SaveDataRequest` did not fire on the Save of an existing record** (8.2.3, two runs) though
+`crt.SaveRecordRequest` did and clio's catalogue says the page save emits one `SaveDataRequest` per data source: hook
+`SaveRecordRequest` for save-time logic. `crt.DataGridActivateRowBusinessRulesRequest` fires twice per grid on page load
+(`request.dataGridViewElementName` names the grid). 8.2.3, run (S42-T02). used by: `HowToReactToDetailRowChanges`.
+
 **P-C1 `Model.create('<Entity>')` then `model.load({attributes: [...]})` from an Angular element** returns rows as
 plain objects keyed by attribute; only text columns and the no-filter call were exercised (N-3). 8.3, run.
 
@@ -503,5 +546,4 @@ and a 60 s window. source. used by: `HowToDrainQueueTableWithAttemptLimit`, the 
 | N-16 | a `process-name` compile of a business process reloads the configuration on .NET Framework only; on a .NET host it reloads nothing (clio core-rules, docs) | senior | the test site is .NET Framework: a `compile-package` after a script change, then a run without restart; S40-T06: the test site is .NET Framework only, the .NET half needs another host |
 | N-19 | a foreign-key rejection can come from an entity event handler, not the mapping (clio core-rules-details, docs; the `Edm.Stream` half is P-5.5) | middle | a backend case on a listener that writes a bad lookup |
 | N-20 | an Interface Designer save keeps only the code inside the five markers of a Freedom UI page; helpers above `return` disappear (clio routing, docs) | middle | a page with a helper, one Designer save on the test site, `schema_diff`; S40-T06: needs a save in the Interface Designer (a browser session the test utility does not drive) |
-| N-27 | which `UseAdminRights` value of an ESQ / Entity lifts the record rights: `HowToControlAdminRights` says the default `true` bypasses them, a client's system-wide count sets `false` to get every row (S42-T01 findings) - one of the two is wrong | senior | one count as a user without rights to some rows, run both ways on the test site (needs a non-admin user) |
-| N-28 | the first `push-pkg` sent right after a site restart (a `deploy`'s closing restart) fails with no reason in clio's output and the same command passes a minute later - a warm-up, not a tool fault (seen once, S27-T09, the test site 8.2.3) | senior | three pushes right after a restart at 0 / 30 / 60 s, clio's whole output kept; the IIS warm-up setting of the site read |
+| N-28 | the first `push-pkg` sent right after a site restart (a `deploy`'s closing restart) failed once with no reason in clio's output and passed a minute later (S27-T09, the test site 8.2.3) | senior | not reproduced (S44): `push-pkg` at 0 / 30 / 60 s after `restart-web-app`, and again after `restart-web-app --wait-ready` + `clear-redis-db` - all six installed, the first right after the bare restart waited out the warm-up inside clio (48 s); the cause of the one failure is unknown, not a warm-up shown; kept until it happens again with clio's whole output |

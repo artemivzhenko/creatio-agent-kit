@@ -107,6 +107,9 @@ def captions(ent, target, values):
 
 
 def probe(ent, a):
+    if ent.effective is None:  # the base is the author's step (`base`), not the probe's
+        print(f"skipped: parent {ent.parent_name} not in the workspace (objects.py base {a.package} {a.object} --env {a.env} fetches it)")
+        return 0
     results = check(ent, Clio(a.env))
     for status, message in results:
         if status != "ok" or a.all:

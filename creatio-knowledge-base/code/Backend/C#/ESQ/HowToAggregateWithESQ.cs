@@ -11,8 +11,8 @@ using Terrasoft.Core.Entities;
 /// Name, never by "UsrAmount" (that name is not in the row). A count is AggregationTypeStrict.Count over "Id".
 /// Whose rows are counted follows the query's rights setting (see HowToControlAdminRights): a total shown to a user counts
 /// the user's rows; a system-wide figure (a limit check, a background job) runs on SystemUserConnection and says so in a
-/// comment. Which UseAdminRights value lifts the record rights is an open row of the facts register (N-27): do not flip it
-/// for a count without checking.
+/// comment. UseAdminRights = false lifts the record rights (the default true checks them, P-3.13): a system-wide count
+/// on the caller's connection is `false` with a comment saying why.
 /// </summary>
 class HowToAggregateWithESQ {
 

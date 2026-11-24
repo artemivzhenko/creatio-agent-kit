@@ -298,6 +298,10 @@ def q_p_element(p: ProcessSchema, name, f):
         if fl.get("CI1") == e["UId"] or fl.get("CI2") == e["UId"]:
             cond = f" if {p.expressions.decode(fl['CI3'])}" if fl.get("CI3") not in (None, "null", "") else ""
             lines.append(f"    flow {fl['A2']}: {by_uid.get(fl.get('CI1'), '?')} -> {by_uid.get(fl.get('CI2'), '?')}{cond}")
+    buttons = p.buttons(e)
+    if buttons:
+        lines.append("    buttons:")
+        lines += [f"        {b['code']}  {b['caption']!r}  -> " + (", ".join(f"{fl} to {to}" for fl, to in b["flows"]) or "(no flow)") for b in buttons]
     if short_type(e) == "ProcessSchemaScriptTask":
         lines.append(f"    script: {len(e.get('CH1', ''))} chars (ask 'script {e['A2']}')")
     if p.describe_signal(e):
@@ -319,6 +323,7 @@ def q_p_flows(p: ProcessSchema, name, f):
         if not _match(src, f.get("from")) or not _match(dst, f.get("to")):
             continue
         cond = f" if {p.expressions.decode(fl['CI3'])}" if fl.get("CI3") not in (None, "null", "") else ""
+        cond += "".join(f" when button {c}" for c in p.flow_buttons(fl))
         out.append(f"{fl['A2']:<28} {src} -> {dst}{cond}")
     return "\n".join(out) or "(no flows)"
 

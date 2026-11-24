@@ -101,8 +101,9 @@ no-code/tools/                 the package toolkits (creatio.py front door, crea
                                describe/ the describe layer, env/ the environment layer, push/, scaffold/, project.py)
 mcp-server/                    the MCP server: recipe search, the describe layer, push and environment tools
 skill/creatio-kb/              agent skill: the habit of consulting the KB and the describe tools before writing
-skill/creatio-loop/            the author/tester contract: the task folder, project.json, the schema lock, proof tiers
-skill/creatio-author/          the author role: plan.md with acceptance criteria, impact, build, push, probe
+skill/creatio-loop/            the author/dev/tester contract: the task folder, project.json, the schema lock, proof tiers
+skill/creatio-author/          the author role (the orchestrator): questions, plan.md with acceptance criteria, impact; spawns the dev and the tester, reviews both
+skill/creatio-dev/             the dev role: builds plan.md's artifacts with the toolkits, pushes, probes, runs the unit tests, fixes the report rows
 skill/creatio-tester/          the tester role: preflight, map, tests of every tier, evidence, the report
 skill/creatio-merge/           the layer merge of objects as one procedure: plan, backup, tests, snapshots, merge, push, verify, tests, report
 ```
@@ -238,7 +239,7 @@ human in between: [creatio-loop](skill/creatio-loop/SKILL.md) is the contract - 
 whose files are the protocol (`task.md`, `questions.md`, `plan.md` with acceptance criteria and an
 `## Impact` table, `schemas.json` as the lock between tasks, `report-N.md`, `success-report.md`,
 `failed.md`), `project.json` with the environment and the package, the proof tiers (unit, probe,
-backend over OData, process case, UI case); [creatio-author](skill/creatio-author/SKILL.md) plans,
+backend over OData, process case, UI case); [creatio-author](skill/creatio-author/SKILL.md) plans and runs the loop with the dev and the tester as subagents, [creatio-dev](skill/creatio-dev/SKILL.md) builds,
 builds with the toolkits, pushes and probes; [creatio-tester](skill/creatio-tester/SKILL.md)
 reads the plan and `schema_diff`, writes a test of the right tier for every criterion in the
 sibling test framework (`automatic-creatio-tests`, its `creatio-tests` MCP server), keeps the

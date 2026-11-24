@@ -1,6 +1,7 @@
 """Checks for the describe layer:  python tests/test_describe.py  (uses the other toolkits' fixtures)."""
 
 import contextlib
+import shutil
 import io
 import sys
 from pathlib import Path
@@ -315,6 +316,37 @@ def test_process_rules_sql_queries():
     assert "cultures:" in describe_item(PAGES, "UsrOrder", "resources")
 
 
+def test_a_page_task_lists_its_buttons_and_the_flow_each_leads_to():
+    import json
+    import shutil
+    import tempfile
+    tmp = Path(tempfile.mkdtemp()) / "packages"
+    shutil.copytree(PROCS, tmp / "UsrPkg")
+    try:
+        path = tmp / "UsrPkg" / "Schemas" / "UsrDeleteOldLogs_Process" / "metadata.json"
+        meta = json.loads(path.read_text(encoding="utf-8-sig"))
+        elements = meta["MetaData"]["Schema"]["BK4"]
+        task = next(e for e in elements if e["A2"] == "DeleteDataUserTask1")
+        save, cancel = "b0000000-0000-4000-8000-000000000001", "b0000000-0000-4000-8000-000000000002"
+        items = [{"ItemUId": save, "Caption": {"isLczValue": True, "value": "Save it"}, "Name": {"value": "UsrSaveButton"}},
+                 {"ItemUId": cancel, "Caption": {"isLczValue": True}, "Name": {"value": "UsrCancelButton"}}]
+        task["BP2"].append({"BL1": "Terrasoft.Core.Process.ProcessSchemaParameter", "UId": "b0000000-0000-4000-8000-000000000003", "A2": "Buttons",
+                            "L8": {"GS1": 1, "GS2": json.dumps({"$values": items})}})
+        flow = next(e for e in elements if e["A2"] == "SequenceFlow2")
+        flow.update({"BL1": "Terrasoft.Core.Process.ProcessSchemaConditionalFlow", "GV2": json.dumps({"b0000000-0000-4000-8000-000000000004": [save]})})
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        element = describe_item(tmp / "UsrPkg", "UsrDeleteOldLogs_Process", "element DeleteDataUserTask1")
+        assert "buttons:" in element and "UsrSaveButton  'Save it'  -> SequenceFlow2 to TerminateEvent1" in element, element
+        assert "UsrCancelButton  'UsrCancelButton'  -> (no flow)" in element, element  # an unlocalised caption shows the code
+        assert "SequenceFlow2" in describe_item(tmp / "UsrPkg", "UsrDeleteOldLogs_Process", "flows from=DeleteDataUserTask1")
+        assert "when button UsrSaveButton" in describe_item(tmp / "UsrPkg", "UsrDeleteOldLogs_Process", "flows from=DeleteDataUserTask1")
+        assert "buttons:" not in describe_item(tmp / "UsrPkg", "UsrDeleteOldLogs_Process", "element TerminateEvent1")
+        from creatio_schemas import ProcessSchema
+        assert "SequenceFlow2: DeleteDataUserTask1 -> TerminateEvent1 when button UsrSaveButton" in ProcessSchema(tmp / "UsrPkg", "UsrDeleteOldLogs_Process").describe()  # proc.py inspect
+    finally:
+        shutil.rmtree(tmp.parent, ignore_errors=True)
+
+
 def test_index_follows_the_disk():
     import shutil
     import tempfile
@@ -610,6 +642,14 @@ def test_layers_order_rule_states_and_the_custom_layer():
     assert render(schema_layers(FakeLayersEnv([]), "UsrNope"), "dev") == "UsrNope on dev: no SysSchema copy of that name"
     plain = schema_layers(FakeLayersEnv(rows[1:3]), "UsrMyEntity1Page")
     assert plain["custom"] == [] and "rule" not in plain["layers"][0] and "Custom layer" not in render(plain)
+    # a chain UsrA < UsrB < UsrC: the design-time function gives B and C the same levels and returned C first; the runtime
+    # folds by SysPackage.HierarchyLevel, then the name - the order merge's layers_in_order uses (S27-T09 / S44 INBOX line)
+    chain = [dict(_row("CrtBase", "1", "5", ext="false"), hl="3"), dict(_row("UsrA", "0", "2"), hl="23"),
+             dict(_row("UsrC", "0", "1"), hl="30"), dict(_row("UsrB", "0", "1"), hl="29")]
+    assert [x["package"] for x in schema_layers(FakeLayersEnv(chain), "UsrMyEntity1Page")["layers"]] == ["CrtBase", "UsrA", "UsrB", "UsrC"]
+    chain[3]["hl"] = ""  # a level missing: the function's order stays
+    assert [x["package"] for x in schema_layers(FakeLayersEnv(chain), "UsrMyEntity1Page")["layers"]] == ["CrtBase", "UsrA", "UsrC", "UsrB"]
+    assert '"HierarchyLevel"::text "hl"' in layers_sql("UsrX", "Custom")
     # the customisation package named by project.json, not by the default
     assert schema_layers(FakeLayersEnv(rows), "UsrMyEntity1Page", custom_layer="UsrPkg")["custom"] == ["UsrPkg"]
 
@@ -640,6 +680,36 @@ def test_layers_order_rule_states_and_the_custom_layer():
             assert json.loads(out.getvalue())["custom"] == ["UsrPkg"] and seen["project"] == str(project)
     finally:
         environment.open_environment = original
+
+
+def test_a_failed_layers_query_answers_why_never_no_copy():
+    import json
+
+    from creatio_schemas.describe.layers import schema_layers
+    from creatio_schemas.environment import Environment
+
+    def failure(outputs):
+        """The error of schema_layers over a scripted clio: each call takes the next (exit code, text, rows or None)."""
+        def clio_run(args):
+            code, text, rows = outputs.pop(0)
+            if rows is not None:
+                Path(args[args.index("-d") + 1]).write_text(json.dumps(rows), encoding="utf-8")
+            return code, text
+        try:
+            schema_layers(Environment("https://s", "u", "p", clio_name="dev", clio_run=clio_run), "UsrOrderPage")
+        except RuntimeError as e:
+            return str(e)
+        raise AssertionError("expected RuntimeError")
+
+    # a PostgreSQL site whose clio prints the database line without [ERR] and exits 0: the line, no note
+    pg_error = "42883: function tsp_UsrNoSuchFunction(unknown) does not exist\nDone"
+    text = failure([(0, pg_error, None), (0, "Done", [{"v": "PostgreSQL 16.4, compiled by msvc, 64-bit"}])])
+    assert text == "the layers query failed on dev: 42883: function tsp_UsrNoSuchFunction(unknown) does not exist", text
+    # MS SQL: its `Msg N, Level N` line is the error, and version() fails as well - the PostgreSQL note comes first
+    mssql = "Msg 102, Level 15, State 1, Line 1\nIncorrect syntax near '::'.\nDone"
+    text = failure([(0, mssql, None), (0, "Msg 195, Level 15, State 10, Line 1\n'version' is not a recognized built-in function name.", None)])
+    assert text == "dev is not PostgreSQL - the kit's site SQL is PostgreSQL\nthe layers query failed on dev: Msg 102, Level 15, State 1, Line 1", text
+    assert "no SysSchema copy" not in text
 
 
 def test_typed_dependencies_resolve_by_uid_and_context():
@@ -1214,7 +1284,7 @@ def test_layers_in_order_by_dependencies_and_by_the_site():
             def sql(self, text):
                 self.sql_text.append(text)
                 levels = {"UsrA": "4", "UsrB": "5", "UsrC": "5"}
-                return [{"package": p, "level": v} for p, v in levels.items()] if "HierarchyLevel" in text else self.rows
+                return [{"package": p, "level": v} for p, v in levels.items()] if text.startswith('select "Name"::text "package"') else self.rows
         layers = layers_in_order(root, "Contact", LevelEnv(site))
         assert [x.package for x in layers] == ["CrtBase", "UsrA", "UsrB", "UsrC", "UsrE"]
         assert list(root.rglob(".creatio-index")) == []  # read-only: nothing written into the workspace
@@ -1558,7 +1628,7 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
         class SiteEnv(FakeLayersEnv):
             def sql(self, text):
                 self.sql_text.append(text)
-                if "HierarchyLevel" in text:
+                if text.startswith('select "Name"::text "package"'):  # merge's levels query, not the layers one
                     return [{"package": p, "level": str(n)} for n, p in enumerate(("UsrA", "CrtSales", "UsrB", "UsrC"))]
                 if "information_schema" in text:
                     return []  # no NO ACTION foreign key to SysSchema.Id
@@ -1721,7 +1791,7 @@ def test_merge_pages_fold_freedom_arrays_and_classic_methods():
             clio_name, url = "dev", ""
 
             def sql(self, text):
-                if "HierarchyLevel" in text:
+                if text.startswith('select "Name"::text "package"'):  # merge's levels query, not the layers one
                     return [{"package": "UsrA", "level": "3"}, {"package": "UsrB", "level": "4"}]
                 if "tsp_GetSysSchemaParents" in text:
                     return [_row("UsrA", "0", "3"), _row("UsrB", "0", "2")]
@@ -3162,6 +3232,51 @@ def test_merge_up_collapses_into_the_top_package_and_stops_on_a_reference_from_b
             raise AssertionError("an unknown direction")
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_commented_block_in_a_page_and_a_binding_without_rows_do_not_break_the_index():
+    """A commented-out element block is valid JS the designer keeps; `PackageData: null` or no data.json is a binding without rows;
+    a broken binding is one `error` entry and one `errors.log` line, never a crash of the build."""
+    import json
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "packages" / "UsrPkg"
+        shutil.copytree(PAGES, pkg)
+        page = pkg / "Schemas" / "UsrTests_FormPage" / "UsrTests_FormPage.js"
+        body = page.read_text(encoding="utf-8-sig")
+        marker = "/**SCHEMA_VIEW_CONFIG_DIFF*/["
+        assert marker in body
+        page.write_text(body.replace(marker, marker + '\n\t/* {\n\t\t"operation": "insert", "name": "UsrOldField",\n\t\t"values": { "type": "crt.Input", "label": "a // b" }\n\t}, */\n\t// "operation": "remove", "name": "UsrGone",\n', 1), encoding="utf-8")
+        desc = json.loads((DATA / "Data" / "SysSettings_UsrMaxRows" / "descriptor.json").read_text(encoding="utf-8-sig"))
+        for name, data_text in (("UsrNullRows", '{"PackageData": null}'), ("UsrNoDataFile", None), ("UsrBlankFile", "")):
+            folder = pkg / "Data" / name
+            folder.mkdir(parents=True)
+            desc["Descriptor"]["Name"] = name
+            (folder / "descriptor.json").write_text(json.dumps(desc), encoding="utf-8")
+            if data_text is not None:
+                (folder / "data.json").write_text(data_text, encoding="utf-8")
+        listed = describe_package(pkg)
+        assert "  page      UsrTests_FormPage" in listed and "cannot read: " in listed and "Data/UsrBlankFile" in listed, listed
+        assert "UsrNullRows" not in describe_package(pkg, "error") and "UsrNoDataFile" not in describe_package(pkg, "error")
+        elements = describe_item(pkg, "UsrTests_FormPage", "elements")
+        assert "UsrOldField" not in elements and "UsrGone" not in elements and "AttachmentList" in elements, elements
+        assert describe_item(pkg, "UsrNullRows", "rows") == "(no rows)" and describe_item(pkg, "UsrNoDataFile", "rows") == "(no rows)"
+        assert "0 rows" in describe_schema(pkg, "UsrNullRows")
+        log = (tmp / "packages" / ".creatio-index" / "errors.log").read_text(encoding="utf-8") if (tmp / "packages" / ".creatio-index" / "errors.log").is_file() else (tmp / ".creatio-index" / "errors.log").read_text(encoding="utf-8")
+        assert log.count("\n") == 1 and "\tUsrPkg\tdata\tData/UsrBlankFile\t" in log and "empty file" in log, log
+        answer = index_workspace(pkg, rebuild=True)
+        assert "    unreadable (1): Data/UsrBlankFile - ValueError: Data/UsrBlankFile/data.json: empty file" in answer and "errors.log: " in answer, answer
+        from creatio_schemas.describe import store
+        blocker = tmp / "blocker"
+        blocker.write_text("not a folder", encoding="utf-8")
+        try:
+            store.connect(blocker / "index.sqlite")
+            raise AssertionError("expected OSError")
+        except OSError as e:
+            assert str(e).startswith(str(blocker)) and "the index folder cannot be opened" in str(e) and "junction or symlink" in str(e), e
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

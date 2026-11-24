@@ -7,7 +7,8 @@ the live run of those cases on a test site. One command, exit 0 only when all fo
 Without `--live-root` the live part is skipped and said so. `--live-root` is a test root of its own (a `Configuration/` pointing at
 the test site, the pages of the beds) that the gate OWNS: it deletes the `*.act` files of its `Cases/` and `ProcessCases/` and copies
 the repo's active cases (`*.act`, not `*.act.exp`) in. `--rename Usr=ia` maps the repo's `Usr` names and `usr-` case names to the
-prefix the site really holds (the repo keeps `Usr` only); `--skip` leaves out cases the site cannot pass.
+prefix the site really holds (the repo keeps `Usr` only); a case whose leading comment lines hold `# bed bench` targets the
+benchmark package, whose `Usr` names are real, and is copied as it is; `--skip` leaves out cases the site cannot pass.
 """
 from __future__ import annotations
 
@@ -33,7 +34,25 @@ def mapped(text: str, prefix: str) -> str:
     return re.sub(r"\busr-", prefix.lower() + "-", re.sub(r"\bUsr([A-Z])", prefix + r"\1", text))
 
 
-def copy_cases(live_root: Path, prefix: str | None, skip: set[str]) -> int:
+def bed_of(text: str) -> str:
+    """`bench` when a leading `#` line says `# bed bench`, else `test-package`."""
+    for line in text.splitlines():
+        if not line.startswith("#"):
+            break
+        if line.strip() == "# bed bench":
+            return "bench"
+    return "test-package"
+
+
+def bed_counts(report: str, beds: dict[str, str]) -> str:
+    """`test-package: N passed, bench: M passed` from the `PASS`/`FAIL` lines of a run report."""
+    passed = {b: 0 for b in ("test-package", "bench")}
+    for m in re.finditer(r"^PASS  (\S+)", report, re.M):
+        passed[beds.get(m.group(1), "test-package")] += 1
+    return ", ".join(f"{b}: {n} passed" for b, n in passed.items())
+
+
+def copy_cases(live_root: Path, prefix: str | None, skip: set[str], beds: dict[str, str] | None = None) -> int:
     n = 0
     for folder in ("Cases", "ProcessCases"):
         target = live_root / folder
@@ -45,8 +64,11 @@ def copy_cases(live_root: Path, prefix: str | None, skip: set[str]) -> int:
                 continue
             text = src.read_text(encoding="utf-8")
             name = src.name
-            if prefix:
+            bed = bed_of(text)
+            if prefix and bed == "test-package":
                 text, name = mapped(text, prefix), mapped(name, prefix)
+            if beds is not None:
+                beds[Path(name).stem] = bed
             (target / name).write_text(text, encoding="utf-8")
             n += 1
     # what the cases read besides themselves: the files they upload and the process configurations they start
@@ -78,9 +100,14 @@ def main(argv=None) -> int:
         return 0
     prefix = a.rename.split("=", 1)[1] if a.rename and a.rename.startswith("Usr=") else None
     live = Path(a.live_root).resolve()
-    print(f"== live: {copy_cases(live, prefix, {s for s in a.skip.split(',') if s})} cases copied into {live}")
+    beds: dict[str, str] = {}
+    print(f"== live: {copy_cases(live, prefix, {s for s in a.skip.split(',') if s}, beds)} cases copied into {live}")
     cmd = ["dotnet", str(CLI), "--root", str(live)] + (["--filter", a.filter] if a.filter else [])
-    return 0 if run("live", cmd) else 1
+    ok = run("live", cmd)
+    reports = sorted((live / "Reports").glob("run-*.txt"))
+    if reports:
+        print(f"== live: {bed_counts(reports[-1].read_text(encoding='utf-8'), beds)}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

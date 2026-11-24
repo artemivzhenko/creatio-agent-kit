@@ -91,7 +91,7 @@ public sealed class ValidatorTests
         {
             "use", "open", "check", "check-value", "set", "click", "goto", "clear", "wait", "end",
             "analyse", "add-record", "start", "check-result", "check-record", "check-row", "select-row", "open-row", "delete-row", "on",
-            "insert", "update", "delete", "delete-record", "remember", "remember-record", "check-count", "check-distinct", "tab", "answer", "wait-record", "wait-count", "upload", "snapshot", "navigate", "check-process", "seed", "fire-timer"
+            "insert", "update", "delete", "delete-record", "remember", "remember-record", "check-count", "check-distinct", "tab", "answer", "wait-record", "wait-count", "upload", "snapshot", "navigate", "check-process", "seed", "fire-timer", "select-in-dialog"
         }));
     }
 

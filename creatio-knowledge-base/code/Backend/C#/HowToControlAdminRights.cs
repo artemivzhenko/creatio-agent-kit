@@ -3,26 +3,27 @@ using Terrasoft.Core;
 using Terrasoft.Core.Entities;
 
 /// <summary>
-/// Demonstrates UseAdminRights — the switch that decides whether a query or a save respects
-/// record-level access rights, and the related Entity helpers for creating records.
+/// Demonstrates UseAdminRights — the switch that decides whether a query or a save checks the caller's rights, and the
+/// related Entity helpers for creating records.
 ///
-/// THE DEFAULT IS NOT WHAT MOST PEOPLE EXPECT. EntitySchemaQuery and Entity default to
-/// UseAdminRights = true, which BYPASSES record permissions. Code written without thinking
-/// about it therefore reads and writes rows the current user is not allowed to see. Set it
-/// to false whenever the operation acts on behalf of a user.
+/// THE NAME READS BACKWARDS. EntitySchemaQuery and Entity default to UseAdminRights = true, and TRUE MEANS THE RIGHTS ARE
+/// CHECKED ("use the administration of rights"): the query reads the schema only when the user may read it and adds the
+/// record-rights condition for an object administrated by records; a save checks the operation and column rights. FALSE
+/// SWITCHES ALL OF IT OFF - the query returns every row, the save writes whatever it is given. Read from the platform's
+/// own code (Terrasoft.Core 8.2.3 and 8.3.2: EntitySchemaQuery.AddRightCondition returns at once when !UseAdminRights;
+/// Entity checks GetIsEntitySchema...Allowed only when UseAdminRights), S42-T01 / N-27. An earlier form of this recipe
+/// said the opposite.
 ///
-///   esq.UseAdminRights = false;      // query respects the user's rights
-///   entity.UseAdminRights = false;   // save respects the user's rights
+///   esq.UseAdminRights = true;       // the default: the user sees only the rows they may see
+///   esq.UseAdminRights = false;      // an elevation: every row, whoever asks - write why next to it
 ///
-/// WHEN true IS CORRECT: a background job, a system integration, or a deliberate
-/// elevation such as "any user may log an audit row". Make that intent explicit in a
-/// comment - a reviewer cannot tell an intentional elevation from a forgotten default.
+/// A user in the System administrators role sees every row either way: the rights condition is not built for them
+/// (a probe on the test site counted a record with no right rows as 1 for Supervisor, both ways) - so an elevation bug
+/// never shows when you test as Supervisor. Test a rights path as an ordinary user.
 ///
 /// A related but different question is WHICH CONNECTION you run on:
-///   UserConnection                 the caller, with their permissions
+///   UserConnection                      the caller, with their permissions
 ///   AppConnection.SystemUserConnection  the Supervisor context
-/// UseAdminRights = false on a SystemUserConnection still runs as Supervisor - the flag
-/// narrows to the connection's user, it does not switch users.
 /// See HowToUseSystemUserConnection.
 ///
 /// CREATING A RECORD WITH DEFAULTS:
@@ -60,8 +61,8 @@ namespace Terrasoft.Configuration
 				.GetInstanceByName(entitySchemaName)
 				.CreateEntity(UserConnection);
 
-			// Respect the caller's permissions.
-			entity.UseAdminRights = false;
+			// The default (true) checks the caller's rights: kept, said out loud.
+			entity.UseAdminRights = true;
 
 			// Apply the defaults configured on the object.
 			entity.SetDefColumnValues();
@@ -73,7 +74,7 @@ namespace Terrasoft.Configuration
 		}
 
 		/// <summary>
-		/// A read that must not show the user rows they cannot access.
+		/// A read that must not show the user rows they cannot access: the default.
 		/// </summary>
 		public Entity GetFileEntity(Guid fileId) {
 			var esq = new EntitySchemaQuery(UserConnection.EntitySchemaManager, "UsrApplicationFile");
@@ -81,8 +82,8 @@ namespace Terrasoft.Configuration
 			// Always select the primary column, even when it is not added explicitly.
 			esq.PrimaryQueryColumn.IsAlwaysSelect = true;
 
-			// Without this line the query would ignore record permissions.
-			esq.UseAdminRights = false;
+			// true (the default) - the record-rights condition is added for this user.
+			esq.UseAdminRights = true;
 
 			esq.AddColumn("Name");
 			esq.AddColumn("UsrApplication");
@@ -92,7 +93,7 @@ namespace Terrasoft.Configuration
 
 		/// <summary>
 		/// A deliberate elevation. The comment is the point: it tells the next reader that
-		/// the default was kept on purpose.
+		/// the rights were switched off on purpose.
 		/// </summary>
 		public void WriteAuditRow(Guid recordId, string action) {
 			var entity = UserConnection.EntitySchemaManager
@@ -101,7 +102,7 @@ namespace Terrasoft.Configuration
 
 			// Elevated on purpose: every user may append to the audit log, even though
 			// nobody has write access to it directly.
-			entity.UseAdminRights = true;
+			entity.UseAdminRights = false;
 
 			entity.SetDefColumnValues();
 			entity.SetColumnValue("UsrRecordId", recordId);
@@ -117,7 +118,7 @@ namespace Terrasoft.Configuration
 				.GetInstanceByName(entitySchemaName)
 				.CreateEntity(UserConnection);
 
-			entity.UseAdminRights = false;
+			entity.UseAdminRights = true;
 
 			// FetchFromDB returns false when the record does not exist OR the user may not
 			// see it - the two cases are indistinguishable by design.

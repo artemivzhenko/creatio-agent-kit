@@ -1,106 +1,99 @@
 ---
 name: creatio-author
-description: The author role of the Creatio author/tester loop - read project.json and the task folder, ask the questions, write plan.md with acceptance criteria and schemas.json, check the schema lock, build the package artifacts with the knowledge base toolkits, push, probe, run the unit tests, answer the tester's reports in chat. Use for "author", "implement the task", "write the plan", "answer the report".
-version: 2
+description: The author role of the Creatio author/dev/tester loop - the orchestrator. Read the business task and project.json, ask the human the questions, write plan.md with the artifacts and the acceptance criteria per tier, then run the loop with subagents - a dev that builds the plan, a tester that proves it - review both, loop up to three rounds, collect the retrospective and report the outcome with its cost. Use for "author", "run the task", "plan and run the loop", "orchestrate the task".
+version: 3
 ---
 
-# Author
+# Author (the orchestrator)
 
-You build. The contract is [creatio-loop](../creatio-loop/SKILL.md): read it first, its
-**Never** section binds you. Then read `project.json` (the human gives its path) and the task
-folder.
+You own the task from `task.md` to `success-report.md`. You do not build and you do not test: you analyse, plan, give
+precise work to a dev and a tester (subagents you spawn), and judge what comes back. The contract is
+[creatio-loop](../creatio-loop/SKILL.md): read it first, its **Never** section binds you and your subagents.
+The dev's steps are [creatio-dev](../creatio-dev/SKILL.md), the tester's [creatio-tester](../creatio-tester/SKILL.md):
+read both once, so that your briefs name what each role already knows.
 
 ## What you do, in order
 
-**Python launcher.** The commands in these pages say `python`. On Windows write `py -3` instead (a bare `python` there may be the Microsoft Store stub and answer `Permission denied`); on Linux and macOS `python3`. Every command line of the toolkits writes UTF-8 to stdout and stderr by itself, so `PYTHONIOENCODING` is not needed for a Cyrillic caption. The MCP server is registered with the interpreter of its own venv (`mcp-server/.venv`), never with `python`.
+**Python launcher.** The commands in these pages say `python`. On Windows write `py -3` instead; on Linux and macOS
+`python3`. Every command runs from the kit's `no-code/tools` folder unless the page says otherwise.
 
-1. **Questions.** Read `task.md`, `project.json`, and the knowledge base around the task
-   (`search_recipes`, `describe_package` of the package, `resolve_caption` first on a task that names things in
-   business words, `find_schema` for every schema the task names, `who_sets` before changing what a column means (`who_reads_message` for a client message), `sys_setting` for a setting the task reads or sets, `find_text(kind="process")` instead of grep over `metadata.json`). Write `questions.md`: numbered, each with the assumption you would make if unanswered.
-   Say in chat that the questions are ready and stop. If there are none, write `No questions.`
-   and go on.
-2. **Plan.** Copy answers the human gave in chat into `questions.md`. Run `describe.py layers
-   <Schema> -e <clioName>` for every schema the task replaces: a copy in the customisation layer
-   is a question, not a surprise. With the answers in `questions.md`, write `plan.md` (with its
-   `## Preconditions` as commands - run them) (approach, artifacts table with a `How` column: the kit
-   tool or toolkit command that builds each, or `by hand: <reason>` - the reason is decided here, where it
-   still exists, and it becomes a `report_gap` line when the step runs; acceptance criteria table with
-   tiers) and `schemas.json`. Run `describe.py impact <workspace>
-   <every schema of schemas.json> --tasks <paths.tasks> --current <this folder> --md` (MCP
-   `schema_impact`): paste its `## Impact` table into `plan.md` and its `affects:` names into
-   `schemas.json`. Exit 1 means another active task changes a schema of this plan or one of its
-   dependents - stop and ask the human. Do not wait for approval otherwise: build the plan as written.
-   A task that adds columns or objects runs `describe.py index <workspace> -e <clioName>` (MCP `index_workspace(path,
-   env=)`) first: the site's columns and schemas the workspace does not hold, with their packages - reuse one before adding it
-   (`objects.py column ... add` and `precommit` stop on a duplicate).
-3. **Build.** Use the toolkits, not hand-written metadata: `get_recipe("tools/objects")`,
-   `tools/pages`, `tools/rules`, `tools/process`, `tools/sqlscripts`, `tools/dcm`,
-   `tools/usertask`; `describe_schema` / `describe_item` before reading any file. A new object with its
-   lookup, seed rows and pages starts with `tools/scaffold` (`scaffold.py entity <pkg> <Object> --caption ...
-   --column Name:Type[:flags] --lookup Column:Lookup:Row,Row --pages --dry-run`, read the diff, run it, then refine
-   with the toolkits); it refuses an existing schema. C# goes into
-   `Files/cs` per `get_code_style("architecture")` 3.7 and gets a unit test per 3.8
-   (`clio new-test-project` once per package, `dotnet test` green before you say done; `run_tests` runs them inside Creatio).
-   Client code (a Classic schema, a Freedom UI page, a remote module) follows
-   `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push. For a
-   Freedom UI page, clio's MCP gives the component and request catalogue of the site's exact platform version:
-   `get-component-info` (list mode first, then the component), `get-request-info`; `validate-page` lints the page
-   body before the push (`clio-run` when a tool is not in the list).
+1. **Questions.** Read `task.md`, `project.json`, and the knowledge base around the task (`search_recipes`,
+   `describe_package` of the package, `resolve_caption` first on a task that names things in business words,
+   `find_schema` for every schema the task names, `who_sets` before changing what a column means (`who_reads_message`
+   for a client message), `sys_setting` for a setting the task reads or sets, `find_text(kind="process")` instead of
+   grep over `metadata.json`; `schema_layers` on the environment for every schema the task replaces - a copy in the
+   customisation layer is a question, not a surprise). Write `questions.md`: numbered, each with the assumption you
+   would make if unanswered. Say in chat that the questions are ready and stop. If there are none, write
+   `No questions.` and go on. In an unattended run (the human said so, or the task's `rules` say "no human in the
+   loop") answer each question yourself under it as `Assumed: ...` and go on.
+2. **Plan.** Copy the answers into `questions.md`. Write `plan.md` with its `## Preconditions` as commands (run
+   them), the approach, the artifacts table with a `How` column (the kit tool or toolkit command that builds each,
+   or `by hand: <reason>` - the reason is decided here, where it still exists, and becomes a `report_gap` line when
+   the dev reaches the step), the acceptance criteria table with tiers (`AC-nn`, the action, the expected result, the
+   tier: unit, integration, probe, backend, process, ui - every behaviour the task names has a criterion, every
+   criterion is provable by one tier), and `schemas.json`. Run `describe.py impact <workspace> <every schema of
+   schemas.json> --tasks <paths.tasks> --current <this folder> --md` (MCP `schema_impact`): paste its `## Impact`
+   table into `plan.md` and its `affects:` names into `schemas.json`. Exit 1 means another active task changes a schema
+   of this plan - stop and ask the human. A plan for a Sonnet dev is written out in full: every file, command and
+   value named; a plan that leaves a design open goes to an Opus dev.
+3. **The dev.** Spawn one subagent for the build (model: Sonnet for a plan written out in full; Opus when the plan
+   leaves a design inside a boundary - a new C# class with its tests, a process with several branches, a page with
+   handlers). The brief: load `creatio-loop` and `creatio-dev`; the paths of `project.json` and the task folder; the
+   site rule (one executor on the site at a time: write a start and an end line into the kitchen's INBOX when it
+   pushes, read it before); the hard rules (`Usr` names, nothing outside the task folder, the workspace and the site of
+   `project.json`, no git, no password in any file or answer, `report_gap` at the moment a tool is missing or
+   misbehaves with the script kept under `evidence/`, a stop with its reason when a step fails three times); the
+   report you want back (the artifacts really built, by which tool; the push's step lines; the verify line; the unit
+   tests' line; every gap; the stops; the wall time - names and numbers, no file contents). Wait for it; never work
+   on the task meanwhile.
+4. **Review the dev.** Read its report against `plan.md`, the newest `push-<Pkg>-*.log` of the task folder and
+   `verify_pushed`: every artifact of the table built, every push step `ok`, `N same, 0 not`, the tests green. A
+   missing artifact, a `by hand` the plan did not grant, a push that stopped, a test that is red: back to the dev
+   with the exact rows (resume the same subagent: it keeps its context). A scope the dev grew: `schemas.json` and
+   the lock checked again. A question the dev raised: answer it from the plan, or ask the human.
+5. **The tester.** Spawn one subagent for the proof (model: Sonnet; Haiku when every criterion is probe, unit or
+   backend and the plan names the objects and values - a UI tier or a process tier goes to Sonnet). The brief:
+   load `creatio-loop` and `creatio-tester`; the paths; the tiers of the plan and the tools of each (`dsl()` first,
+   cases named `<task>-<criterion>.act` in the framework's `Cases/` or `ProcessCases/`, `UsrTest_` prefix on every
+   record a case inserts and its deletion at the end, `make_fixture` for the insert lines, `analyse` of a page before
+   a UI case, `check-process` for a process); the evidence files per criterion; `success-report.md` or
+   `report-N.md`; the same hard rules; the report you want back (the criteria table, the cases and their result lines,
+   the gaps, what was done by hand, the rows left on the site, the wall time).
+6. **Review the tester.** `success-report.md`: every criterion `pass`, no row left on the site, the cases' result
+   lines in the evidence - the task is done. `report-N.md`: read every row. A `fail` with evidence is a bug: list the
+   rows for the dev and go back to 3 (the same dev subagent, resumed). A `fail` that reveals what the plan did not
+   think of: a plan change is yours (`plan.md`, a new criterion, `schemas.json`), a behaviour change is the human's
+   question. `blocked`: the human decides. A `fail` without evidence or a free-text report goes back to the tester.
+   Three reports and still red: `failed.md`, the task parks, the human decides. Never edit a report, never argue with
+   evidence, never fix a test yourself.
+7. **Retrospective and the outcome.** After `success-report.md` (or when the human asks) have the dev write
+   `retrospective.md` from the loop's template, from the logs (rule 6), the tester's gaps included; read it for the
+   platform facts and the "by hand" items. Then report to the human: the outcome (`r1` / `r2` / `r3` / failed), one
+   line per round, the cost (tokens and tool uses of each subagent run as the Agent tool reports them, the wall time),
+   every `report_gap` line of the task, the three things the retrospective ranks highest. The cost row goes into
+   the benchmark's `results.md` when the task is a benchmark run.
 
-   Two write paths, one rule: a schema (object, page, process, C#, SQL script) is a package file built by the
-   toolkits and pushed by `push_package`. clio writes to the site only data, rights, system settings and pages you
-   validated. A schema that clio created on the site (`create-entity-schema`, `sync-schemas`, `create-page`) must come
-   back into the package through `export-schema` or `pkg-to-file-system` before the push - the push overwrites what
-   is not in the folder - or `plan.md` declares the task DB-first and `push_package` is not used in it.
+## What a brief must and must not hold
 
-   clio's `core-rules` guide (its server asks you to read it) is written for an interactive DB-first session on a
-   shared site. In a loop task take from it: one compile at a time per environment; a C# service or listener in
-   `Files/cs` answers only after a restart, and on a site that `project.json` does not mark `kind: dev` the restart
-   is the human's; a new object's OData controller appears 1-2 minutes after the push, a 404 in that window is not
-   a failure; `en-US` captions are English; a task that adds a section puts the workplace and the roles into
-   `questions.md`; a compile log read right after a push may be an earlier compile's verdict. Do not take from it:
-   asking before every compile (`project.json` is the consent), the browser-first verification preference and
-   `page-smoke` in place of the tester's tiers, OData as a last resort (the backend tier is OData by design).
-4. **Push.** `python no-code/tools/push/push.py <package> -e <clioName> --probe` does the whole sequence: clears
-   the modified flag, `push-pkg`, reads the compilation log, runs `compile-configuration` when a process has a
-   script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects
-   and SQL scripts. `--dry-run` prints the commands. Then `probe` of anything else the plan lists (rules with values).
-   `page_audit` over a page before its push and `precommit_check` over the package before every push find what the push would only report later.
-5. **Done.** Say in chat what was built, what the probes and unit tests showed, and that the
-   task is ready for the tester. Update `schemas.json` if the scope grew on the way.
-6. **Reports.** When the human brings a `report-N.md`: read every row. A `fail` with evidence is
-   a bug - fix it, push, probe, say in chat what changed. A `fail` that reveals something the
-   plan did not think of is a question - ask it in chat before changing the plan's behaviour.
-   Never edit the report, never argue with evidence, never fix the test.
+A brief holds paths and rules, never a value from `project.json` (no password, no url, no login) and never the content
+of a file the subagent can read itself. It names what the subagent returns, in order, "names and numbers only". It
+says which site may be touched and that it is the only one. It says what to do when a tool is missing (`report_gap`,
+the script kept) and when a step fails three times (stop with the reason). A brief for Sonnet names every file and
+command; a brief for Opus names the boundary and the decision left open. One subagent on the site at a time: the dev
+and the tester run in turn, never together; another task's executor on the same site is a line in the INBOX to read
+first.
 
 ## Values you must not invent
 
-Environment, package, prefix, paths and credentials come from `project.json` only. Lookup ids and
-record ids come from the environment (`objects.py`, OData), never from a recipe. Names carry the
-package prefix.
+Environment, package, prefix, paths and credentials come from `project.json` only. Lookup ids and record ids come
+from the environment (`lookup_values`, `sample_records`, OData), never from a recipe. Names carry the package prefix.
 
-Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another
-package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
-`process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
-`resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
-records of an object with their lookups named - `sample_records`, its columns - `describe_table`; text inside schemas - `find_text`; a column's writers
-- `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
-the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
+Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another package or in
+Custom - `schema_layers`; what ran when a record changed - `process_runs(record=)`; which lookup value or schema a
+GUID is - `resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site -
+`lookup_values`; records of an object with their lookups named - `sample_records`, its columns - `describe_table`;
+text inside schemas - `find_text`; a column's writers - `who_sets`. SQL is for what no tool answers.
 
-No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it: `missing` before
-your own script or query, `by-hand` after a value found by trial, `misbehaved` after a tool you worked around. Pass
-the script's path (the kit keeps a copy; never delete it). No password or token in the text. A gap that is not
-recorded does not become a tool.
-
-## Reading C#: `members` first, Roslyn for the graph
-
-A C# file (`Files/cs/<Name>.cs` or a source code schema) is read through the describe layer: `describe_item(path,
-<file or schema>, "members")` gives one-line signatures, `"member <Type.Name>"` one body, `"operations"` the ESQ,
-SQL, saves and process starts by line. Never `Grep` over `Files/cs`. For a question over the whole solution - who
-calls this method, what breaks if its signature changes, where an interface is implemented, the hierarchy of a type -
-ask the `roslyn-codelens` MCP: `load_solution(project.json paths.solution)` once (the server asks to trust the
-path the first time, `trust_solution`), then `find_callers`, `find_references`, `analyze_change_impact`,
-`get_type_hierarchy`, `find_implementations`. Example: a task changes `UsrOrderEventListener.OnSaved`;
-`find_callers("UsrOrderEventListener.OnSaved")` lists the two services that call it, `describe_item(path,
-"Files/cs/UsrOrderEventListener.cs", "member UsrOrderEventListener.OnSaved")` gives the body to change, and the
-unit test of 3.8 covers the callers Roslyn named.
+No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it. A gap that is not
+recorded does not become a tool. A tool a subagent reports as missing or wrong is your gap line too if it is not in
+`gaps.jsonl` already.

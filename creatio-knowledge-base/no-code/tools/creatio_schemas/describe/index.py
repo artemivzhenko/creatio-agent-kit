@@ -353,6 +353,24 @@ class PackageIndex:
             entry["error"] = located(self.package, files, e)
         return entry
 
+    def _log_errors(self) -> None:
+        """Every item of this build that could not be read, appended to `errors.log` next to the store: one line per item,
+        `<built>\t<package>\t<kind>\t<item>\t<error>` - the file the human reads to see what the parsers choke on."""
+        lines = []
+        for name, e in self.data["schemas"].items():
+            for key, kind in (("error", e.get("kind", "?")), ("deps_error", "deps"), ("captions_error", "captions")):
+                if e.get(key):
+                    lines.append(f"{self.data['built']}\t{self.package.name}\t{kind}\t{name}\t{e[key]}")
+        for name, e in self.data["data"].items():
+            if e.get("error"):
+                lines.append(f"{self.data['built']}\t{self.package.name}\tdata\tData/{name}\t{e['error']}")
+        if lines:
+            try:
+                with (self.path.parent / "errors.log").open("a", encoding="utf-8") as fh:
+                    fh.write("\n".join(lines) + "\n")
+            except OSError:  # a read-only checkout: the entries still carry the errors
+                pass
+
     def _json(self, path: Path):
         """A JSON file of a binding; the error names the file (an empty data.json, a missing descriptor)."""
         rel = path.relative_to(self.package).as_posix()
@@ -382,7 +400,7 @@ class PackageIndex:
                            key=lambda p: (p.name != "data.en-US.json", p.name))
         if key_columns and key_name:
             for path in loc_files:
-                for row in self._json(path)["PackageData"]:
+                for row in self._json(path).get("PackageData") or []:  # `null` or no key: a binding without rows
                     data = values(row)
                     if all(col in data for col in key_columns) and key_name in data:
                         k = tuple(str(data[col]).lower() for col in key_columns)
@@ -393,7 +411,7 @@ class PackageIndex:
         for path in sorted((self.package / "Data" / name).rglob("data.json")):
             if "localization" in (part.lower() for part in path.relative_to(self.package / "Data" / name).parts):
                 continue
-            data_rows = self._json(path)["PackageData"]
+            data_rows = self._json(path).get("PackageData") or []  # `null` or no key: a binding without rows
             rows += len(data_rows)
             for row in data_rows:
                 data = values(row)
@@ -451,8 +469,8 @@ class PackageIndex:
         for name in todo_data:
             try:
                 data[name] = self._build_data(name, files_now[f"Data/{name}"])
-            except UNREADABLE as e:  # an empty data.json, a folder without its descriptor
-                data[name] = {"error": f"{type(e).__name__}: {e}", "files": files_now[f"Data/{name}"], "refs": []}
+            except Exception as e:  # an empty data.json, a folder without its descriptor, a shape the reader did not expect: one entry, not a crash
+                data[name] = {"error": located(self.package, files_now[f"Data/{name}"], e), "files": files_now[f"Data/{name}"], "refs": []}
         if rebuild or changes["added"] or changes["removed"]:
             # The set of names changed: every item may now refer to a new name, or to one that is gone.
             for name, entry in schemas.items():
@@ -468,6 +486,7 @@ class PackageIndex:
                      "built": time.strftime("%Y-%m-%dT%H:%M:%S"), "seconds": round(time.time() - t0, 2),
                      "schemas": dict(sorted(schemas.items())), "data": dict(sorted(data.items()))}
         store.save_package(self.path, self.package.name, self.data)
+        self._log_errors()
         self._format_mismatch = False
         return changes
 
@@ -674,6 +693,12 @@ def index_workspace(path: Path | str, rebuild: bool = False, stats: bool = False
         for key in ("added", "changed", "removed"):
             if ch[key]:
                 out.append(f"    {key}: {', '.join(ch[key][:20])}" + (f" ... +{len(ch[key]) - 20}" if len(ch[key]) > 20 else ""))
+        broken = [(n, e["error"]) for n, e in d.get("schemas", {}).items() if e.get("error")] \
+            + [(f"Data/{n}", e["error"]) for n, e in d.get("data", {}).items() if e.get("error")]
+        if broken:  # named here, not only counted: the agent reads this answer, not the store
+            out.append(f"    unreadable ({len(broken)}): " + "; ".join(f"{n} - {err[:100]}" for n, err in broken[:5])
+                       + (f" ... +{len(broken) - 5} (describe_package kind=error lists all)" if len(broken) > 5 else "")
+                       + f"; errors.log: {idx.path.parent / 'errors.log'}")
     platform_dir = platform.project_platform(pkgs[0]) if pkgs else None
     if platform_dir is not None:  # S31-T09: the install's captions, once per path, version and cultures
         try:

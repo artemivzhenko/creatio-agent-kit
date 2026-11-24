@@ -286,6 +286,22 @@ def test_process_runs_by_process_and_noise():
     raises(lambda: runs.process_runs(e, since="yesterday"), ValueError, "not a date")
 
 
+def test_process_runs_count_the_open_tasks_of_an_element():
+    from creatio_schemas import runs
+    rows = [{"run": RUN.upper(), "StartDate": "2026-11-11T08:00:00", "record": "Order 7"}, {"run": BOSS, "StartDate": "2026-11-10T08:00:00", "record": None}]
+    e, clio = env({'from "SysProcessElementLog" e join': lambda text: rows if "'Fill in the order'" in text else [], COPIES_NEEDLE: COPIES[:1]})
+    answer = runs.process_runs(e, process="UsrOrder_Process", element="Fill in the order", status="running")
+    statement = clio.statements[1]
+    assert 'e."CompleteDate" is null' in statement and "e.\"Caption\" = 'Fill in the order'" in statement and "'c1000000-0000-4000-8000-000000000001'" in statement, statement
+    assert [t["run"] for t in answer["tasks"]] == [RUN, BOSS] and answer["tasks"][0]["record"] == "Order 7"
+    text = runs.render_runs(answer).splitlines()
+    assert text[0] == "2 running tasks" and f"run {RUN}  waits on Order 7" in text[1] and text[2].endswith(f"run {BOSS}"), text
+    assert runs.render_runs(runs.process_runs(e, element="Another task")) == "0 running tasks"  # a task of another element is not counted
+    runs.process_runs(e, element=ID)
+    assert f"e.\"SchemaElementUId\" = '{ID}'" in clio.statements[-1]  # a UId names the element by its schema UId
+    raises(lambda: runs.process_runs(e, element="x", status="failed"), ValueError, "only running")
+
+
 def test_process_runs_cover_every_layer_and_a_renamed_copy():
     from creatio_schemas import runs
     e, clio = env({'from "SysProcessLog" l': RUNS, 'from "Contact" where "Id" in': [], COPIES_NEEDLE: COPIES})

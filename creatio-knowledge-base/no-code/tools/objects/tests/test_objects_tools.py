@@ -229,6 +229,18 @@ def test_command_line():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_probe_skips_a_replacing_object_whose_parent_is_not_in_the_workspace():
+    import objects
+    tmp = copy()  # the copy has no .creatio-bases: the base of Account is not known
+    try:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert objects.main(["probe", str(tmp / "UsrPkg"), "Account", "--env", "dev"]) == 0
+        assert out.getvalue().startswith("skipped: parent ") and "not in the workspace" in out.getvalue() and "base" in out.getvalue()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_workspace_cache_reuses_scan_with_unchanged_fingerprint():
     tmp = copy()
     try:

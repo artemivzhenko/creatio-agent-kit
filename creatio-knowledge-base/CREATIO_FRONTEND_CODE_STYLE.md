@@ -393,7 +393,7 @@ define("UsrOrders_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
   without `next`). Exception in `crt.HandleViewModelInitRequest`: a handler that reads data-source attributes
   (`PDS.*`, `$context.Id`) calls `next` first, they exist only after the base init. **Call `next` first** when the handler needs the base result (`crt.LoadDataRequest`,
   `crt.SaveRecordRequest` post-processing): `const result = await next?.handle(request); ...; return result;`.
-  Wrap with a mask: `maskService.showBodyMask({delay: 0}); await next?.handle(request); maskService.hideBodyMask();`.
+  Wrap with a mask: `const mask = new sdk.MaskService(); const id = mask.showBodyMask({delay: 0}); await next?.handle(request); mask.hideBodyMask(id);` (`sdk` from `@creatio-devkit/common`; `MaskService` has `showMask`, `hideMask`, `showBodyMask`, `hideBodyMask` and `showBodyMask` returns an object that `hideBodyMask` took, seen on 8.2.3, S42-T02; hide in a `finally` when the chain may throw).
   A handler that replaces the chain does not call `next` and takes `(request)` only.
 - `crt.HandleViewModelAttributeChangeRequest`: filter first, `if (request.attributeName === "Discount") {...}` or
   `const changed = ["Amount", "Discount"]; if (changed.includes(request.attributeName)) {...}`; a data source

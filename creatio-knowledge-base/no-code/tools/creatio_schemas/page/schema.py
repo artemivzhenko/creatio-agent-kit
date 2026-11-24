@@ -58,12 +58,35 @@ DEFAULT_FIELD_PARENT = "SideAreaProfileContainer"
 DEFAULT_GRID_PARENT = "GeneralInfoTabContainer"
 
 
+def strip_comments(text: str) -> str:
+    """JavaScript comments removed from a JSON section - a commented-out block of elements is valid JS and the designer
+    keeps it, json.loads does not; string contents are kept as they are."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 class _Section:
     def __init__(self, name: str, inner: str):
         self.name = name
         self.inner = inner
-        # JavaScript tolerates a trailing comma in an array or object; json.loads does not
-        self.value = json.loads(re.sub(r",(\s*[\]}])", r"\1", inner))
+        # JavaScript tolerates comments and a trailing comma in an array or object; json.loads does not
+        self.value = json.loads(re.sub(r",(\s*[\]}])", r"\1", strip_comments(inner)))
         self.original = copy.deepcopy(self.value)
 
     @property

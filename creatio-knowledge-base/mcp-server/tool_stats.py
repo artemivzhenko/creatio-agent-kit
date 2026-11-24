@@ -17,9 +17,11 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+from collections import Counter
 import os
 import re
 import shutil
+import traceback
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -64,12 +66,55 @@ def instrument(fn, folder: Path | None = None):
         if not enabled():
             return fn(*args, **kwargs)
         start = time.perf_counter()
-        result = fn(*args, **kwargs)
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as e:  # a tool that raises is an answer the agent cannot read: say it, keep it, never drop the call
+            path = record_error(folder or stats_folder(), fn.__name__, lengths(fn, args, kwargs), e)
+            return f"error: {type(e).__name__}: {e} - the parser or the tool failed; the call is logged in {path} (tool_stats lists it)"
         text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
         record(folder or stats_folder(), fn.__name__, lengths(fn, args, kwargs), len(text), int((time.perf_counter() - start) * 1000), bool(TAIL_RE.search(text)))
         return result
 
     return wrapper
+
+
+def record_error(folder: Path, tool: str, args: dict, e: BaseException) -> Path:
+    """One JSON line in `<folder>/errors.jsonl`: when, the tool, the argument names and lengths, the error, the last three frames
+    (`file:line in function`) - never a value. The path, for the answer."""
+    folder.mkdir(parents=True, exist_ok=True)
+    frames = [f"{Path(f.filename).name}:{f.lineno} in {f.name}" for f in traceback.extract_tb(e.__traceback__)[-3:]]
+    line = {"ts": datetime.now().isoformat(timespec="seconds"), "tool": tool, "args": args, "error": f"{type(e).__name__}: {e}"[:500], "where": frames}
+    path = folder / "errors.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+    return path
+
+
+def read_errors(days: int = 1, folder: Path | None = None) -> list[dict]:
+    """The `errors.jsonl` lines of the last `days` days (today included)."""
+    path = (folder or stats_folder()) / "errors.jsonl"
+    if not path.is_file():
+        return []
+    since = (date.today() - timedelta(days=max(int(days), 1) - 1)).isoformat()
+    out = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(line, dict) and str(line.get("ts", ""))[:10] >= since:
+            out.append(line)
+    return out
+
+
+def errors_line(errors: list[dict]) -> str:
+    """`errors: N (<tool> x k, ...); last: <tool> <error>` or `errors: 0` - the tool calls that raised."""
+    if not errors:
+        return "errors: 0"
+    per_tool = Counter(e.get("tool", "?") for e in errors)
+    last = errors[-1]
+    return (f"errors: {len(errors)} (" + ", ".join(f"{t} x {n}" for t, n in per_tool.most_common(5)) + f"); last: {last.get('tool', '?')} "
+            + str(last.get("error", ""))[:120])
 
 
 def read(days: int = 1, folder: Path | None = None) -> list[dict]:
@@ -155,10 +200,10 @@ def gaps_line(gaps: list[dict]) -> str:
     return f"gaps: {len(gaps)} ({counts}); last: {last.get('ts')} {last.get('kind')} {str(last.get('need', ''))[:80]}"
 
 
-def summarise(rows: list[dict], gaps: list[dict] | None = None) -> str:
+def summarise(rows: list[dict], gaps: list[dict] | None = None, errors: list[dict] | None = None) -> str:
     """calls and characters per tool (the most characters first), the ten largest answers, the truncated share, the total; with `gaps` the gap line last."""
     text = _summarise_calls(rows)
-    return text if gaps is None else text + "\n" + gaps_line(gaps)
+    return text if gaps is None else text + "\n" + gaps_line(gaps) + ("\n" + errors_line(errors) if errors is not None else "")
 
 
 def _summarise_calls(rows: list[dict]) -> str:

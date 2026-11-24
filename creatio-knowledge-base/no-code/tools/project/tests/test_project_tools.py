@@ -99,6 +99,49 @@ def test_no_working_launcher_stops_before_registration():
             raise AssertionError("a working launcher is required")
 
 
+CSV = ("Issue key,Summary,Description,Status\n"
+       "USR-1,First,Do the first,Open\n"
+       "USR-2,Second,Was done,Done\n"
+       "USR-3,Third,Also done,Closed\n"
+       "USR-4,Fourth,Already here,Open\n"
+       "USR/5,Fifth,A slash key,Open\n"
+       "USR-6,Sixth,,Open\n")
+
+
+def run_csv(root, *extra):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = project.main(["tasks-from-csv", str(root / "in.csv"), str(root / "tasks"), "--done", "Done,Closed", *extra])
+    return code, out.getvalue().splitlines()
+
+
+def test_tasks_from_csv_writes_keeps_skips_and_dry_run_writes_nothing():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "in.csv").write_text(CSV, encoding="utf-8-sig")
+        (root / "tasks" / "USR-4").mkdir(parents=True)
+        (root / "tasks" / "USR-4" / "task.md").write_text("mine", encoding="utf-8")
+        code, lines = run_csv(root, "--dry-run")
+        assert code == 0 and not (root / "tasks" / "USR-1").exists() and "would write USR-1" in lines
+        code, lines = run_csv(root)
+        assert lines == ["wrote USR-1", "skipped (done) USR-2", "skipped (done) USR-3", "kept USR-4", "wrote USR_5",
+                         "wrote USR-6", "wrote 3, kept 1, skipped (done) 2"], lines
+        assert (root / "tasks" / "USR-1" / "task.md").read_text(encoding="utf-8") == "# USR-1 First\n\nDo the first\n"
+        assert (root / "tasks" / "USR_5" / "task.md").is_file() and not (root / "tasks" / "USR-2").exists()
+        assert (root / "tasks" / "USR-4" / "task.md").read_text(encoding="utf-8") == "mine"
+
+
+def test_tasks_from_csv_missing_column_exits_2_with_the_columns():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "in.csv").write_text(CSV, encoding="utf-8-sig")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            assert project.main(["tasks-from-csv", str(root / "in.csv"), str(root / "tasks"), "--key", "Key"]) == 2
+        assert "Key" in err.getvalue() and "Issue key, Summary, Description, Status" in err.getvalue()
+        assert not (root / "tasks").exists()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

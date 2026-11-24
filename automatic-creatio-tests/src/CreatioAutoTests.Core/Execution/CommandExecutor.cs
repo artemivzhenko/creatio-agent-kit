@@ -221,7 +221,18 @@ public sealed class CommandExecutor
                 continue;
             }
 
-            if (!session.Catalog.TryGetElement(target.Page, code, out var entry) || entry.Definition.Type != "Tab")
+            if (!session.Catalog.TryGetElement(target.Page, code, out var entry))
+            {
+                continue;
+            }
+
+            if (entry.Definition.Type == "ToggleTab")
+            {
+                await OpenTogglePanelAsync(target, entry, session, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            if (entry.Definition.Type != "Tab")
             {
                 continue;
             }
@@ -231,6 +242,23 @@ public sealed class CommandExecutor
                 await tab.ClickAsync(cancellationToken).ConfigureAwait(false);
                 session.ActiveTabCode = code;
             }
+        }
+    }
+
+    /// <summary>
+    /// The element's <c>tab</c> names a toggle group (S45-T08): the group is set to the caption whose <c>panels</c> entry is the element.
+    /// A group that lists no panel for the element cannot be told which caption to open, so the line fails instead of running on a closed panel.
+    /// </summary>
+    private static async Task OpenTogglePanelAsync(ResolvedTarget target, CreatioAutoTests.Configuration.CatalogEntry entry, IExecutionSession session, CancellationToken cancellationToken)
+    {
+        var panels = entry.Definition.BindOptions<Frontend.Controls.ToggleTabOptions>().Panels;
+        var caption = panels.FirstOrDefault(p => p.Value == target.Code).Key
+            ?? throw new CommandFailedException("'" + target.Code + "' lies on toggle group '" + entry.Definition.Code + "', which lists no caption for it in 'panels'.");
+        var open = entry.Definition.Code + "/" + caption;
+        if (session.ActiveTabCode != open && session.Materialize(new ResolvedTarget(entry.Definition.Code, entry)) is IValueElement toggle)
+        {
+            await toggle.SetValueFromStringAsync(caption, cancellationToken).ConfigureAwait(false);
+            session.ActiveTabCode = open;
         }
     }
 

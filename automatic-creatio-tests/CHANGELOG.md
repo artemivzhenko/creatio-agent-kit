@@ -6,6 +6,12 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`upload` through a button, `tab` on a toggle panel (S45-T08).** `upload <Button> "file"` takes the file through the chooser the button's own handler opens (`no file chooser opened by <Button>` when none does). An element whose `tab` names a `ToggleTab` now opens that panel before the line (it was skipped silently, so the line ran on a closed panel). Cases `s45-upload-tab`, `s45-upload-through-button`.
+- **`select-in-dialog "A; B"` (S44-T08).** Ticks the rows of a record selection window by display value; `answer "Select"` closes it. A missing row is reported with the rows shown. `s42-links` now covers the Select path and the link rows.
+- **List pages (S44-T07).** `QuickFilter` element (`crt-quick-filter`, lookup chip): `set` ticks the listed values, `check-value` reads them. A Freedom UI `DataGrid` takes `check-row`, `select-row` and `open-row` (rows addressed by cell text; a missing row is reported with the rows shown). `analyse` of a list page writes the grid with its columns and the chips. Case `s44-order-list`.
+
 ### Removed
 
 - **The `create` command (S11-T08).** It followed a section's New button into a form; no bed has a section with a working New and `analyse` finds nothing on a Freedom UI list page, so nobody could run it. `add-record` and the `# writes` cases cover the same ground.

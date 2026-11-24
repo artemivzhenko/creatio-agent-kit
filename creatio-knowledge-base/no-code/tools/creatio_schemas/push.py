@@ -165,14 +165,36 @@ def _touch_process_dates(package: Path, paths: list[str] | None) -> list[str]:
 
 SITE_MANAGER_SQL = ('select s."ManagerName" from "SysSchema" s join "SysPackage" p on p."Id" = s."SysPackageId" '
                     "where p.\"UId\" = '{uid}' and s.\"Name\" = '{schema}'")
-SITE_SCHEMAS_SQL = ('select s."Name" "Schema" from "SysSchema" s join "SysPackage" p on p."Id" = s."SysPackageId" '
+SITE_SCHEMAS_SQL = ('select s."Name" "Schema", s."UId"::text "UId" from "SysSchema" s join "SysPackage" p on p."Id" = s."SysPackageId" '
                     "where p.\"UId\" = '{uid}'")
 
 
-def missing_schemas(package: Path, head: set[str] | None, site: set[str] | None) -> list[str]:
-    """The schemas the install would delete: in git HEAD or on the site in this package, and no folder here."""
-    here = {d.parent.name for d in package.glob("Schemas/*/descriptor.json")}
-    return sorted(((head or set()) | (site or set())) - here)
+def _folder_uids(package: Path) -> dict[str, str]:
+    """UId -> folder name of the schema folders here (a folder without a readable UId is left out)."""
+    uids = {}
+    for d in package.glob("Schemas/*/descriptor.json"):
+        try:
+            uids[str(uuid.UUID(json.loads(d.read_text(encoding="utf-8-sig"))["Descriptor"]["UId"]))] = d.parent.name
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return uids
+
+
+def missing_schemas(package: Path, head: set[str] | None, site: dict[str, str] | None) -> tuple[list[str], list[str]]:
+    """The schemas the install would delete, and the renames it does: a site row (name -> UId) of this package whose UId
+    is a folder here under another name is `renamed <old> -> <new>`; any other name in git HEAD or on the site without a
+    folder here is a deletion."""
+    here, uids = {d.parent.name for d in package.glob("Schemas/*/descriptor.json")}, _folder_uids(package)
+    renamed = {}
+    for name, uid in (site or {}).items():
+        try:
+            new = uids.get(str(uuid.UUID(uid))) if name not in here else None
+        except (ValueError, TypeError, AttributeError):
+            new = None
+        if new and new != name:
+            renamed[name] = new
+    gone = ((head or set()) | set(site or {})) - here - set(renamed)
+    return sorted(gone), [f"renamed {old} -> {new}" for old, new in sorted(renamed.items())]
 
 
 COMPILE_ERROR = re.compile(r"\berror\s+CS\d+", re.IGNORECASE)
@@ -190,6 +212,27 @@ def errors_by_package(log_text: str) -> dict[str, list[str]]:
         path, file = PKG_IN_PATH.search(line), PKG_IN_FILE.search(line)
         groups.setdefault(path.group(1) if path else file.group(2) if file else "?", []).append(line.strip())
     return groups
+
+
+def stale_bin(package: Path, name: str) -> str | None:
+    """Why `Files/Bin/<name>.dll` is older than the sources it should hold, or None. `push-pkg` installs that dll as it is: a
+    class edited or deleted in `Files/cs` after the last build keeps running on the site (S44-T06). A deletion shows in the
+    folder's own time, so a removed source counts whether git knows it or not."""
+    sources = [p for root in ("Files/cs", "Files/src/cs") for p in (package / root).rglob("*.cs") if (package / root).is_dir()]
+    folders = [d for root in ("Files/cs", "Files/src/cs") if (package / root).is_dir()
+               for d in [package / root, *(x for x in (package / root).rglob("*") if x.is_dir())]]
+    if not sources and not folders:
+        return None
+    dll = package / "Files" / "Bin" / f"{name}.dll"
+    if not dll.is_file():
+        return f"Files/Bin/{name}.dll is missing while Files/cs holds sources"
+    built = dll.stat().st_mtime
+    newest = max(sources + folders, key=lambda p: p.stat().st_mtime)
+    if newest.stat().st_mtime <= built:
+        return None
+    minutes = int((newest.stat().st_mtime - built) // 60)
+    what = newest.relative_to(package).as_posix() + ("/ (a file deleted or added there)" if newest.is_dir() else "")
+    return f"Files/Bin/{name}.dll is older than Files/cs ({what}, {minutes} min newer)"
 
 
 def _head_schemas(package: Path) -> set[str] | None:
@@ -363,6 +406,9 @@ def binding_overwrites(package: Path, rows_of) -> tuple[list[str], list[str]]:
 
 
 NO_RESULT = "wrote no result"  # clio's own failure (environment, network), not an answer of the site
+COMPILE_POLL_S, COMPILE_WAIT_S = 15, 600  # a clio without compile-package --wait: poll CompilationHistory, clio's own --wait-timeout
+COMPILE_HISTORY_SQL = ('select "CreatedOn"::text "at", "Result" "ok" from "CompilationHistory" '
+                       "where \"ProjectName\" = '{name}.csproj' order by \"CreatedOn\" desc limit 1")
 
 
 class PublishError(RuntimeError):
@@ -371,6 +417,27 @@ class PublishError(RuntimeError):
     def __init__(self, text: str, verdict: str):
         super().__init__(text)
         self.text, self.verdict = text, verdict
+
+
+def resolve_task(task: Path | str | None, tasks: Path | str | None = None, project: Path | str | None = None) -> Path | None:
+    """The task folder: an absolute `task`, or a relative one that exists from here, as it is; otherwise its name under
+    `tasks`, else under the project's `paths.tasks` (relative to project.json) - so the push log and the ownership check
+    meet the folder the project means, not the server's cwd (a `task=001-...` from an MCP call landed in the cwd)."""
+    if task is None:
+        return None
+    task = Path(task)
+    if task.is_absolute() or task.is_dir():
+        return task
+    base = Path(tasks) if tasks else None
+    if base is None and project:
+        project_path = Path(project).resolve()
+        try:
+            value = json.loads(project_path.read_text(encoding="utf-8-sig"))["paths"]["tasks"]
+        except (OSError, ValueError, KeyError, TypeError):
+            value = None
+        if value:
+            base = Path(value) if Path(value).is_absolute() else project_path.parent / value
+    return (base / task.name) if base is not None else task
 
 
 def details_path(package: Path, task: Path | None = None) -> Path:
@@ -406,7 +473,8 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
           project: Path | None = None, tasks: Path | None = None, task: Path | None = None,
           force: bool = False, baseline: Path | None = None, skip_drift: bool = False,
           skip_foreign_files: bool = False, skip_sql_dates: bool = False,
-          skip_compile_package: bool = False, bin_dir: Path | None = None, allow_removed: list[str] | None = None) -> int:
+          skip_compile_package: bool = False, bin_dir: Path | None = None, allow_removed: list[str] | None = None,
+          skip_stale_bin: bool = False) -> int:
     package = Path(package).resolve()
     allowed = sorted({s.strip() for s in allow_removed or [] if s.strip()})
     try:
@@ -417,6 +485,8 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         log("push FAILED at package")
         return 1
     start = time.monotonic()
+    version = clio.version()
+    log(f"clio: {version}")
     statements = [f'update "{table}" set "IsChanged"=false' for table in ISCHANGED_TABLES]
     commit, changed, compilation_log = None, None, ""
 
@@ -478,7 +548,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
             return "dry run"
         head, site, note = _head_schemas(package), None, ""
         try:
-            site = {str(r["Schema"]) for r in clio.execute_sql_rows(SITE_SCHEMAS_SQL.format(uid=uuid.UUID(descriptor["UId"])))}
+            site = {str(r["Schema"]): str(r.get("UId") or "") for r in clio.execute_sql_rows(SITE_SCHEMAS_SQL.format(uid=uuid.UUID(descriptor["UId"])))}
         except (RuntimeError, KeyError, ValueError, TypeError) as exc:  # no site answer: HEAD alone decides
             detail(f"  site schemas: {exc}")
             note = " (site not checked)"
@@ -495,10 +565,12 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
             if refs:
                 raise RuntimeError(f"{schema} is still referenced: " + "; ".join(
                     re.sub(r"^references: (\S+ \d+ rows).*$", r"\1", r) for r in refs))
-        missing = [s for s in missing_schemas(package, head, site) if s not in allowed]
+        gone, renamed = missing_schemas(package, head, site)
+        missing = [s for s in gone if s not in allowed]
         if missing:  # no --force: the installer deletes them, and a foreign key rolls the whole install back
             raise RuntimeError("package install deletes schemas absent from the package: " + ", ".join(missing))
         done = ("ok" if head is not None or site is not None else "not checked (no git, no site)") + note
+        done += "".join(f"; {r}" for r in renamed)  # same UId under a new name: the install renames the row
         return done + (f"; removal allowed: {', '.join(allowed)}" if allowed else "")
 
     def bindings():
@@ -518,7 +590,8 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         if kept:
             log(f"  {len(kept)} value(s) on the site differ and are not overwritten")
         if forced and not force:
-            raise RuntimeError(f"{len(forced)} force-update value(s) on the site would be overwritten (listed above); --force pushes anyway")
+            raise RuntimeError(f"{len(forced)} force-update value(s) on the site would be overwritten (listed above); --force pushes anyway; "
+                               "a push cannot skip a binding (P-2.18): one page goes by push.py page")
         counts = f"{len(kept)} differ, not overwritten" if kept else ""
         if forced:
             return f"forced ({len(forced)} overwritten" + (f", {counts})" if counts else ")")
@@ -556,7 +629,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         git_context()
         if commit is None:
             raise RuntimeError("cannot check uncommitted task files without git")
-        conflicts = _task_conflicts(folder, Path(task), changed)
+        conflicts = _task_conflicts(folder, resolve_task(task, tasks, project), changed)
         if conflicts:
             raise RuntimeError("; ".join(conflicts))
         return "ok"
@@ -625,10 +698,34 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
             return "skipped"
         if not assembly:
             return "not needed"
-        output = command(["compile-package", pkg_name, "-e", env, "--wait"])
+        try:
+            output = command(["compile-package", pkg_name, "-e", env, "--wait"])
+        except RuntimeError as exc:
+            if not re.search(r"Option 'wait' is unknown", str(exc)):
+                raise
+            return compile_and_poll()
         if output.strip():
             log(f"  {output.strip().splitlines()[-1]}")
         return "dry run" if dry_run else "ok"
+
+    def compile_and_poll():
+        """compile-package without --wait, then the package's CompilationHistory row polled until a new one is written."""
+        sql = COMPILE_HISTORY_SQL.format(name=pkg_name.replace("'", "''"))
+        before = next((str(r.get("at")) for r in clio.execute_sql_rows(sql)), "")
+        output = command(["compile-package", pkg_name, "-e", env])
+        if output.strip():
+            log(f"  {output.strip().splitlines()[-1]}")
+        began = time.monotonic()
+        while True:
+            row = next(iter(clio.execute_sql_rows(sql)), None)
+            waited = int(time.monotonic() - began)
+            if row is not None and str(row.get("at")) != before:
+                if str(row.get("ok")).lower() not in ("true", "1"):
+                    raise RuntimeError(f"CompilationHistory: {pkg_name}.csproj failed (clio {version}: no --wait, polled {waited} s)")
+                return f"ok (clio {version}: no --wait, polled {waited} s)"
+            if waited >= COMPILE_WAIT_S:
+                raise RuntimeError(f"no new CompilationHistory row for {pkg_name}.csproj in {waited} s (clio {version}: no --wait)")
+            time.sleep(COMPILE_POLL_S)
 
     def check_baseline():
         if baseline is None:
@@ -704,7 +801,17 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         checked = len(names) - len(unchecked)
         return f"ok ({checked} compiled, {len(unchecked)} not checked)" if unchecked else f"ok ({checked} compiled)"
 
-    steps = (("drift", drift), ("package schemas", package_schemas), ("bindings", bindings), ("dependencies", dependencies),
+    def bin_age():
+        if not assembly:
+            return "n/a (not an assembly package)"
+        why = stale_bin(package, pkg_name)
+        if why is None:
+            return "ok" if (package / "Files" / "Bin" / f"{pkg_name}.dll").is_file() else "n/a (no Files/cs)"
+        if skip_stale_bin:
+            return f"skipped (--skip-stale-bin): {why}"
+        raise RuntimeError(f"{why}: build the package (dotnet build, or the pipeline's build) and push again; --skip-stale-bin passes")
+
+    steps = (("drift", drift), ("package schemas", package_schemas), ("stale bin", bin_age), ("bindings", bindings), ("dependencies", dependencies),
              ("foreign files", foreign_files), ("sql dates", sql_dates), ("process dates", process_dates),
              ("clear IsChanged", clear), ("push-pkg", install), ("script compile", scripts), ("compilation log", compilation),
              ("compile-package", compile_package), ("baseline", check_baseline), ("publish", publish))
@@ -728,14 +835,14 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
 
     if probe:
         try:
-            _run_probes(package, env, dry_run, log)
+            skipped = _run_probes(package, env, dry_run, log)
             if not dry_run:
                 caption_probe(package, descriptor.get("UId"), clio.execute_sql_rows, log)
         except RuntimeError as exc:
             log(f"probes: FAILED {str(exc)[:200]}")
             log("push FAILED at probes")
             return 1
-        log("probes: ok")
+        log("probes: ok" + (f" ({len(skipped)} skipped: {', '.join(skipped)})" if skipped else ""))
 
     if dry_run:
         log(f"dry run of {pkg_name} -> {env}: {ran} of {len(steps)} steps would run, nothing sent")
@@ -772,8 +879,9 @@ def caption_probe(package: Path, package_uid, rows_of, log) -> list[str]:
     return out
 
 
-def _run_probes(package: Path, env: str, dry_run: bool, log) -> None:
-    """Run object and SQL script probes for package items."""
+def _run_probes(package: Path, env: str, dry_run: bool, log) -> list[str]:
+    """Run object and SQL script probes for package items; the names of the items a probe skipped."""
+    skipped: list[str] = []
     tools = Path(__file__).resolve().parent.parent
     items = [(tools / "objects" / "objects.py", p.name) for p in _schemas(package, "EntitySchemaManager")]
     items += [(tools / "sqlscripts" / "sqlscripts.py", p.parent.name)
@@ -792,3 +900,6 @@ def _run_probes(package: Path, env: str, dry_run: bool, log) -> None:
             log(f"  probe {name}: {line}")
         if result.returncode:
             raise RuntimeError(f"probe {name} exited {result.returncode}: {output[-500:]}")
+        if any(line.startswith("skipped:") for line in output.splitlines()):
+            skipped.append(name)
+    return skipped

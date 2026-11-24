@@ -10,7 +10,8 @@ them. Pure Python standard library (`api.py` also needs Windows PowerShell).
 | File | What it does |
 | --- | --- |
 | `sql.py` | SQL through clio: rows as JSON (default) or `--csv`, one statement per clio call; a statement that is not select / with / show / explain needs `--write` and prints `affected: N` |
-| `call.py` | `GET`/`POST`/`PATCH`/`PUT`/`DELETE` a site path with login and CSRF: status, then JSON or the fault |
+| `call.py` | `GET`/`POST`/`PATCH`/`PUT`/`DELETE` a site path with login and CSRF: status, then JSON or the fault; `--upload <file>` sends a file (multipart, or base64 in `--field`) |
+| `file.py` | `get <FileSchema> <Id> --out <path>`: a file record's bytes from the site through SQL; prints `path: N bytes, type` |
 | `proc-run.py` | start a process, print its result parameters and its `SysProcessLog` row; exit 1 unless completed |
 | `proc-runs.py` | `runs` of a process (`--steps`: the elements of each run), or around the changes of a record; `timers` pending; `fire` one early (dev only); `error` of one run without stack frames |
 | `unit.py` | `run --category` / `--class`: the project's in-Creatio tests, one row per test |
@@ -57,6 +58,8 @@ python sql.py --project project.json --write "update ..."   an update/insert nee
 python call.py -e <env> POST ServiceModel/UsrOrderService.svc/Recalc '{"orderId": "..."}'
 python call.py -e <env> POST rest/UsrOrderService/Recalc --file body.json
 python call.py -e <env> GET odata/Contact?$top=1
+python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf
+python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf --field content '{"kind": "invoice"}'
 ```
 
 ### env proc-run
@@ -100,6 +103,12 @@ python record.py transitions -e <env> <Entity>.<Column> [--from "A"] [--to "B"] 
 | `history` | the change log of a record: when, who, was -> became |
 | `transitions` | every change of one column of an object, from its change log |
 
+### env file
+
+```
+python file.py get <FileSchema> <Id> -e <env> --out <path>
+```
+
 ### env data
 
 ```
@@ -113,6 +122,13 @@ python data.py fixture -e <env> <Entity> [--alias A] [--columns "UsrNotes,UsrSta
 | `lookup-values` | the rows of a lookup ordered by Name |
 | `sample` | records of an object with their lookups named |
 | `fixture` | a synthetic DSL insert block of the object's shape |
+
+### env shell
+
+```
+python shell.py <pattern> -e <env> [--context 2] [--limit 40] [--offset 0]
+python shell.py <pattern> --project project.json
+```
 
 ### env roles
 
@@ -140,6 +156,7 @@ python setting.py <Code> --project project.json        (its `environments` list,
 ```
 python proc-runs.py runs  -e <env> --process UsrOrder_Process [--limit 20] [--since 2026-11-11] [--until ...]
 python proc-runs.py runs  -e <env> --record UsrOrder:<id> [--window 30] [--steps]
+python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<caption or element UId>" [--status running]
 python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
 python proc-runs.py fire  --project project.json --process UsrOrder_Process --record UsrOrder:<id> [--timer "1 d."] [--delay 20]
 python proc-runs.py error -e <env> <log id>
@@ -152,6 +169,20 @@ python proc-runs.py error -e <env> <log id>
 | `fire` | move a pending timer to now + --delay seconds (dev environments only) |
 | `error` | one run's error without stack frames, and the element it stopped on |
 <!-- commands:end -->
+
+## The platform's client code: shell_source
+
+`python env/shell.py <pattern> -e <env> [--context 2] [--limit 40]` (MCP `shell_source`; library `creatio_schemas/shell.py`,
+S44-T02): a regex over the site's Freedom UI shell - the bundles `/0/Shell/` names and the webpack chunks the
+`main.<hash>.js` map lists - for "how does the platform do X on this version" on the client side (`find_api` is the C#
+side). The first call for a version downloads them once into `~/.creatio-kit/shell/<host>/<hash>/` (outside every
+repository; a new hash replaces the old folder) and says `downloaded N files (M MB) ...`; the map lists more chunks than a
+site deploys (the 8.2.3 test site served 60 of 262; the rest is `not served by the site (404)`) - true absences: the site's
+`Terrasoft.WebApp/Shell` folder holds exactly those 60 files, so no retry or other path brings the rest. Then `<file>:<line>:
+<text>` per hit - the chunks are minified, so a line is cut to 200 characters around the match - with `context` lines.
+Read-only GETs as the logged-in user; the code is never executed. A hit is an observation of the platform's code: a probe
+or a case proves a behaviour (an `N-` row until then). Live on the test site: `QuickFilter` -> 163 hits, the first in the
+timeline component's quick-filter initialisation.
 
 ## Test data (`data.py`)
 
@@ -305,6 +336,12 @@ keeps every message line; the element is the newest with an error, else the newe
 `environment.noiseProcesses` of `project.json` (names or prefixes) hides runs of those processes from `runs --record`
 and the unfiltered list, with the line `N runs of noise processes hidden`; `--process` never hides what it names.
 
+### Open tasks of an element (S45-T10)
+
+`runs --process <P> --element "<caption or element UId>" [--status running]` (MCP `process_runs element= status=running`) lists the
+elements of `SysProcessElementLog` with no end date and no error (`SchemaElementUId` or `Caption` as asked), newest first, joined to
+`SysProcessLog` for the process's copies; the record is the first `SysProcessEntity` row of the run. First line: `N running tasks`.
+
 ### Steps, timers and firing a timer early (S33-T06)
 
 `runs --steps` (MCP `process_runs steps=true`) reads one more statement for all the runs it prints:
@@ -411,6 +448,15 @@ state it starts from). `record.py transitions` / `column_transitions <Entity>.<C
   exits 2 with the start of the answer - add its keys to `NAME_KEYS` / `PASS_KEYS` in `unit.py`.
 - `api.py` on a .NET Core site: point `--bin` at its `.application/net-framework/core-bin` copy;
   Windows PowerShell 5.1 cannot load .NET Core-only assemblies.
+- The kit's site SQL is PostgreSQL (`::text`, `md5`, `convert_from`, lateral joins, the `tsp_*` functions). Every
+  `Environment.sql` consumer is PostgreSQL-only: `schema_layers` (`describe.py layers`), the site half of
+  `schema_snapshot` (`integrity.py`), the `-e` steps of `merge_plan` / `merge_run` / `merge_package`, the push's
+  probes and `verify_pushed` (`verify.py`), `describe_table` and the site columns (`entity/database.py`, `describe/site.py`),
+  the forensics (`record_context`, `find_record`, `record_history`, `role_members`, `user_roles`, `role_diff`, `sys_setting`,
+  `who_sets`), `process_runs` / `process_timers` / `fire_timer` (`runs.py`), the test data (`make_fixture`,
+  `sample_records`), `unit.py`'s lookups; `env sql` runs what you write. A failed query raises with the database's line
+  (`[ERR]`, a SQLSTATE line, MS SQL's `Msg N, Level N`); `schema_layers` then answers `error: the layers query failed
+  on <env>: <line>`, led by a PostgreSQL note when `select version()` does not name PostgreSQL - never "no copy".
 
 ## Verified
 

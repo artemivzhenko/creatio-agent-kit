@@ -19,5 +19,6 @@ are not retained.
 | command | what it does |
 | --- | --- |
 | `sync` | write the framework environment from project.json |
+| `tasks-from-csv` | one task folder per row of a tracker's CSV export |
 <!-- commands:end -->
 

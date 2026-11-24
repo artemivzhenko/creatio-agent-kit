@@ -15,7 +15,7 @@ codebase — things general Creatio knowledge gets wrong or does not know.
 
 Do not write a Creatio schema from memory. The API surface differs sharply between
 Classic UI and Freedom UI, and several details in this solution are counter-intuitive
-(`UseAdminRights` defaults to bypassing permissions; `itemType: 2` is a detail, not a
+(`UseAdminRights` defaults to true, which CHECKS permissions - `false` lifts them; `itemType: 2` is a detail, not a
 tab panel; a delete button without the empty-selection guard deletes everything).
 
 Workflow:

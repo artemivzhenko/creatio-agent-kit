@@ -95,8 +95,12 @@ class DataBinding(PackageItem):
                 raise ValueError(f"{self.dir / 'descriptor.json'}: missing")
             raise FileNotFoundError(f"no data binding {name} in {self.package}")
         self.descriptor = Descriptor(self.dir / "descriptor.json")
-        self.data = JsonFile(self.dir / "data.json")
+        # a binding without data: no data.json yet (the designer writes it with the first row), or `"PackageData": null`
+        self.data = JsonFile(self.dir / "data.json") if (self.dir / "data.json").is_file() else JsonFile.new(self.dir / "data.json", {"PackageData": []})
         self.loc = {p.name[len("data."):-len(".json")]: JsonFile(p) for p in sorted((self.dir / "Localization").glob("data.*.json"))}
+        for f in (self.data, *self.loc.values()):
+            if f.obj.get("PackageData") is None:
+                f.obj["PackageData"] = []
 
     def files(self):
         out = {self.descriptor.path: (self.descriptor.text, True), self.data.path: (self.data.render(), self.data.bom)}

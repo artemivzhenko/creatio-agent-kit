@@ -98,13 +98,13 @@ namespace Terrasoft.Configuration.FileUpload
 		}
 
 		/// <summary>
-		/// Reads the file record. UseAdminRights = false keeps the query under the rights of
-		/// the user who uploaded the file - see HowToControlAdminRights.
+		/// Reads the file record. UseAdminRights = true (the default) keeps the query under the rights of
+		/// the user who uploaded the file; false would lift them - see HowToControlAdminRights.
 		/// </summary>
 		protected Entity GetFileEntity(Guid fileId) {
 			var esq = new EntitySchemaQuery(UserConn.EntitySchemaManager, TargetSchemaName);
 			esq.PrimaryQueryColumn.IsAlwaysSelect = true;
-			esq.UseAdminRights = false;
+			esq.UseAdminRights = true;
 			esq.AddColumn("Name");
 			esq.AddColumn("UsrApplication");
 			return esq.GetEntity(UserConn, fileId);

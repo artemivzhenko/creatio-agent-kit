@@ -69,14 +69,53 @@ def test_v2_options_are_forwarded_and_failure_reason_survives():
                 "project": Path("project.json"), "tasks": Path("tasks"), "task": Path("tasks/UsrTask"),
                 "force": True, "baseline": Path("baseline.txt"), "skip_drift": True,
                 "skip_foreign_files": True, "skip_sql_dates": True, "skip_compile_package": True,
-                "allow_removed": ["UsrGone", "UsrOld"],
+                "allow_removed": ["UsrGone", "UsrOld"], "skip_stale_bin": True,
             }
             log("push FAILED at compilation: new errors")
             return 1
         with patch.object(push_module, "Clio", return_value=FakeClio()), patch.object(push_module, "push", side_effect=fake_push):
             output = server.push_package(str(pkg), "dev", True, True, "project.json", "tasks", "tasks/UsrTask",
-                                         True, "baseline.txt", True, True, True, True, "UsrGone,UsrOld")
+                                         True, "baseline.txt", True, True, True, True, "UsrGone,UsrOld", skip_stale_bin=True)
         assert "new errors" in output and output.endswith("exit code 1")
+
+
+
+def test_push_package_with_a_page_saves_that_page_only():
+    """S44-T03: `page` runs push_page (update-page + verify), not the package install."""
+    import creatio_schemas.push_page as push_page_module
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = Path(tmp) / "UsrPkg"
+        pkg.mkdir()
+        (pkg / "descriptor.json").write_text('{"Descriptor": {"Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001"}}', encoding="utf-8")
+        seen = {}
+
+        def fake(package, page, env, clio, verify_fn, dry_run=False, force=False):
+            seen.update(package=package, page=page, env=env, dry_run=dry_run, force=force)
+            return ["update-page: dry run ok (UsrPkg, replace)"], 0
+        with patch.object(push_page_module, "push_page", side_effect=fake), \
+                patch.object(push_module, "push", side_effect=AssertionError("the package must not be installed")):
+            out = server.push_package(str(pkg), "dev", dry_run=True, page=" UsrOrder_FormPage ")
+        assert out == "update-page: dry run ok (UsrPkg, replace)\nexit code 0", out
+        assert seen == {"package": pkg, "page": "UsrOrder_FormPage", "env": "dev", "dry_run": True, "force": False}, seen
+        with patch.object(push_page_module, "push_page", side_effect=ValueError("UsrX is not a Freedom UI page")):
+            out = server.push_package(str(pkg), "dev", dry_run=True, page="UsrX")
+        assert out == "error: ValueError: UsrX is not a Freedom UI page\nexit code 2", out
+
+
+def test_shell_source_answers_through_the_library_and_names_an_error():
+    """S44-T02: the tool hands the site, the pattern and the paging to creatio_schemas.shell; an error is `error: <type>: ...`."""
+    import creatio_schemas.shell as shell_module
+    seen = {}
+
+    def fake(env, pattern, context, limit, offset):
+        seen.update(pattern=pattern, context=context, limit=limit, offset=offset)
+        return "1 hit(s) of /QuickFilter/ in abcdef12"
+    with patch.object(server, "_env", return_value="site"), patch.object(shell_module, "shell_source", side_effect=fake):
+        assert server.shell_source("dev", "QuickFilter", 1, 5, 10) == "1 hit(s) of /QuickFilter/ in abcdef12"
+        assert seen == {"pattern": "QuickFilter", "context": 1, "limit": 5, "offset": 10}, seen
+    with patch.object(server, "_env", return_value="site"), \
+            patch.object(shell_module, "shell_source", side_effect=RuntimeError("the shell page names no main.<hash>.js bundle")):
+        assert server.shell_source("dev", "x") == "error: RuntimeError: the shell page names no main.<hash>.js bundle"
 
 
 def test_the_push_answer_is_the_summary_with_a_details_file():
@@ -159,6 +198,13 @@ def test_schema_layers_reads_custom_layer_from_project():
         text = server.schema_layers(str(project), "UsrOrderPage")
         assert text.startswith("UsrOrderPage on dev: 2 copies") and text.endswith("Custom layer present: UsrCustom - it cannot be deleted by the tools; the human removes it on the site"), text
         assert "Custom layer present" not in server.schema_layers("dev", "UsrOrderPage"), "the default customisation package is Custom"
+
+        def failing(text, counts=None):  # the layers query fails, version() answers: a PostgreSQL site
+            if "version()" in text:
+                return [{"v": "PostgreSQL 16.4"}]
+            raise RuntimeError("sql: [ERR] - 42883: function tsp_UsrX(unknown) does not exist")
+        fake.sql = failing
+        assert server.schema_layers("dev", "UsrOrderPage") == "error: the layers query failed on dev: [ERR] - 42883: function tsp_UsrX(unknown) does not exist"
     with patch.object(env_module, "open_environment", lambda env, project, **kw: (_ for _ in ()).throw(ValueError("no such environment"))):
         assert server.schema_layers("nope", "X") == "error: no such environment"
 
@@ -363,7 +409,7 @@ def test_the_summary_over_a_fixture_log():
         assert tool_stats.summarise([]) == "(no tool calls logged)"
         with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder), "CREATIO_KB_GAPS_DIR": str(folder / "gaps")}):
             lines = server.tool_stats(1).splitlines()  # the tool reads the log, then logs itself
-            assert lines[-2] == "4 calls, 15100 chars, 1 truncated (25%)" and lines[-1] == "gaps: 0", lines[-2:]
+            assert lines[-3] == "4 calls, 15100 chars, 1 truncated (25%)" and lines[-2] == "gaps: 0" and lines[-1] == "errors: 0", lines[-3:]
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
@@ -405,7 +451,7 @@ def test_report_gap_records_the_line_and_keeps_the_script():
             with open(folder / "gaps" / "gaps.jsonl", "a", encoding="utf-8") as fh:
                 fh.write("[1, 2]\n")
             # the summary ends with the count by kind and the last gap
-            last = server.tool_stats(1).splitlines()[-1]
+            last = server.tool_stats(1).splitlines()[-2]  # the gaps line; the errors line follows it
             assert last.startswith("gaps: 4 (missing 2, misbehaved 1, by-hand 1); last: ") and last.endswith(" missing a value"), last
             assert tool_stats.summarise([], []) == "(no tool calls logged)\ngaps: 0"
     finally:
@@ -766,6 +812,29 @@ def test_role_profiles_register_their_tools_only():
     assert names == everything and "unknown CREATIO_KB_ROLE 'reviewer'" in err and first.startswith("profile: all"), err
     names, _, first = _profile_run(" Tester ")
     assert names == server.PROFILES["tester"], "the value is read case- and space-blind"
+
+
+def test_a_tool_that_raises_answers_an_error_line_and_is_logged():
+    """A parser that chokes inside a tool is an `error: ...` answer the agent can read, one line of `.stats/errors.jsonl`
+    (tool, argument names, the error, the last frames - no value) and an `errors:` line in tool_stats."""
+    import json
+    import tool_stats
+    folder = Path(tempfile.mkdtemp())
+    try:
+        def broken(path: str, limit: int = 5) -> str:
+            raise TypeError("object of type 'NoneType' has no len()")
+
+        with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder)}):
+            answer = tool_stats.instrument(broken, folder)("C:/secret/pkg", limit=3)
+        assert answer.startswith("error: TypeError: object of type 'NoneType' has no len() - the parser or the tool failed; the call is logged in ") and answer.endswith("errors.jsonl (tool_stats lists it)"), answer
+        lines = [json.loads(l) for l in (folder / "errors.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert len(lines) == 1 and lines[0]["tool"] == "broken" and lines[0]["args"] == {"path": 13, "limit": 1} and "secret" not in json.dumps(lines[0])
+        assert lines[0]["where"][-1].endswith("in broken") and lines[0]["error"].startswith("TypeError")
+        errors = tool_stats.read_errors(1, folder)
+        assert len(errors) == 1 and tool_stats.errors_line(errors).startswith("errors: 1 (broken x 1); last: broken TypeError")
+        assert tool_stats.summarise([], [], errors).endswith("\n" + tool_stats.errors_line(errors)) and tool_stats.summarise([], []) == "(no tool calls logged)\ngaps: 0"
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 if __name__ == "__main__":

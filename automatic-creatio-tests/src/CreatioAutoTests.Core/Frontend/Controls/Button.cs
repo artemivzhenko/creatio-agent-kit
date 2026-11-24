@@ -1,3 +1,4 @@
+using CreatioAutoTests.Execution;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 
@@ -8,7 +9,7 @@ namespace CreatioAutoTests.Frontend.Controls;
 /// rather than a hard-coded type enum, so a project can describe its own buttons in configuration.
 /// </summary>
 [UiElement("Button", HostTag = "crt-button", Options = typeof(ButtonOptions))]
-public sealed class Button : FreedomElementBase, IClickable
+public sealed class Button : FreedomElementBase, IClickable, IUploadable
 {
     private const string NotificationSelector = "output[data-qa=\"notificationPopup\"].crt-notify-message";
 
@@ -55,6 +56,51 @@ public sealed class Button : FreedomElementBase, IClickable
         }
 
         await CompleteSaveAsync(target, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>upload Button "file"</c> (S45-T08): a button whose handler opens its own file chooser. The click is made inside the chooser event,
+    /// the file is set, and the page is given time to go idle. A button that opens no chooser fails with the button's code.
+    /// </summary>
+    public async Task UploadAsync(string path, CancellationToken cancellationToken = default)
+    {
+        if (!await ExistsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw NotFound();
+        }
+
+        await EnsureEnabledAsync().ConfigureAwait(false);
+        var target = await ResolveClickTargetAsync().ConfigureAwait(false);
+        await UploadThroughChooserAsync(
+            Code,
+            path,
+            async () => await Page.RunAndWaitForFileChooserAsync(
+                () => target.ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }),
+                new PageRunAndWaitForFileChooserOptions { Timeout = TimeoutMs }).ConfigureAwait(false)).ConfigureAwait(false);
+        try
+        {
+            await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Logger.LogDebug("The page did not go idle after {Code} took the file.", Code);
+        }
+    }
+
+    /// <summary>Waits for the chooser the click opens and gives it the file; no chooser within the timeout is a failed line.</summary>
+    internal static async Task UploadThroughChooserAsync(string code, string path, Func<Task<IFileChooser>> openChooser)
+    {
+        IFileChooser chooser;
+        try
+        {
+            chooser = await openChooser().ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            throw new CommandFailedException("no file chooser opened by " + code);
+        }
+
+        await chooser.SetFilesAsync(path).ConfigureAwait(false);
     }
 
     private async Task<ILocator> ResolveClickTargetAsync()

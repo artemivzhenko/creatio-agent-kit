@@ -32,8 +32,8 @@ PROFILES: dict[str, set[str]] = {
     "find_api", "find_schema", "find_text", "get_code_style", "get_recipe", "index_workspace", "kb_overview",
     "list_lookups", "lookup_values", "page_audit", "precommit_check", "process_error", "process_runs", "push_package",
     "report_gap", "resolve_caption", "resolve_uid", "run_process", "run_tests", "sample_records", "schema_deps",
-    "schema_diff", "schema_impact", "schema_layers", "search_recipes", "sys_setting", "tool_stats", "verify_pushed",
-    "who_reads_message", "who_sets",
+    "schema_diff", "schema_impact", "schema_layers", "search_recipes", "shell_source", "sys_setting", "tool_stats",
+    "verify_pushed", "who_reads_message", "who_sets",
     },
     "tester": {
     "cases_from_package", "column_transitions", "describe_item", "describe_package", "describe_schema",
@@ -654,7 +654,8 @@ def merge_run(path: str, child: str, parent: str, env: str, evidence: str) -> st
 def push_package(package: str, env: str, probe: bool = False, dry_run: bool = False,
                  project: str = "", tasks: str = "", task: str = "", force: bool = False,
                  baseline: str = "", skip_drift: bool = False, skip_foreign_files: bool = False,
-                 skip_sql_dates: bool = False, skip_compile_package: bool = False, allow_removed: str = "") -> str:
+                 skip_sql_dates: bool = False, skip_compile_package: bool = False, allow_removed: str = "", page: str = "",
+                 skip_stale_bin: bool = False) -> str:
     """
     Install a package with the push CLI's checks around it: drift (schemas modified on the site after the package's last
     commit), dropped dependencies, task ownership (`project` + `task`, or `tasks`), SQL dates, IsChanged cleared, push-pkg,
@@ -664,7 +665,11 @@ def push_package(package: str, env: str, probe: bool = False, dry_run: bool = Fa
     stops when the install would delete a schema the site or git HEAD has, or would overwrite a force-update binding
     value the site holds otherwise. `allow_removed` ("UsrOrder,UsrShipment"): the schemas a merge took out of this package
     on purpose - pushed only when each is absent from the folder and no site row references it (the merge's check). A failed
-    compile names whose errors: `compile FAILED: N error(s) in <Pkg>, ...`.
+    compile names whose errors: `compile FAILED: N error(s) in <Pkg>, ...`. An assembly package whose `Files/Bin/<Pkg>.dll` is older
+    than `Files/cs` stops (push-pkg would install the old dll); build it, or `skip_stale_bin` on purpose. `page` ("UsrOrder_FormPage"): no install - that ONE
+    Freedom UI page of the package saved with clio update-page (replace, into this package, against the checksum get-page
+    reads) and then verified; the package's bindings and other schemas are not touched (a push cannot skip a binding,
+    P-2.18). The site must let the designer edit the package (its Maintainer, not an archive install), else it says so.
     """
     package = _package_path(package, project)
     if not package.strip() or not (Path(package) / "descriptor.json").is_file():
@@ -673,16 +678,29 @@ def push_package(package: str, env: str, probe: bool = False, dry_run: bool = Fa
         return "error: env must not be empty"
     _tools_path()
     from creatio_schemas import push as _push
+    if page.strip():
+        from creatio_schemas.environment import open_environment
+        from creatio_schemas.push_page import push_page
+        from creatio_schemas.verify import verify
+        try:
+            env_obj = None if dry_run else open_environment(env)
+            out, code = push_page(Path(package), page.strip(), env, _push.Clio(env), lambda pkg, names: verify(pkg, env_obj, names),
+                                  dry_run=dry_run, force=force)
+        except (OSError, KeyError, ValueError, RuntimeError) as e:
+            out, code = [f"error: {type(e).__name__}: {e.args[0] if e.args else e}"], 2
+        return "\n".join(out + [f"exit code {code}"])
     lines: list[str] = []
     # the answer is the summary, the whole log a file (a dry run's answer is its commands)
-    details = {} if dry_run else {"details": _push.details_path(Path(package), Path(task) if task else None)}
+    task_folder = _push.resolve_task(task or None, tasks or None, project or None)  # a relative task under the project's paths.tasks, not the server's cwd
+    details = {} if dry_run else {"details": _push.details_path(Path(package), task_folder)}
     try:
         code = _push.push(Path(package), env, _push.Clio(env), probe, dry_run, log=lines.append,
                           project=Path(project) if project else None, tasks=Path(tasks) if tasks else None,
-                          task=Path(task) if task else None, force=force,
+                          task=task_folder, force=force,
                           baseline=Path(baseline) if baseline else None, skip_drift=skip_drift,
                           skip_foreign_files=skip_foreign_files, skip_sql_dates=skip_sql_dates,
-                          skip_compile_package=skip_compile_package, allow_removed=allow_removed.split(","), **details)
+                          skip_compile_package=skip_compile_package, allow_removed=allow_removed.split(","),
+                          skip_stale_bin=skip_stale_bin, **details)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         lines.append(f"error: {e.args[0] if e.args else e}")
         code = 2
@@ -875,7 +893,7 @@ def run_process(env: str, process: str, params: str = "", results: str = "") -> 
 
 @mcp.tool()
 def process_runs(env: str, process: str = "", record: str = "", since: str = "", until: str = "", limit: int = 20,
-                 window: int = 30, time_zone: str = "", noise: str = "", steps: bool = False) -> str:
+                 window: int = 30, time_zone: str = "", noise: str = "", steps: bool = False, element: str = "", status: str = "") -> str:
     """What ran when this record changed (`record=UsrOrder:<id>`), or the runs of one process: the business-process runs of `SysProcessLog`, each with its start (UTC and `time_zone`), process, status,
     log id, owner and the first line of its error. `process` (name or UId - every copy of that schema) gives its newest
     `limit` runs; `record` (`<Entity>:<Id>`) gives every run that started within `window` seconds of a change of that
@@ -883,11 +901,14 @@ def process_runs(env: str, process: str = "", record: str = "", since: str = "",
     `since` / `until` (`2026-11-11T08:00`, UTC unless a zone is written) bound the start. `noise` (comma list of names or
     prefixes, as `project.json` `environment.noiseProcesses`) hides those processes with a line saying how many. `steps` prints
     under each run the elements it went through (`SysProcessElementLog`: caption, status, start .. end in UTC). A process with no run
-    on a site whose `SysProcessLog` is empty answers `process logging is off`. Read-only."""
+    on a site whose `SysProcessLog` is empty answers `process logging is off`. `element` (its caption, or its element UId) with
+    `status=running` instead counts the tasks of that element still open (`SysProcessElementLog`, no end date): the count, then one
+    line per task - start, run id, the record the run waits on. Read-only."""
     from creatio_schemas.runs import process_runs as _runs, render_runs
     return _answer(env, lambda e: render_runs(_runs(e, process.strip() or None, record.strip() or None, since.strip() or None,
                                                     until.strip() or None, max(1, min(limit, 200)), max(0, window),
-                                                    [n.strip() for n in noise.split(",") if n.strip()], time_zone or None, steps)))
+                                                    [n.strip() for n in noise.split(",") if n.strip()], time_zone or None, steps,
+                                                    element.strip() or None, status.strip() or None)))
 
 
 @mcp.tool()
@@ -1015,6 +1036,23 @@ def make_fixture(env: str, entity: str, alias: str = "A", columns: str = "") -> 
 
 
 @mcp.tool()
+def shell_source(env: str, pattern: str, context: int = 2, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
+    """How the platform's CLIENT side does something on this exact site version - a stock component's preprocessor, a request
+    handler, how a crt.* control loads its list: a regex over the Freedom UI shell's code (its bundles and webpack chunks).
+    The first call for a site version downloads them once into ~/.creatio-kit/shell/<host>/<hash>/ (says `downloaded N files
+    (M MB)`); then `<file>:<line>: <text>` per hit, the minified line cut to 200 characters around the match, `context` lines
+    around. Read-only GETs; the code is never executed. What it shows is an observation of the platform's code, not a
+    proven behaviour: a probe or a case proves it. C# is `find_api`."""
+    _tools_path()
+    from creatio_schemas.environment import Environment  # noqa: F401  (the server's own login through _env)
+    from creatio_schemas.shell import shell_source as _shell
+    try:
+        return _shell(_env(env), pattern, context, limit, offset)
+    except (OSError, KeyError, ValueError, RuntimeError) as e:
+        return f"error: {type(e).__name__}: {e.args[0] if e.args else e}"
+
+
+@mcp.tool()
 def env_diff(env: str = "", save: str = "", before: str = "", after: str = "", other: str = "", limit: int = DEFAULT_LIMIT) -> str:
     """What changed on a site between two moments, from clio's manifest. `save=<file.yaml>` with `env` runs `clio save-state`
     (features, settings, web services, packages with their schemas' hashes) and answers the file and the item count per
@@ -1119,8 +1157,8 @@ def schema_diff(package: str, schemas: str = "", against: str = "", limit: int =
     try:
         lines = _sd(package, schemas.split() or None, against or None).splitlines()
         return "\n".join(cut(lines[:-1], limit, "lines") + lines[-1:])  # the last line is the count
-    except (FileNotFoundError, KeyError, ValueError) as e:
-        return f"error: {e}"
+    except (OSError, KeyError, ValueError, RuntimeError) as e:  # RuntimeError / OSError: the site path (clio, SQL, the temp copy)
+        return f"error: {e.args[0] if e.args else e}"
 
 
 @mcp.tool()
@@ -1472,11 +1510,13 @@ def tool_stats(days: int = 1) -> str:
     largest answer per tool, the ten largest answers (tool and argument names, never values) and the share of answers that were cut
     with a `... N more` tail, and ends with the count of gaps recorded by `report_gap` (all of them, not per day). Read it to see
     which tool costs the most context and whether the gaps were recorded at all (zero gaps next to twenty `env_sql` calls is the
-    signal). The first line names the role profile the server runs with (`profile: tester (40 of 66 tools)`). The same table is
+    signal), and with `errors: N` - the calls that raised (a parser that choked, a tool bug): each is one line of
+    `.stats/errors.jsonl` with the tool, the argument names and the last frames, and the call itself answered
+    `error: ...` instead of failing. The first line names the role profile the server runs with (`profile: tester (40 of 66 tools)`). The same table is
     `python mcp-server/tool_stats.py [days]`. Off when the server runs with CREATIO_KB_STATS=0. Reads
     `mcp-server/.stats/<date>.jsonl` and `dev/gaps/gaps.jsonl`, writes nothing."""
     profile = f"profile: all ({len(DEFINED)} tools)" if ROLE == "all" else f"profile: {ROLE} ({len(REGISTERED)} of {len(DEFINED)} tools)"
-    return profile + "\n" + stats_log.summarise(stats_log.read(days), stats_log.read_gaps())
+    return profile + "\n" + stats_log.summarise(stats_log.read(days), stats_log.read_gaps(), stats_log.read_errors(days))
 
 
 @mcp.tool()

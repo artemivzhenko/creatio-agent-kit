@@ -26,8 +26,8 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | start | `start <process> [with Param=Value;Param=Value]` | none (a configured process) | `start UsrOrder_Process with Amount=10` |
 | check-result | `check-result <parameter> eq|ne|gt|ge|lt|le|contains|startswith|endswith <value>` \| `check-result <parameter> exists` | none (an output of the last started process) | `check-result Verdict eq "big"` |
 | check-record | `check-record <object> Column=Value;Column=Value [not] exists` \| `check-record <object> <filter> has <column> <op> <value>` | none (read over OData) | `check-record UsrOrder UsrName=Order 1 exists` |
-| insert | `insert <object> as <alias> [keep] set Column=Value;...` | none (OData) | `insert UsrOrder as Order set UsrName=Bed;UsrAmount=500` |
-| update | `update <object> $alias\|<guid> set Column=Value;...` | none (OData) | `update UsrOrder $Order set UsrAmount=5000` |
+| insert | `insert <object> as <alias> [keep] set Column=Value;... [expect error "<text>"]` | none (OData) | `insert UsrOrder as Order set UsrName=Bed;UsrAmount=500` |
+| update | `update <object> $alias\|<guid> set Column=Value;... [expect error "<text>"]` | none (OData) | `update UsrOrder $Order set UsrAmount=5000` |
 | delete | `delete <object> $alias\|<guid>` | none (OData) | `delete UsrOrder $Order` |
 | delete-record | `delete-record <object> Column=Value;...` | none (OData, at most 20 records) | `delete-record UsrOrderLog UsrOrder/Id=$Order` |
 | remember | `remember <code> as $name` \| `remember dialog as $name` | `IValueElement` | `remember UsrNumber as $first` |
@@ -41,6 +41,7 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | on | `on <page>` | none (a configured page) | `on ProductClassic` |
 | tab | `tab new [as <name>]` \| `tab <number\|name>` | none | `tab new as second` then `open UsrOrderPage for $B` |
 | answer | `answer "<button caption>"` | none (the visible dialog) | `answer "Don't save"` |
+| select-in-dialog | `select-in-dialog "<value>; <value>"` | none (the visible record selection window) | `select-in-dialog "Supervisor"` then `answer "Select"` |
 | upload | `upload <code> "<path under TestData>"` | `IUploadable` (`FileUpload`) | `upload AttachmentList "requisites-ok.xlsx"` |
 | snapshot | `snapshot "<name>"` | none | `snapshot "after-stage-menu"` |
 | navigate | `navigate <page> [for <record>]` | none (a configured page) | `navigate UsrOrderPage for $B` |
@@ -135,7 +136,7 @@ and never changes the result of the case. It is the reconnaissance step before a
 `upload <code> "<path>"` puts a file of `TestData/` (`testDataDirectory` in `run.config.json`) into an element of type `FileUpload`: the element's own
 `input[type=file]` when it has one, otherwise a click on its trigger button answered with the file chooser it opens (`trigger` in the page file names the
 button's `element-name`; the Freedom attachments list has its `AttachmentAddButton` beside it). The path is relative; a path that leaves `TestData/`, an absolute
-path and a file that is not there are validation errors, before a browser opens. After it, `check dialog` / `answer` read what the page said:
+path and a file that is not there are validation errors, before a browser opens. `upload <Button> "<path>"` on a plain `Button` whose own handler opens a file chooser (no file list on the page) clicks it inside the chooser event, sets the file and waits for the page to go idle; the report says `upload through the button's file chooser`, and a button that opens no chooser within the element timeout fails with `no file chooser opened by <Button>`. An element whose `tab` names a `ToggleTab` has that group set to the caption whose `panels` entry is the element before the line runs (a group with no such entry fails the line). After it, `check dialog` / `answer` read what the page said:
 
 ```
 set CardButtonToggleGroup "Attachments"
@@ -169,6 +170,16 @@ dialogs count, and one nested in another counts once.
 and without reading the stage column; without `no-answer` the stage bar answers its confirmation itself, as before. `click <code>
 no-answer` is accepted for the same reading of the line: a click never answers a dialog, so the word changes nothing at run time.
 `no-answer` on any other element of `set` is a validation error.
+
+### List pages (Freedom UI sections)
+
+A section's list page (`#Section/<Object>_ListPage`) analyses like a form: `analyse "/0/Shell/#Section/UsrOrder_ListPage" UsrOrderList` writes its buttons (`AddButton`, the custom ones), the grid (`DataGrid`, with the columns it shows) and each lookup quick filter chip (`QuickFilter`); the search box, the folder tree, the summaries strip and the page title have no element type and are listed as such. Two things to know: a grid with no columns configured renders "No columns added" and has no rows to check, and a `New` button opens the form only when the object has a page to open (the button carries `entityName` / `entityPageName`, or the object's related-page binding names one).
+
+- `set QuickFilterByContact "Supervisor"` opens the chip, ticks exactly the listed values (several with `;`: `"A; B"`) and unticks the rest, closes it and waits for the page to go idle; a value the chip does not list fails the step with the first 20 it shows. `check-value QuickFilterByContact eq "Supervisor"` reads the ticked ones.
+- `check-row DataTable Name=A exists` / `not exists`, `select-row` and `open-row` address a grid row by the rendered text of its cells (Column=Value). A row that is not there is reported with the rows the grid showed (the first 20). `delete-row` is not supported on a Freedom UI grid: delete the record over OData (`delete`, `delete-record`).
+- `click AddButton`, then `on UsrOrderForm`, is the way to the add form; there is no `create` command.
+
+`select-in-dialog "A; B"` ticks the rows of a record selection window (the grid a `crt.OpenSelectionWindowRequest` opens) whose display value equals each text, case-blind; the window's own buttons are then pressed with `answer "Select"` and `check dialog not shown` reads that it closed. The checkbox of a row exists while the row is hovered, so the line hovers it first; it waits until the window's rows stop changing. A value that is not a row fails the step with the rows the window showed (the first 20): `the window has no row "X". It shows {1 | A}; {2 | B}.` With no window it fails with `no dialog is shown`. See the case `s42-links` (open the window, tick, Select, `wait-count` of the link rows, save).
 
 ### Browser tabs
 
@@ -360,6 +371,10 @@ delete UsrOrder $Order
   is written to its `Id` column (`UsrStatus=<guid>` writes `UsrStatusId`); a value naming a static value
   is written as that value. The writes go as the first configured user, with `BPMCSRF` and
   `ForceUseSession`; a refused write fails the line with what Creatio answered.
+- **Expected refusal.** `insert ... expect error "<text>"` and `update ... expect error "<text>"` pass when the OData write FAILS and its error
+  text (`error.message` and `error.innererror.message`, where a listener's message is) contains `<text>` (case-blind; `expect error` alone accepts any
+  error). A saved write fails the step (`expected an error ... but the record was saved: <id>`, and cleanup deletes it); another text fails naming both.
+  A refused `insert` binds no alias. Not for `delete`. `Cases/s45-expect-error.act` is one.
 - **Cleanup.** Every record a case inserts is deleted when the case ends, newest first - passed,
   failed or stopped early - unless the `insert` line says `keep`. `delete` and `delete-record`
   take a record off that list. A record the cleanup cannot delete fails the case as a run error naming
@@ -380,6 +395,7 @@ delete UsrOrder $Order
   stop at its first failure whatever `continueOnFailure` says - a failed `set` must not be followed
   by a Save - and validation refuses an inserted alias that is neither deleted later in the case nor
   marked `keep`. Cleanup runs for every case either way; the directive makes the author say it. After a failure the case's later `delete-record` lines (the records a page or a process created, which no alias knows) still run, and the report puts `cleanup: ...` lines under the failure (`cleanup: deleted <Entity> <id>` for inserted records, `cleanup: delete failed <reason>` when one stays); a `delete-record` that finds nothing is silent, and the case stays FAILED.
+- **`# bed bench`** (a `#` line before the first command) marks a case written against the benchmark package, whose `Usr` names are real: `scripts/gate.py` copies it without the `--rename` mapping; a case without the line is renamed.
 - **`# ac: AC-02`** names the acceptance criterion the case proves. Run with
   `--task-folder <dir>` (and optionally `--task <id>`), every case writes
   `<dir>/evidence/AC-02-report-N.txt` - each line with its outcome, the failed steps, the console
@@ -454,6 +470,7 @@ a trailing cell that absorbs the free width, and both announce themselves as col
 naming any data.
 | Tab | `crt-tab-panel-header-item` | None | `pinned` |
 | ToggleTab | `crt-button-toggle-group` | Tab | `tabs`; `panels`; `pinned` |
+| QuickFilter | `crt-quick-filter` | Lookup | - |
 | FileUpload | `crt-file-list` | Upload | `trigger` (the `element-name` of the add button when it is not inside the list) |
 | Text | `crt-input` | Text | `pinned` |
 | RichText | `crt-rich-text-editor` | Text | `pinned` |
@@ -745,7 +762,7 @@ The first pass checks all lines before a browser action runs: unknown commands, 
 
 ```text
 Unknown command 'opne'. Known commands: add-record, analyse, check, check-value, click, clear, end, goto, open, set, use, wait.
-Element 'X' on page 'ContactForm': Unknown element type 'Slider' for a FreedomUI page. Known types for FreedomUI pages: Boolean, Button, CasesBar, DataGrid, Date, DateTime, Decimal, Email, Integer, Link, Lookup, Phone, RichText, Tab, Text, Time, ToggleTab.
+Element 'X' on page 'ContactForm': Unknown element type 'Slider' for a FreedomUI page. Known types for FreedomUI pages: Boolean, Button, CasesBar, DataGrid, Date, DateTime, Decimal, Email, Integer, Link, Lookup, Phone, RichText, Tab, Text, QuickFilter, Time, ToggleTab.
 Element 'Email' on page 'OrderClassic': Unknown element type 'Email' for a ClassicUI page. It exists for FreedomUI pages only. Known types for ClassicUI pages: Boolean, Button, Date, DateTime, Decimal, Integer, Lookup, RichText, Tab, Text, Time.
 'wait' expects the unit 'second' or 'minute'.
 ```

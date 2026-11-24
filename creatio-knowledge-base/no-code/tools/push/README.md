@@ -21,6 +21,7 @@ python push.py <package> -e <environment> --probe  also run probes
 python push.py <package> -e <environment> --dry-run print commands only
 python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
 python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
+python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
 ```
 <!-- commands:end -->
 
@@ -33,14 +34,37 @@ checks that no dependency was dropped (a `DependsOn` entry of `descriptor.json` 
 through), checks changed files against other active task locks, and updates the dates of changed SQL
 scripts. It then clears `IsChanged` in `SysSchema`, `SysPackageSchemaData` and `SysPackageSqlScript`, runs `push-pkg`, reads the compilation log, compiles assembly packages with
 `compile-package --wait`, optionally checks a baseline and publishes processes with script or user
-tasks. `IsChanged` is cleared because designer-edited schemas otherwise count as modified locally
+tasks. The first line is `clio: <version>` (`clio ver`, read once per push). A clio that answers `Option 'wait' is
+unknown` gets `compile-package` without it, and the step polls the package's `CompilationHistory` row
+(`<Pkg>.csproj`, P-9.10) every 15 s up to 600 s (clio's own `--wait-timeout`): `ok (clio <version>: no --wait, polled N s)`,
+a new row with `Result` false is a failure. `IsChanged` is cleared because designer-edited schemas otherwise count as modified locally
 and `push-pkg` skips them.
 
 After drift, the `package schemas` step compares the schema folders of the package with git HEAD (`git ls-tree HEAD
 Schemas/`) and, when the site answers, with the package's rows in `SysSchema`: a schema that HEAD or the site has and the
 folder does not stops the push with `package install deletes schemas absent from the package: <names>`, `--force` or not.
+A site row whose `UId` is a folder here under another name (`descriptor.json`) is a rename, not a deletion: the step says
+`ok; renamed <old> -> <new>` and the old name in HEAD does not stop it either; without a site answer HEAD's names decide.
+A select with zero rows is an empty answer (an older clio writes no `-d` file for it and prints `Done`); a missing file
+without `Done` stays clio's failure (`wrote no result`).
 The install of a trimmed package deletes those schemas on the site (on a client site it then failed on a foreign key and
 rolled back). Without git and without a site answer the step says `not checked (no git, no site)`.
+
+**A stale assembly** (S44-T06): for an assembly package the `stale bin` step compares `Files/Bin/<Pkg>.dll` with
+`Files/cs` (and `Files/src/cs`): a source or a folder newer than the dll - an edit, or a file deleted there after the build
+(the folder's time moves) - or no dll at all while sources exist stops the push with the file and the minutes: `push-pkg`
+installs that dll as it is, and the site keeps running the old classes (seen: a deleted probe service still answered).
+Build the package and push again; `--skip-stale-bin` (MCP `skip_stale_bin`) passes on purpose and the step says so.
+
+**One page without the install** (S44-T03): `push.py page <package> <Page> -e <env> [--dry-run] [--force]` (MCP
+`push_package(page=...)`) saves that Freedom UI page's body from the working copy with clio `update-page` - replace mode, into
+this package (`--target-package-uid`), against the checksum `get-page` reads just before (another session's save in between
+is a conflict; `--force` overwrites it) - and then runs `verify` for that schema. Nothing else of the package moves: not
+its bindings (a push cannot skip one: a package pushed without its `Data/` loses its binding rows on the site, P-2.18 - so
+the bindings stop above names this verb), not its other schemas. The site must let the designer edit the package: one
+installed from an archive, or whose maintainer is not the site's `Maintainer` setting, answers "created by third-party
+publisher or installed from the file archive", and the verb says to push the package instead (the test site's own test
+package is such a one: the save was refused there, the dry run passed).
 
 A package that lost a schema on purpose - a merge folded its layer into another package - is pushed with
 `--allow-removed <Schema,...>` (MCP `allow_removed`): the stop is lifted for exactly those schemas, and only when each is
@@ -110,7 +134,9 @@ python push.py UsrPkg -e dev --tasks tasks --task tasks/001-order --baseline tas
 ```
 
 `--project` reads `paths.tasks` from the supplied project; `--tasks` overrides it. When a tasks
-folder is supplied, `--task` must identify the current task folder directly inside it. Without a
+folder is supplied, `--task` must identify the current task folder directly inside it (a bare name such as `001-order`
+resolves under `--tasks`, else under the project's `paths.tasks`; an absolute path or a folder that exists from here is
+taken as it is - the push log `details:` lands in that folder). Without a
 tasks folder the ownership check is skipped. `--force` allows drift; `--skip-drift`,
 `--skip-foreign-files`, `--skip-sql-dates` and `--skip-compile-package` explicitly skip their
 respective checks or steps. `--baseline` creates a file containing the current compilation error
@@ -162,3 +188,4 @@ site writes in double quotes (`define("X"`). Exit 1 on any line that is not `sam
   proved by process cases, so neither is probed here. It also compares the default culture's `Caption` of every pushed schema (its
   `resource.en-US.xml`) with `SysSchema.Caption` on the site and logs `caption of <X> not updated: site '<a>', package '<b>'` - a
   note, not a failure (after a push the caption of a process stayed old although the resource file carried the new one).
+  A replacing object whose parent is not in the workspace is skipped by its probe (`skipped: parent <Parent> not in the workspace ...`); the step prints `probes: ok (2 skipped: <names>)`, a skip is not a failure.
