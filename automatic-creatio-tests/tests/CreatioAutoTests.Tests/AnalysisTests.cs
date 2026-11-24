@@ -215,12 +215,27 @@ public sealed class DateTypeResolutionTests
     [TestCase("Calendar", "Date")]
     [TestCase("Time", "Time")]
     [TestCase("Date/Time", "DateTime")]
+    [TestCase("Календарь", "Date")]
+    [TestCase("Время", "Time")]
+    [TestCase("Дата/Время", "DateTime")]
+    [TestCase("Календар", "Date")]
+    [TestCase("Дата/Час", "DateTime")]
     public void The_picker_icon_decides_the_type_even_when_the_control_is_empty(string icon, string expected)
     {
         var (type, uncertainty, _) = _analyzer.ResolveType(Picker, string.Empty, icon);
 
         Assert.That(type, Is.EqualTo(expected));
         Assert.That(uncertainty, Is.Null);
+    }
+
+    [TestCase("Add new", true)]
+    [TestCase("Добавить новую запись", true)]
+    [TestCase("Додати", true)]
+    [TestCase("Order types", false)]
+    public void The_service_row_of_a_dropdown_is_known_in_every_interface_language(string text, bool service)
+    {
+        Assert.That(CreatioAutoTests.Frontend.InterfaceLanguage.IsAddNewRow(text), Is.EqualTo(service));
+        Assert.That(CreatioAutoTests.Frontend.InterfaceLanguage.PickerKind("Unknown label"), Is.Null);
     }
 
     [Test]
@@ -302,7 +317,7 @@ public sealed class DateTypeResolutionTests
     [Test]
     public void An_unrecognised_icon_label_falls_back_instead_of_guessing()
     {
-        var (type, _, _) = _analyzer.ResolveType(Picker, "7:36 AM", "Календарь");
+        var (type, _, _) = _analyzer.ResolveType(Picker, "7:36 AM", "Kalendarz");
 
         Assert.That(type, Is.EqualTo("Time"), "the value should decide when the label is not understood");
     }

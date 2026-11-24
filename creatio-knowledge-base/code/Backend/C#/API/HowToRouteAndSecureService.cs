@@ -18,8 +18,8 @@ using Terrasoft.Web.Common.ServiceRouting;
 ///                          back-office users.
 ///   [SspServiceRoute]      additionally registers it on the portal (self-service) route,
 ///                          so portal users can call it.
-/// Without either attribute the service is only reachable through the legacy
-/// ServiceModel path. Declaring both is the usual choice for a service that serves the
+/// Without either attribute a [ServiceContract] class in Files/cs still answered on
+/// /0/rest/<Service>/<Method> on 8.2.3 (S40-T05); no .svc path answers. Declaring both is the usual choice for a service that serves the
 /// main app and the portal alike.
 ///
 /// [SspServiceRoute] MAKES THE SERVICE REACHABLE, IT DOES NOT AUTHORISE IT. Portal users
@@ -110,6 +110,15 @@ namespace Terrasoft.Configuration
 
 		public virtual string GetStatus(Guid callId) {
 			return "done";
+		}
+
+		/// <summary>
+		/// A schema the CALLER names (a generic export, a lookup endpoint) is checked before any query on it: the
+		/// operation right "can read" of the current user. A record-level right is a separate, later filter.
+		/// </summary>
+		public virtual bool CanRead(string schemaName) {
+			return UserConnection.DBSecurityEngine.GetIsEntitySchemaOperationAllowed(schemaName,
+				Terrasoft.Core.DB.SchemaOperationRightLevels.CanRead);
 		}
 	}
 }

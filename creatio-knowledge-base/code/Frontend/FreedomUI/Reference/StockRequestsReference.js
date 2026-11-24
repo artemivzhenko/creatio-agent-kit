@@ -12,7 +12,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		//            type: "crt.SomeRequest", $context: request.$context, ... });
 		//   3. through the handler chain:
 		//        await sdk.HandlerChainService.instance.process({
-		//            type: "crt.SomeRequest", $context: request.$context, ... });
+		//            type: "crt.SomeRequest", $context: request.$context,
+		//            scopes: [...request.scopes], ... });
+		//      without `scopes` a request the page itself handles in SCHEMA_HANDLERS
+		//      is never reached and the call resolves to undefined (8.2.3, S40-T05).
 		//
 		// You can also HANDLE any of these in `handlers` to extend or block the
 		// stock behaviour - always finish with `return next?.handle(request)`

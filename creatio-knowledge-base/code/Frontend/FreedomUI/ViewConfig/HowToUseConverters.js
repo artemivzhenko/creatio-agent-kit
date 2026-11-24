@@ -22,7 +22,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 				"values": {
 					"layoutConfig": { "column": 1, "row": 1, "colSpan": 2, "rowSpan": 1 },
 					"type": "crt.Input",
-					"value": "$PDS_Name_h9kddsb",
+					"control": "$PDS_Name_h9kddsb",
 					// IsEditable = true means the field should NOT be readonly
 					"readonly": "$IsEditable | crt.InvertBooleanValue"
 				},

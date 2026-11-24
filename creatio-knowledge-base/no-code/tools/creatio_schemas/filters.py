@@ -14,11 +14,14 @@ import uuid
 from .expressions import Condition, Const, Group, Null, describe, operand_text, parse
 from .expressions.metapath import SUGAR_RE
 
-COMPARISON = {0: "between", 1: "exists", 2: "not exists", 3: "=", 4: "!=", 5: ">", 6: ">=", 7: "<", 8: "<=", 9: "starts with", 10: "not starts with",
-              11: "contains", 12: "not contains", 13: "ends with", 14: "not ends with", 15: "is null", 16: "is not null"}
-OP_CODE = {"=": 3, "!=": 4, "<>": 4, ">": 5, ">=": 6, "<": 7, "<=": 8, "starts with": 9, "contains": 11, "not contains": 12, "ends with": 13}
+# Terrasoft.Core.Entities.FilterComparisonType (= the client's Terrasoft.ComparisonType): 5 is Less, 7 Greater, 1 IsNull,
+# 15 Exists. The first form of this table had >/< and the null/exists pairs swapped, so `filter "X > 100"` wrote Less and
+# describe read it back as ">" - a signal then started on the opposite side (S40-T07, read from Terrasoft.Core.dll 8.2.3).
+COMPARISON = {0: "between", 1: "is null", 2: "is not null", 3: "=", 4: "!=", 5: "<", 6: "<=", 7: ">", 8: ">=", 9: "starts with", 10: "not starts with",
+              11: "contains", 12: "not contains", 13: "ends with", 14: "not ends with", 15: "exists", 16: "not exists"}
+OP_CODE = {"=": 3, "!=": 4, "<>": 4, "<": 5, "<=": 6, ">": 7, ">=": 8, "starts with": 9, "contains": 11, "not contains": 12, "ends with": 13}
 # the canonical operator of the expression grammar <-> the comparisonType of a stored filter (the ones with a canonical name)
-_CANONICAL = {3: "eq", 4: "ne", 5: "gt", 6: "ge", 7: "lt", 8: "le", 9: "starts", 11: "contains", 12: "not-contains", 13: "ends", 15: "empty", 16: "filled"}
+_CANONICAL = {3: "eq", 4: "ne", 5: "lt", 6: "le", 7: "gt", 8: "ge", 9: "starts", 11: "contains", 12: "not-contains", 13: "ends", 1: "empty", 2: "filled"}
 _SPELLING = {"eq": "=", "ne": "!=", "gt": ">", "ge": ">=", "lt": "<", "le": "<=", "starts": "starts with", "contains": "contains",
              "not-contains": "not contains", "ends": "ends with", "empty": "is null", "filled": "is not null"}
 # Terrasoft.DataValueType of the client (Resources/ui/Terrasoft/core/enums/sysenums.js); texts the enum does not name are TEXT.
@@ -118,7 +121,7 @@ def build(root: str, conditions: list[tuple[str, str, str]], columns: dict[str, 
         code = CLIENT_TYPE.get(type_name or "", 1)
         key = str(uuid.uuid4())
         edit = {"className": "Terrasoft.IsNullFilter" if op in ("is null", "is not null") else "Terrasoft.CompareFilter",
-                "filterType": 2 if op in ("is null", "is not null") else 1, "comparisonType": 15 if op == "is null" else 16 if op == "is not null" else OP_CODE[op],
+                "filterType": 2 if op in ("is null", "is not null") else 1, "comparisonType": 1 if op == "is null" else 2 if op == "is not null" else OP_CODE[op],
                 "isEnabled": True, "trimDateTimeParameterToDate": False,
                 "leftExpression": {"className": "Terrasoft.ColumnExpression", "expressionType": 0, "columnPath": col},
                 "isAggregative": False, "key": key, "dataValueType": code, "leftExpressionCaption": col}

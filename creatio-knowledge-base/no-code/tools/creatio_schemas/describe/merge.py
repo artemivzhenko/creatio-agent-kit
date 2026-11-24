@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..files import read_text
@@ -168,6 +168,7 @@ class _Ctx:
     direct: dict[str, set[str]]
     own: dict[str, str]  # object name -> the workspace package holding its own (not replacing) copy
     keys: dict[tuple[str, str], int]  # (schema folder name, manager) -> replacing copies in the workspace
+    texts: dict[str, list] = field(default_factory=dict)  # package -> [(file, relative path, text)], read once per context
 
 
 def _context(workspace: Path | str) -> _Ctx:
@@ -330,9 +331,14 @@ def _rule_conflicts(order: list[str], contents: dict[str, dict]) -> list[str]:
 
 
 def plan_schema(ctx: _Ctx, workspace: Path | str, schema: str, manager: str = "", env=None, target: str | None = None,
-                only: set[str] | None = None) -> dict:
-    """{schema, kind, layers, target, remove, conflicts, skipped, lines, order} for one schema (see merge_plan). `target`
-    names the package instead of the lowest layer: one every layer's package depends on (it need not hold a layer)."""
+                only: set[str] | None = None, direction: str = "up") -> dict:
+    """{schema, kind, layers, target, remove, conflicts, skipped, lines, order} for one schema (see merge_plan).
+    `direction` "up" (the default, S27-T09): the target is the top package - the one that depends on every other layer's
+    package - nothing changes its dependencies, and a reference from a package below the target to a column a removed layer
+    adds is a conflict. "down": the target is the lowest package, every layer's package depends on it, and it gains the
+    removed packages' dependencies. `target` names the package instead of the default one."""
+    if direction not in ("up", "down"):
+        raise ValueError(f"direction must be up or down, not {direction!r}")
     layers = layers_in_order(workspace, schema, env, manager or None)
     if only:  # merge-package: the layers of these packages only; another package's layer is like one on the site only
         layers = [Layer(x.package, x.folder, x.replacing, x.uid, x.manager, x.source, tuple(p for p in x.siblings if p in only))
@@ -351,7 +357,24 @@ def plan_schema(ctx: _Ctx, workspace: Path | str, schema: str, manager: str = ""
     res["kind"] = next((c["kind"] for c in contents.values() if "kind" in c), "?")
     names = [x.package for x in disk]
     res["order"] = disk
-    if target:
+    def below(low: str, high: str) -> bool:  # `high` depends on `low`
+        return low in ctx.reach.get(high, set())
+
+    if direction == "up":
+        if target:
+            off = [q for q in names if q != target and not below(q, target)]
+            if target not in ctx.folders or off:
+                res.update(skipped=True, lines=[f"{schema} {res['kind']}: {len(disk)} layers, target {target} is not above every layer: "
+                                                + ", ".join(off)])
+                return res
+            lowest = [target]
+        else:
+            lowest = [p for p in names if all(below(q, p) for q in names if q != p)]
+            if len(lowest) != 1:
+                tops = sorted(p for p in names if not any(below(p, q) for q in names if q != p))
+                res.update(skipped=True, lines=[f"{schema} {res['kind']}: {len(disk)} layers, no single top package: {', '.join(tops)}"])
+                return res
+    elif target:
         if target not in ctx.folders or any(q != target and target not in ctx.reach.get(q, set()) for q in names):
             res.update(skipped=True, lines=[f"{schema} {res['kind']}: {len(disk)} layers, target {target} is not below every layer: "
                                             + ", ".join(q for q in names if q != target and target not in ctx.reach.get(q, set()))])
@@ -391,9 +414,11 @@ def plan_schema(ctx: _Ctx, workspace: Path | str, schema: str, manager: str = ""
     if res["kind"] in NOT_MERGED:
         # the layers of a process hold whole schemas and running instances point at them (S24-T06): listed, never merged
         res["conflicts"].append(f"conflict {res['kind']}: not merged by this toolkit (T06)")
+    if direction == "up":
+        res["conflicts"] += _references_from_below(ctx, schema, disk, contents, target)
     gains = set()
     for p in names:
-        if p == target:
+        if p == target or direction == "up":  # upward nothing is gained: the top already depends on every layer's package
             continue
         for g in ctx.direct.get(p, ()):
             # a package above the target is not gained (a cycle); content that needs one is a `conflict lookup`
@@ -403,11 +428,60 @@ def plan_schema(ctx: _Ctx, workspace: Path | str, schema: str, manager: str = ""
     res["gains"] = sorted(gains)
     if gains:
         lines.append(f"  depends: {target} gains {', '.join(res['gains'])}")
+    elif direction == "up":
+        lines.append("  depends: unchanged")
     res["lines"] = lines
     return res
 
 
-def merge_plan(workspace: Path | str, schemas: list[str] | None = None, env=None, limit: int = DEFAULT_LIMIT, offset: int = 0) -> tuple[str, int]:
+_TEXT_SUFFIXES = {".js", ".cs", ".json"}
+
+
+def _package_texts(ctx: _Ctx, pkg: str) -> list:
+    """[(resolved file, relative path, text)] of a package's .js / .cs / .json files outside obj / Bin / Autogenerated, read once
+    per context: a merge-plan over a client workspace asks for the same package once per schema it plans (S27-T09 review)."""
+    if pkg not in ctx.texts:
+        root, out = ctx.folders[pkg], []
+        for f in sorted(root.rglob("*")):
+            if f.suffix.lower() not in _TEXT_SUFFIXES or not f.is_file():
+                continue
+            rel = f.relative_to(root)
+            if any(part in ("obj", "Bin", "bin", "Autogenerated") for part in rel.parts):
+                continue
+            try:
+                out.append((f.resolve(), rel.as_posix(), f.read_text(encoding="utf-8-sig", errors="replace")))
+            except OSError:
+                continue
+        ctx.texts[pkg] = out
+    return ctx.texts[pkg]
+
+
+def _references_from_below(ctx: _Ctx, schema: str, disk: list, contents: dict, target: str) -> list[str]:
+    """`conflict reference from below: <Pkg>/<path> uses <Schema>.<Column> (added by <Pkg2>'s layer)` for every file of a package
+    that does not depend on the target (the removed layers' own packages included) naming a column a removed layer adds: after an
+    upward merge that column lives in the top package, out of that file's reach. The merged schema's own layer folders are skipped.
+    shortcut: columns only and by whole word (`<Name>` or `<Name>Id`) in .js / .cs / .json files; page elements and Classic
+    methods are not followed - add them when a merge of pages meets one."""
+    added = {name: p for p in (x.package for x in disk) if p != target and "error" not in contents[p]
+             for name, *_ in contents[p]["columns"] if name}
+    if not added:
+        return []
+    skip = {x.folder.resolve() for x in disk if x.folder is not None}
+    word = re.compile(r"\b(" + "|".join(re.escape(n) for n in sorted(added, key=len, reverse=True)) + r")(?:Id)?\b")
+    out = []
+    for pkg in sorted(ctx.folders):
+        if pkg == target or target in ctx.reach.get(pkg, set()):
+            continue  # the top itself, or a package that depends on it: the column is still in reach
+        for f, rel, text in _package_texts(ctx, pkg):
+            if any(s in f.parents for s in skip):
+                continue
+            for name in sorted({m.group(1) for m in word.finditer(text)}):
+                out.append(f"conflict reference from below: {pkg}/{rel} uses {schema}.{name} (added by {added[name]}'s layer)")
+    return out
+
+
+def merge_plan(workspace: Path | str, schemas: list[str] | None = None, env=None, limit: int = DEFAULT_LIMIT, offset: int = 0,
+               direction: str = "up") -> tuple[str, int]:
     """(text, conflicts): the plan of every schema replaced by more than one package (or of `schemas`), then
     `<M> schemas, <L> layers to remove, <C> conflicts`. `env` takes the layer order from the site."""
     ctx = _context(workspace)
@@ -417,13 +491,13 @@ def merge_plan(workspace: Path | str, schemas: list[str] | None = None, env=None
         missing = [s for s in schemas if s.lower() not in {k[0].lower() for k in keys}]
     else:
         keys, missing = sorted(k for k, n in ctx.keys.items() if n > 1), []
-    plans = [plan_schema(ctx, workspace, name, manager, env) for name, manager in keys]
+    plans = [plan_schema(ctx, workspace, name, manager, env, direction=direction) for name, manager in keys]
     body = [f"{name}: no copy in the workspace" for name in missing] + [line for plan in plans for line in plan["lines"]]
     merged = [p for p in plans if p["layers"] > 1]
     skipped = sum(1 for p in merged if p["skipped"])
     conflicts = sum(len(p["conflicts"]) for p in merged)
     last = (f"{len(merged)} schemas, {sum(p['remove'] for p in merged)} layers to remove, {conflicts} conflicts"
-            + (f", {skipped} without a common lowest package" if skipped else ""))
+            + (f", {skipped} without a {'single top' if direction == 'up' else 'common lowest'} package" if skipped else ""))
     return "\n".join(cut(body, limit, offset=offset, paged=True) + [last]), conflicts
 
 
@@ -525,7 +599,7 @@ def _object_files(order: list[Layer], source: Layer, schema: str, folder: Path, 
 
 
 def _merge(workspace: Path | str, schema: str, target: str | None, env, apply: bool, manager: str, kinds: set[str], build, suffix: str,
-           stop_filter=None, only: set[str] | None = None) -> tuple[str, int]:
+           stop_filter=None, only: set[str] | None = None, direction: str = "up") -> tuple[str, int]:
     """The shared run of a merge: the plan, the stops, `references`, the UId rule, `DependsOn`, resources merged key by key, the
     deletes of the other layers, `--apply`. `build(order, source, schema, folder, package_uid, renames, notes)` gives the kind's
     files and its own stops; `stop_filter(conflict line)` says which plan conflicts stop this kind (default: all)."""
@@ -535,10 +609,10 @@ def _merge(workspace: Path | str, schema: str, target: str | None, env, apply: b
     from ..schema import Descriptor
 
     ctx = _context(workspace)
-    plan = plan_schema(ctx, workspace, schema, manager, env, target, only)
+    plan = plan_schema(ctx, workspace, schema, manager, env, target, only, direction)
     lines, stops, notes = list(plan["lines"]), [], []
     if plan["layers"] < 2:
-        other = plan_schema(ctx, workspace, schema, "", env, target)  # another manager: say what it is instead of "nothing to merge"
+        other = plan_schema(ctx, workspace, schema, "", env, target, direction=direction)  # another manager: say what it is instead of "nothing to merge"
         if other["layers"] > 1 and other["kind"] not in kinds:
             return "\n".join(other["lines"] + [f"{schema} is a {other['kind']}: merge writes objects and pages only"]), 1
         return "\n".join(lines), 0
@@ -622,11 +696,11 @@ def _merge(workspace: Path | str, schema: str, target: str | None, env, apply: b
 
 
 def merge_object(workspace: Path | str, schema: str, target: str | None = None, env=None, apply: bool = False,
-                 only: set[str] | None = None) -> tuple[str, int]:
+                 only: set[str] | None = None, direction: str = "up") -> tuple[str, int]:
     """(text, exit code): the replacing layers of one object collapsed into one layer of the target package. Prints the plan,
     then the files it writes and deletes; writes them only with `apply`. Exit 1 (nothing written) on a conflict, siblings
     without `env`, a layer that stores a whole schema, or a site row that still points at a layer to remove."""
-    return _merge(workspace, schema, target, env, apply, OBJECT, {"object"}, _object_files, "Entity", only=only)
+    return _merge(workspace, schema, target, env, apply, OBJECT, {"object"}, _object_files, "Entity", only=only, direction=direction)
 
 
 # --------------------------------------------------------------------------- #
@@ -866,7 +940,7 @@ def _page_stops(conflict: str, env) -> bool:
 
 
 def merge_page(workspace: Path | str, schema: str, target: str | None = None, env=None, apply: bool = False,
-               only: set[str] | None = None) -> tuple[str, int]:
+               only: set[str] | None = None, direction: str = "up") -> tuple[str, int]:
     """(text, exit code): the replacing layers of one page (Freedom or Classic) as one layer of the target package, the same run
     as merge_object. Freedom: the three diff arrays concatenated in fold order, the handlers one after another, converters and
     validators by key (the upper wins). Classic: the diff arrays concatenated, the keyed sections by key, a method in two layers
@@ -876,14 +950,14 @@ def merge_page(workspace: Path | str, schema: str, target: str | None = None, en
     order = [x for x in layers_in_order(workspace, schema, env, CLIENT) if x.replacing and x.folder is not None and (not only or x.package in only)]
     classic = bool(order) and not is_freedom(order[0].folder, schema)
     return _merge(workspace, schema, target, env, apply, CLIENT, {"page", "classic"}, _classic_files if classic else _freedom_files,
-                  "ClientUnit", stop_filter=lambda c: _page_stops(c, env), only=only)
+                  "ClientUnit", stop_filter=lambda c: _page_stops(c, env), only=only, direction=direction)
 
 
 def merge_schema(workspace: Path | str, schema: str, target: str | None = None, env=None, apply: bool = False,
-                 only: set[str] | None = None) -> tuple[str, int]:
+                 only: set[str] | None = None, direction: str = "up") -> tuple[str, int]:
     """merge_object or merge_page, by the manager of the schema's copies in the workspace."""
     ctx = _context(workspace)
     managers = {m for (name, m), n in ctx.keys.items() if name.lower() == schema.lower() and n}
     if CLIENT in managers and OBJECT not in managers:
-        return merge_page(workspace, schema, target, env, apply, only)
-    return merge_object(workspace, schema, target, env, apply, only)
+        return merge_page(workspace, schema, target, env, apply, only, direction)
+    return merge_object(workspace, schema, target, env, apply, only, direction)

@@ -9,6 +9,8 @@ using Terrasoft.Core.Entities;
 /// DBSecurityEngine is accessed via userConnection.DBSecurityEngine.
 /// Rights are granted per (adminUnitId, schemaName, recordId, operation) combination —
 /// adminUnitId is typically a role Id or user Id from SysAdminUnit.
+/// Every right row carries a source (SysEntitySchemaRecRightSource: Author, Owner, Default, Manual): rights a detail
+/// grants go through SetEntitySchemaRecordRightLevel with a source id (method 5), not through rows inserted by hand.
 /// </summary>
 class HowToManageRecordAccessRights {
 
@@ -89,5 +91,16 @@ class HowToManageRecordAccessRights {
             EntitySchemaRecordRightOperation.Edit,   schemaName, recordId);
         dbSecurityEngine.ForceDeleteAllEntitySchemaRecordRightLevel(
             EntitySchemaRecordRightOperation.Delete, schemaName, recordId);
+    }
+
+    // 5. Rights a detail grants (a participant added): through the API with a right source, never rows written into
+    //    Sys<Entity>Right by hand. The source says who granted the row - the platform's own rows of a new record carry
+    //    Author, Owner and Default; an API grant carries the source you pass (Manual here). The call REPLACES the row of the
+    //    same admin unit and operation (its level and its source), it does not add a second one (8.2.3, S42-T01).
+    public void GrantReadToParticipant(UserConnection userConnection, string schemaName, Guid recordId, Guid participantUnitId,
+        Guid manualSourceId) {
+        // manualSourceId: SysEntitySchemaRecRightSource where Code = 'Manual' - read it from the site, never hard-code it
+        userConnection.DBSecurityEngine.SetEntitySchemaRecordRightLevel(participantUnitId, schemaName, recordId,
+            EntitySchemaRecordRightOperation.Read, EntitySchemaRecordRightLevel.Allow, manualSourceId, false);
     }
 }

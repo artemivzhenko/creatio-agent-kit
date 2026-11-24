@@ -734,6 +734,72 @@ def test_a_package_with_fewer_schemas_than_head_or_the_site_stops_even_forced():
             assert push(pkg, "dev", fake, log=logs.append, skip_drift=True, skip_sql_dates=True) == 0 and "package schemas: ok" in logs
 
 
+
+class SiteWithLayer(FakeClio):
+    """The package's site rows hold `UsrGone` (an object layer a merge removed); `refs` is the count one key holds."""
+
+    def __init__(self, refs=0, **kw):
+        super().__init__(**kw)
+        self.refs = refs
+        self.site_schemas = [{"Schema": "UsrProcess"}, {"Schema": "UsrGone"}]
+
+    def execute_sql_rows(self, sql):
+        self.calls.append((["sql-rows", sql], None))
+        if '"ManagerName" from "SysSchema"' in sql:
+            return [{"ManagerName": "EntitySchemaManager"}]
+        if 's."Id"::text "id"' in sql:
+            return [{"id": "5d2a1c3e-0000-4000-8000-000000000001", "package": "UsrPkg"}]
+        if "information_schema" in sql:
+            return [{"table": "SysEntitySchemaReference", "column": "SysSchemaId"}]
+        if "union all" in sql or '"ref"' in sql:
+            return [{"ref": "SysEntitySchemaReference.SysSchemaId", "id": "5d2a1c3e-0000-4000-8000-000000000001", "n": str(self.refs)}]
+        return super().execute_sql_rows(sql)
+
+
+def test_allow_removed_lets_a_merged_away_schema_go_only_when_absent_and_unreferenced():
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        add_process(pkg)
+        quiet = dict(skip_drift=True, skip_sql_dates=True)
+        with patch("creatio_schemas.push._git", return_value=None):
+            logs = []  # no flag: the stop as before
+            assert push(pkg, "dev", SiteWithLayer(), log=logs.append, **quiet) == 1
+            assert "package schemas: FAILED package install deletes schemas absent from the package: UsrGone" in logs
+            logs = []  # the flag on a schema the folder still has: refused before the site is asked
+            fake = SiteWithLayer()
+            assert push(pkg, "dev", fake, log=logs.append, allow_removed=["UsrProcess"], **quiet) == 1
+            assert "package schemas: FAILED --allow-removed names a schema still in the package folder: UsrProcess" in logs
+            assert not any(a[0] == "push-pkg" for a, _ in fake.calls)
+            logs = []  # still referenced on the site: refused with the count
+            fake = SiteWithLayer(refs=3)
+            assert push(pkg, "dev", fake, log=logs.append, allow_removed=["UsrGone"], **quiet) == 1
+            assert "package schemas: FAILED UsrGone is still referenced: SysEntitySchemaReference.SysSchemaId 3 rows" in logs, logs
+            assert not any(a[0] == "push-pkg" for a, _ in fake.calls)
+            logs = []  # absent and unreferenced: pushed, the answer names it
+            fake = SiteWithLayer(refs=0)
+            assert push(pkg, "dev", fake, log=logs.append, allow_removed=[" UsrGone", ""], **quiet) == 0
+            assert "package schemas: ok; removal allowed: UsrGone" in logs, logs
+            assert any(a[0] == "push-pkg" for a, _ in fake.calls)
+
+
+def test_a_failed_compile_says_whose_errors_they_are():
+    from creatio_schemas.push import errors_by_package
+    log = ("UsrProbeService.UsrOther.cs(15,3): Error CS0246 : The type or namespace name 'X' could not be found\n"
+           "UsrProbeService.UsrOther.cs(15,3): Error CS0246 : The type or namespace name 'XAttribute' could not be found\n"
+           r"C:\site\Terrasoft.Configuration\Pkg\UsrThird\Files\cs\A.cs(3,1): error CS1002: ; expected" "\n"
+           "------- Finished building project: Succeeded: False. Errors: 3. Warnings: 0.\n")
+    groups = errors_by_package(log)
+    assert list(groups) == ["UsrOther", "UsrThird"] and len(groups["UsrOther"]) == 2
+    assert errors_by_package("Finished building project: Succeeded: True. Errors: 0.") == {}
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        fake, logs = FakeClio(summary=log), []
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", fake, log=logs.append, skip_drift=True, skip_sql_dates=True) == 1
+        assert "compilation log: FAILED compile FAILED: 2 error(s) in UsrOther, 1 error(s) in UsrThird (none in UsrPkg)" in logs, logs
+        assert "  UsrProbeService.UsrOther.cs(15,3): Error CS0246 : The type or namespace name 'X' could not be found" in logs
+
+
 def test_a_publish_error_is_printed_whole_and_names_the_pushed_schema():
     long = ("Terrasoft.Common.InvalidObjectStateException: compilation failed\n   at Terrasoft.Core.Configuration.Build()\n"
             "---> System.Exception: " + "x" * 300 + " in UsrProcess\n   at Terrasoft.Core.Process.Compile()\n")

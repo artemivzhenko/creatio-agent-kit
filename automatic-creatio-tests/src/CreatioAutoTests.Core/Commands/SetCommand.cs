@@ -41,6 +41,11 @@ public sealed class SetCommand : ICommand
             await target.SetValueFromStringAsync(value ?? string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
+        if (target is Frontend.Controls.ToggleTab { OpenNote: { } note })
+        {
+            DevOnly.Note(context, note);
+        }
+
         context.Logger.LogDebug("Set {Code} to {Value}.", target.Code, value);
     }
 }

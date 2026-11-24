@@ -259,14 +259,14 @@ Better: hide the boilerplate behind an executor: `_executor.Execute(client => cl
 - **Validate configuration values; on invalid values log `Warn` and fall back to a documented default** — do not crash:
   `if (ttlSec < 1) { _log.Warn($"SessionLockTtlSec [{ttlSec}] is invalid. Defaulting to [{DefaultTtlSec}]"); ttlSec = DefaultTtlSec; }`
 - Throw only for configuration that makes the component unusable: `ConfigurationErrorsException`, `AppConfigurationException` (wrong version, missing type).
-- Feature toggles: a nested class deriving from `FeatureMetadata` inside an `XxxFeatures` container, checked with `Features.GetIsEnabled<TFeature>()`. Keep both branches (old and new behavior) working until the toggle is removed.
+- Feature toggles: a nested class deriving from `FeatureMetadata` inside an `XxxFeatures` container, checked with `Features.GetIsEnabled<TFeature>()`; `Features.GetIsEnabled("<Code>")` is the same check by code and both read the same state (settled on 8.2.3 and in the 8.3.2 assemblies, S40-T05; tests stub either with `FeatureStub.Setup<TFeature>(bool)` / `FeatureStub.Setup("<Code>", bool)`, `FeatureStub.Restore()` in TearDown). Keep both branches (old and new behavior) working until the toggle is removed.
 
 ### 3.7 Where the code lives
 
 **C# goes into `<Package>/Files/cs/` as plain `.cs` files**, in folders by role (`Files/cs/Collectors/`, `Files/cs/Sinks/`). Do not create a source code schema for it.
 
 - The package must be an assembly package: `descriptor.json` has `"Type": 1` and `"ProjectPath": "Files/<Package>.csproj"`. The SDK-style project compiles everything under `Files/cs` into the package assembly; `clio push-pkg` builds and installs it. Code there is ordinary code: reviewed and diffed in git, unit-testable, no designer involved.
-- **The exception is an API on the Creatio side** - a configuration web service the platform exposes as `ServiceModel/<Name>.svc/...` (`[ServiceContract]`, a class deriving from `BaseService`). Create it as a **source code schema** (`Schemas/<Name>/`, `SourceCodeSchemaManager`, caption `[API] ...`). Keep it thin: read the request, call the classes from `Files/cs`, map the result.
+- **The exception is an API on the Creatio side** - a configuration web service the platform exposes as `/0/rest/<Name>/<Method>` (`[ServiceContract]`, a class deriving from `BaseService`; settled on 8.2.3 in S40-T05: no `.svc` path answers, and `[DefaultServiceRoute]` needs `using Terrasoft.Web.Common.ServiceRouting;`). Create it as a **source code schema** (`Schemas/<Name>/`, `SourceCodeSchemaManager`, caption `[API] ...`). Keep it thin: read the request, call the classes from `Files/cs`, map the result. A source code schema answers only after `compile-configuration`; the same class in `Files/cs` answered after `push-pkg` alone and is the alternative when the package has no other schema code (clio's layout puts it in `Files/src/cs/EntryPoints/WebServices/`).
 - Database objects (views, functions, triggers, data fixes) are not C#: they are package SQL scripts (`SqlScripts/<Name>/`, see `no-code/tools/sqlscripts`), one per database engine you support.
 
 ### 3.8 Unit tests live next to the package
@@ -311,7 +311,7 @@ Inline form for assignments: `_logger = logger ?? throw new ArgumentNullExceptio
 | bad configuration | `ConfigurationErrorsException`, `AppConfigurationException` |
 | interface member not supported by this implementation | `NotImplementedException` / `NotSupportedException` |
 
-Do not throw bare `new Exception(...)`.
+Do not throw bare `new Exception(...)`. An entity listener refuses a save with a validation message, not an exception: `entity.Validating` + `EntityValidationMessage` (recipe `HowToPreventRecordSaveWithEventListener`, settled on 8.2.3 in S40-T05).
 
 ### 4.3 Catch rules
 
@@ -459,10 +459,10 @@ the topic, follow this guide where the two disagree until the disagreement is se
 
 | Topic | Article | Read it for |
 |---|---|---|
-| web service | `configuration-webservice`, `-tests` | CSRF: a data-changing method is never `GET`; `BPMCSRF` header on writes; concrete return types only; a `#if NETSTANDARD2_0` status-code helper; a service answers only after a restart; a duplicate route is skipped silently |
-| entity event listener | `configuration-entity-event-listener`, `-tests` | the event order (`OnSaving, OnInserting, OnInserted, OnSaved`; `OnSaving, OnUpdating, OnUpdated, OnSaved`); react only to business-input columns (`GetChangedColumnValues`), never to the listener's own output or `ModifiedOn`; validation through `entity.Validating` + `EntityValidationMessage` (to be checked against the kit's throw recipe, S40-T05); `ClassFactory.RebindWithFactoryMethod` in tests |
-| ESQ filters | `esq`, `esq-filters-backend`, `esq-filter-parsing` | the filter API this guide's recipes do not show: `CreateIsNullFilter`, IN as `Equal` with `object[]` (a `Guid[]` binds as one parameter; an empty array is invalid SQL, guard it), `Between`, `TrimDateTimeParameterToDate`, `EntitySchemaQueryMacrosType` instead of `UtcNow.AddDays`, `CreateExistsFilter` over `[Child:Column]`, aggregate subqueries, `IsEnabled`, `IsNot` on a group |
-| feature toggle | `feature-toggle`, `-tests` | `FeatureStub` as the test double; the string-code `GetIsEnabled(code)` form (this guide's recipes use the generic form; both exist, S40-T05 checks which the site's version prefers) |
+| web service | `configuration-webservice`, `-tests` | Settled on 8.2.3: the URL is `/0/rest/<Service>/<Method>` with or without a route attribute, from `Files/cs` or a source code schema; `.svc` never; the `...Namespace` suffix is not needed (3.7). CSRF: a data-changing method is never `GET`; `BPMCSRF` header on writes; concrete return types only; a `#if NETSTANDARD2_0` status-code helper; a service answers only after a restart; a duplicate route is skipped silently |
+| entity event listener | `configuration-entity-event-listener`, `-tests` | the event order (`OnSaving, OnInserting, OnInserted, OnSaved`; `OnSaving, OnUpdating, OnUpdated, OnSaved`); react only to business-input columns (`GetChangedColumnValues`), never to the listener's own output or `ModifiedOn`; validation through `entity.Validating` + `EntityValidationMessage` (settled on 8.2.3: it refuses the save on OData, DataService and the page like a throw, with the text and no exception - the kit's recipe now uses it); `ClassFactory.RebindWithFactoryMethod` in tests |
+| ESQ filters | `esq`, `esq-filters-backend`, `esq-filter-parsing` | the filter API this guide's recipes do not show: `CreateIsNullFilter`, IN as `Equal` with `object[]` (a `Guid[]` binds as one parameter; an empty array is invalid SQL, guard it), `Between`, `TrimDateTimeParameterToDate`, `EntitySchemaQueryMacrosType` instead of `UtcNow.AddDays`, `CreateExistsFilter` over `[Child:Column]`, aggregate subqueries, `IsEnabled`, `IsNot` on a group. Settled on 8.2.3: a lookup is filtered by its column name (`"UsrStatus"` + `Guid`, compiled to `UsrStatusId = @P`); the path `"UsrStatusId"` throws `ItemNotFoundException` |
+| feature toggle | `feature-toggle`, `-tests` | `FeatureStub` as the test double; the string-code `GetIsEnabled(code)` form (settled on 8.2.3 and 8.3.2: both overloads exist and read the same state; this guide keeps the generic form, 3.6) |
 | system settings | `sys-setting`, `sys-settings`, `-tests` | `TryGetValue` / `GetDefValue`; shipping a setting as the binding pair `SysSettings_<Code>` + `SysSettingsValue_<Code>` (clio says the value row with `IsForceUpdate` false does not overwrite a site value; P-2.7 saw an overwrite - S40-T05) |
 | tests | `integration-testing`, `atf-repository-*` | AAA, `[Description]`, `because` on every assertion; ATF.Repository models for tests outside the instance (this guide's 3.8 tier stays: no platform in the instance-free tier) |
 

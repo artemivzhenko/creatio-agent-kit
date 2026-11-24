@@ -24,14 +24,13 @@ every list answer has a `limit`, default 40, and a `... N more` tail; `0` means 
 | --- | --- |
 | `describe_package(package, kind?, limit?, offset?)` | One line per schema, SQL script and data binding, from the package index. |
 | `describe_schema(package, schema, limit?, offset?)` | The summary of one schema: what the toolkit's `inspect` prints. |
-| `describe_item(package, schema, query, limit?, offset?)` | One part, chosen by `"<topic> [<name>] [k=v]"`; `"topics"` lists what the schema answers. |
-| `find_in_processes(path, pattern, limit?, offset?)` | Search the decoded text of every process (script lines, flow conditions, formulas, filters with lookup captions, Add/Modify values); `Package / Process / Element [type] / where: text`. Read-only. |
+| `describe_item(package, schema, query, limit?, offset?)` | One part, chosen by `"<topic> [<name>] [k=v]"`; `"topics"` lists what the schema answers, `"help"` the whole query grammar. |
 | `who_sets(path, target, limit?, offset?)` | Every place that writes `<Entity>.<Column> [= value]`: process steps and scripts, C#, client pages, SQL scripts. Read-only. |
 | `who_reads_message(path, sender, limit?, offset?)` | Publishers and subscribers of a message sender in C# and client code. Read-only. |
 | `page_audit(path, page, all?)` | What makes a Freedom page slow, one line per finding over a threshold (elements per tab, grids with no master filter, attributes through 3+ joins, comboboxes, page/object rules, columns, timers); last line `<Page>: <n> finding(s)`. Read-only. |
 | `resolve_caption(path, text, kind?, culture?, limit?, offset?)` | The workspace by caption or `Usr` name: objects, pages, columns, page elements, parameters, lookup values, ranked, best match first; `culture=all` searches the other cultures. |
 | `find_schema(path, schema, limit?, offset?)` | The package, the files (absolute paths), what it refers to, what refers to it. |
-| `find_text(path, pattern, kind?, context?, limit?)` | A regex over every file the index knows: `<Package>/<Item> (<kind>) <line>: <text>`, `context` lines around each hit; resource XML only with `kind="resource"`. The answer to "where is this text" without a Grep over raw schema files. |
+| `find_text(path, pattern, kind?, context?, limit?)` | A regex over every file the index knows: `<Package>/<Item> (<kind>) <line>: <text>`, `context` lines around each hit; resource XML only with `kind="resource"`. The answer to "where is this text" without a Grep over raw schema files. `kind="process"` searches the decoded process text (scripts, conditions, filters, values; was `find_in_processes`). |
 | `schema_deps(path, schema, direction?, kind?, via?, limit?, offset?)` | The typed graph: objects a page or process builds on (and through which columns); every process, rule, page, DCM, binding or listener that builds on an object. |
 | `schema_impact(path, schemas, tasks?, current?, md?, limit?, kind?)` | The dependents of the schemas a task changes; with the loop's tasks folder, which other active task changes or affects them. Ends with `exit code 1` on a conflict. `md` gives the `## Impact` table for `plan.md`; `kind` keeps one kind of dependents (a lookup with a hundred). |
 | `schema_diff(package, schemas?, against?)` | The working copy against git HEAD, a revision, a folder with a pulled copy, or the site (`against="env:<name>"`: the named schemas' copies pulled from the site's tables): `+` / `-` / `~` lines per item, never a JSON hunk. |
@@ -109,6 +108,16 @@ per tool, the ten largest answers and the truncated share, and end with the gap 
 tests, or a server installed outside the source tree: the kit root is taken as two levels above `mcp-server/`, which holds for the
 source tree and `pip install -e`). The text of a gap is checked for a password, token or key and refused; a script is copied as it is. The skills tell the author and the tester to call it before a self-written script runs, before a raw query no tool covers, and
 after a tool they had to work around. The feedback round clusters these lines into new tools; the scripts are the prototypes.
+
+## Profiles
+
+`CREATIO_KB_ROLE` picks which tools the server registers: `author` (the tools the creatio-kb, creatio-loop and
+creatio-author skills name, without `fire_timer`), `tester` (the same with creatio-tester, without `push_package`), or
+`all` - the default, every tool. Set it in the shell that starts the client (`CREATIO_KB_ROLE=tester claude`); the
+server inherits the shell's environment. An unknown value registers every tool and says so on stderr; `tool_stats`
+names the profile in its first line (`profile: tester (40 of 66 tools)`). The sets are the `PROFILES` table at the top
+of `server.py`. A tool a session needs and its profile lacks is a gap to record with `report_gap`, not a reason to
+switch to `all`.
 
 ## Install
 

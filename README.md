@@ -10,7 +10,7 @@ agent as tools, and four agent skills (Claude Code, Codex, Copilot) that turn th
 
 | Folder | What it holds | Start at |
 |---|---|---|
-| [creatio-knowledge-base/](creatio-knowledge-base/README.md) | 177 code recipes (Classic UI, Freedom UI, C#, SQL), the clio reference, `no-code/tools/` (17 package toolkits, the describe layer, the environment layer), the `creatio-kb` MCP server (67 tools), the skills `creatio-kb`, `creatio-author`, `creatio-tester`, `creatio-loop`, the platform facts register | its README |
+| [creatio-knowledge-base/](creatio-knowledge-base/README.md) | 177 code recipes (Classic UI, Freedom UI, C#, SQL), the clio reference, `no-code/tools/` (17 package toolkits, the describe layer, the environment layer), the `creatio-kb` MCP server (66 tools), the skills `creatio-kb`, `creatio-author`, `creatio-tester`, `creatio-loop`, the platform facts register | its README |
 | [automatic-creatio-tests/](automatic-creatio-tests/README.md) | the test framework: `.act` cases in a small DSL over Playwright for Freedom UI and Classic UI pages, process cases and OData backend cases without a browser, the `creatio-tests` MCP server (11 tools) | its README, [docs/dsl.md](automatic-creatio-tests/docs/dsl.md) |
 | [ci-cd/](ci-cd/README.md) | the pipeline of a package repository: `pipeline.py` with the stages check (package rules, the descriptor-date rule against the merge base), build, register, backup, deploy from the built artifact (IsChanged cleared, push-pkg, compile, restart, Redis; a backup zip is the rollback), verify, unit tests inside Creatio, UI cases; templates for GitHub Actions, GitLab CI and Jenkins; `clio-ext.py`, the developer's commands around clio (push-all in dependency order, hierarchy, localization and process checks, OAuth service); the check, hierarchy, lint, build, deploy and push-all stages are also `ci_*` tools of the knowledge-base MCP server | its README |
 | [postman/](postman/) | a Postman collection for manual API checks against a site; a helper, not part of the pipeline | - |
@@ -60,6 +60,8 @@ to the site only data, rights, settings and validated pages. Then:
 cd automatic-creatio-tests && dotnet build && dotnet test        # the framework, no browser needed
 powershell -File src/CreatioAutoTests.Cli/bin/Debug/net8.0/playwright.ps1 install chromium   # once
 ```
+
+**The human's tools, not the agents'.** Some `creatio-kb` tools are for the person who runs the kit, not for a task's author or tester: `ci_check`, `ci_build`, `ci_backup`, `ci_deploy`, `ci_verify`, `ci_push_all`, `ci_hierarchy` and `ci_lint` (the pipeline stages), `merge_plan`, `merge_layers`, `merge_package` and `merge_run` with `schema_snapshot`, `snapshot_compare` and `review_download` (a layer merge, the skill `creatio-merge`), `env_diff` and `set_feature` (what a site holds and one feature switch), `tool_stats` (what the server returned, and the gaps recorded) and `list_recipes` (the catalogue of recipes). An agent in a task does not call them unless the human asks. The test `test_every_tool_has_a_home` fails when a new tool is named in no skill and not here.
 
 ## How a task runs
 

@@ -92,7 +92,7 @@ def test_a_binding_or_sql_script_changed_without_a_new_descriptor_date_is_refuse
 
 def test_build_backup_and_deploy_share_the_artifact_shape_and_its_order():
     import zipfile
-    original = pipeline.run
+    original, original_text = pipeline.run, pipeline.run_text
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "packages"
         pkgs = [package(root, "UsrBase"), package(root, "UsrApp", depends=["UsrBase"])]
@@ -107,6 +107,7 @@ def test_build_backup_and_deploy_share_the_artifact_shape_and_its_order():
             # deploy from the artifact: the .gz files by path, in the order file's order, after the IsChanged rule
             seen = []
             pipeline.run = lambda cmd, cwd=None, check=True: seen.append(cmd) or 0
+            pipeline.run_text = lambda cmd, cwd=None: (seen.append(cmd) or 0, "")  # the compile step reads the answer too
             pipeline.deploy(pipeline.unpack(saved, Path(tmp) / "unpacked"), "ci", restart=False, redis=False, compile_all=False)
             pushes = [c for c in seen if c[1] == "push-pkg"]
             assert [Path(c[2]).name for c in pushes] == ["UsrBase.gz", "UsrApp.gz"] and all(Path(c[2]).is_absolute() for c in pushes)
@@ -116,7 +117,7 @@ def test_build_backup_and_deploy_share_the_artifact_shape_and_its_order():
             seen.clear()
             assert pipeline.verify(pkgs, "ci") == 1 and all(c[2] == "verify" and c[-2:] == ["-e", "ci"] for c in seen) and len(seen) == 2
         finally:
-            pipeline.run = original
+            pipeline.run, pipeline.run_text = original, original_text
         try:
             pipeline.unpack(Path(tmp) / "nowhere", Path(tmp) / "x")
             assert False, "an empty artifact must stop"
@@ -126,8 +127,9 @@ def test_build_backup_and_deploy_share_the_artifact_shape_and_its_order():
 
 def test_deploy_runs_the_commands_in_order_with_the_flags_clio_accepts():
     seen = []
-    original = pipeline.run
+    original, original_text = pipeline.run, pipeline.run_text
     pipeline.run = lambda cmd, cwd=None, check=True: seen.append(" ".join(cmd[1:3])) or 0
+    pipeline.run_text = lambda cmd, cwd=None: (seen.append(" ".join(cmd[1:3])) or 0, "done")
     try:
         with tempfile.TemporaryDirectory() as tmp:
             pkgs = [package(Path(tmp), "UsrBase"), package(Path(tmp), "UsrApp")]
@@ -139,14 +141,44 @@ def test_deploy_runs_the_commands_in_order_with_the_flags_clio_accepts():
             pipeline.deploy(pkgs, "ci", restart=False, redis=False, compile_all=True)
             assert [s.split()[0] for s in seen][-2:] == ["compile-configuration", "healthcheck"]
     finally:
-        pipeline.run = original
+        pipeline.run, pipeline.run_text = original, original_text
     full = []
     pipeline.run = lambda cmd, cwd=None, check=True: full.append(cmd) or 0
+    pipeline.run_text = lambda cmd, cwd=None: (full.append(cmd) or 0, "")
     try:
         pipeline.deploy([], "ci", restart=False, redis=False, compile_all=True)
     finally:
-        pipeline.run = original
+        pipeline.run, pipeline.run_text = original, original_text
     assert full[-2][-1] == "--all" and full[-1][-4:] == ["-a", "true", "-h", "true"]  # a bare -a: "Option 'a' has no value"
+
+
+def test_the_compile_after_an_install_waits_while_another_compilation_runs():
+    """S35-T04: "another compilation is in progress" twice, then green: two waits of 15 s; another failure stops at once;
+    the bound stops a build that never ends."""
+    original = pipeline.run_text
+    slept = []
+    answers = [(1, "[ERR] - InvalidOperationException: Cannot run compilation because another compilation is in progress")] * 2 + [(0, "Done")]
+    calls = []
+    pipeline.run_text = lambda cmd, cwd=None: calls.append(cmd) or answers.pop(0)
+    try:
+        assert pipeline.compile_after_install("ci", False, sleep=slept.append) == 30
+        assert slept == [15, 15] and len(calls) == 3 and calls[0] == ["clio", "compile-configuration", "-e", "ci"]
+        pipeline.run_text = lambda cmd, cwd=None: (1, "[ERR] - CS0246: the type or namespace name could not be found")
+        slept.clear()
+        try:
+            pipeline.compile_after_install("ci", True, sleep=slept.append)
+            assert False, "a compile error must stop the deploy"
+        except SystemExit as e:
+            assert "failed (1): clio compile-configuration -e ci --all" in str(e) and slept == []
+        pipeline.run_text = lambda cmd, cwd=None: (1, "another compilation is in progress")
+        slept.clear()
+        try:
+            pipeline.compile_after_install("ci", False, sleep=slept.append)
+            assert False, "the wait is bounded"
+        except SystemExit as e:
+            assert "still in progress after 600 s" in str(e) and len(slept) == 40
+    finally:
+        pipeline.run_text = original
 
 
 def test_the_templates_parse_and_no_secret_is_interpolated_by_groovy():

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import json
+import sys
 from pathlib import Path
 
 # The SDK renamed FastMCP to MCPServer in mcp 2.0. Both expose the same .tool()
@@ -19,6 +20,30 @@ try:
     from mcp.server.mcpserver import MCPServer as _Server  # mcp >= 2.0
 except ImportError:  # pragma: no cover - older SDK
     from mcp.server.fastmcp import FastMCP as _Server  # mcp 1.x
+
+# Role profiles (S41-T02): CREATIO_KB_ROLE=author|tester registers only that role's tools, `all` (the default) every tool.
+# The sets are the tools the creatio-kb, creatio-loop and role skills name (S41-T01 census, 2026-11-23), report_gap and
+# tool_stats in both; the role contract takes out what the role never does: the tester never pushes (push_package), the
+# author never fires a timer (fire_timer). A tool a session needs and its profile lacks is a gap to record, not a reason
+# to switch to `all`.
+PROFILES: dict[str, set[str]] = {
+    "author": {
+    "describe_item", "describe_package", "describe_schema", "describe_table", "env_call", "env_odata", "env_sql",
+    "find_api", "find_schema", "find_text", "get_code_style", "get_recipe", "index_workspace", "kb_overview",
+    "list_lookups", "lookup_values", "page_audit", "precommit_check", "process_error", "process_runs", "push_package",
+    "report_gap", "resolve_caption", "resolve_uid", "run_process", "run_tests", "sample_records", "schema_deps",
+    "schema_diff", "schema_impact", "schema_layers", "search_recipes", "sys_setting", "tool_stats", "verify_pushed",
+    "who_reads_message", "who_sets",
+    },
+    "tester": {
+    "cases_from_package", "column_transitions", "describe_item", "describe_package", "describe_schema",
+    "describe_table", "env_call", "env_odata", "env_sql", "find_api", "find_record", "find_schema", "find_text",
+    "fire_timer", "get_code_style", "get_recipe", "kb_overview", "list_lookups", "lookup_values", "make_fixture",
+    "process_error", "process_runs", "process_timers", "record_context", "record_history", "report_gap",
+    "resolve_uid", "role_diff", "role_members", "run_process", "run_tests", "sample_records", "schema_deps",
+    "schema_diff", "schema_layers", "search_recipes", "tool_stats", "user_roles", "verify_pushed", "who_sets",
+    },
+}
 
 import tool_stats as stats_log
 from kb_index import KnowledgeBase, default_root, recipe_part
@@ -46,10 +71,31 @@ mcp = _Server(
 _register = mcp.tool
 
 
+def _role() -> str:
+    role = os.environ.get("CREATIO_KB_ROLE", "all").strip().lower() or "all"
+    if role != "all" and role not in PROFILES:
+        print(f"creatio-kb: unknown CREATIO_KB_ROLE {role!r}, registering every tool (author, tester or all)", file=sys.stderr)
+        return "all"
+    return role
+
+
+ROLE = _role()
+DEFINED: list[str] = []     # every tool this file defines
+REGISTERED: list[str] = []  # the ones the profile let through
+
+
 def _counted_tool(*args, **kwargs):
-    """`mcp.tool()` with every tool's call logged (tool_stats.py: names and sizes, never values); the one place tools are registered."""
+    """`mcp.tool()` with every tool's call logged (tool_stats.py: names and sizes, never values) and the role profile applied: a tool
+    outside it is not registered, the function stays importable. The one place tools are registered."""
     decorate = _register(*args, **kwargs)
-    return lambda fn: decorate(stats_log.instrument(fn))
+
+    def wrap(fn):
+        DEFINED.append(fn.__name__)
+        if ROLE != "all" and fn.__name__ not in PROFILES[ROLE]:
+            return fn
+        REGISTERED.append(fn.__name__)
+        return decorate(stats_log.instrument(fn))
+    return wrap
 
 
 mcp.tool = _counted_tool
@@ -121,26 +167,11 @@ def kb_overview() -> str:
 @mcp.tool()
 def search_recipes(query: str, area: str = "", limit: int = 8) -> str:
     """
-    Find knowledge base recipes for a Creatio task, by keyword or by symptom.
-
-    ALWAYS call this before writing Creatio code - the recipes carry the exact
-    idioms, the naming rules and the known traps for this codebase, which are not
-    guessable from general knowledge.
-
-    query: what you are trying to do, in plain words or as an API name.
-           Examples: "filter a lookup field", "run a business process",
-           "crt.OpenLookupPageRequest", "make a detail editable",
-           "execute sql script", "push package to environment".
-    area:  optional filter - "ClassicUI", "FreedomUI", "RemoteModule", "Mobile",
-           "Backend", "SQL", "Clio" (the clio CLI and its MCP server) or "Tools"
-           (the file toolkits: objects, process, rules, pages, data, push ...).
-           Leave empty to search everything; Classic UI and Freedom UI often have
-           a recipe each for the same task, and seeing both tells you which UI
-           generation the answer belongs to.
-    limit: how many results (default 8).
-
-    Returns a ranked list of ids with titles and summaries. Read a full recipe
-    with get_recipe.
+    Find knowledge base recipes for a Creatio task, by keyword, API name or symptom - ALWAYS before writing Creatio code
+    (the recipes carry the idioms, naming rules and known traps of this codebase). `query` in plain words
+    ("filter a lookup field", "crt.OpenLookupPageRequest"); `area` narrows to ClassicUI, FreedomUI, RemoteModule, Mobile,
+    Backend, SQL, Clio or Tools (empty searches everything: Classic and Freedom often have one recipe each for the same
+    task). A ranked list of ids with titles and summaries; `get_recipe` reads one.
     """
     base = kb()
     results = base.search(query, area=area or None, limit=max(1, min(limit, 25)))
@@ -166,25 +197,11 @@ def search_recipes(query: str, area: str = "", limit: int = 8) -> str:
 @mcp.tool()
 def get_recipe(recipe_id: str, part: str = "all") -> str:
     """
-    Return the text of one recipe: the explanation header and the runnable code.
-
-    part: `all` (default, the whole file), `traps` (only the header lines that start with Trap / Do not /
-          Verified / Gap - ask for this FIRST, before writing code of that kind), `summary` (the header block, or
-          the text before the first `##` of a .md recipe), `code` (the code without the header, or the fenced blocks).
-
-    recipe_id: the id from search_recipes, for example
-               "Frontend/ClassicUI/Fields/HowToFilterLookupField".
-               A bare file name is accepted when it is unambiguous; for clio a
-               command name ("execute-sql-script"), a block skill name
-               ("clio-sql-and-data") or a file toolkit ("tools/objects",
-               "tools/pages", "tools/process", "tools/rules", "tools/sqlscripts",
-               "tools/dcm", "tools/usertask", "tools/data", "tools/classicui", "tools/resources",
-               "tools/scaffold", "tools/describe", "tools/push", "tools/uitests")
-               works directly.
-
-    The code is a template, not a drop-in: schema names, column names and the
-    generated attribute suffixes (PDS_Name_a1b2c3d) must be replaced with the
-    real ones from the project.
+    The text of one recipe. `part`: `all` (default), `traps` (the Trap / Do not / Verified / Gap header lines - ask for
+    this FIRST), `summary` (the header), `code` (the code or the fenced blocks). `recipe_id`: the id search_recipes gave
+    (`Frontend/ClassicUI/Fields/HowToFilterLookupField`); a bare file name when unambiguous; for clio a command name
+    (`execute-sql-script`), a block skill (`clio-sql-and-data`) or a file toolkit (`tools/objects` ... `tools/uitests`).
+    The code is a template: schema and column names and the generated attribute suffixes are replaced with the project's.
     """
     base = kb()
     recipe = base.get(recipe_id)
@@ -349,42 +366,55 @@ def describe_schema(package: str, schema: str, limit: int = DEFAULT_LIMIT, offse
         return f"error: {e}"
 
 
+# the query grammar of describe_item, answered by describe_item(package, schema, "help") - moved out of the tool description
+# (S41-T03): a description is read on every search, the grammar once per task
+DESCRIBE_ITEM_HELP = """One part of a schema, chosen by a query "<topic> [<name>] [key=value ...]";
+"topics" lists what the schema can answer. Examples:
+  object : "columns type=Lookup", "column UsrAmount", "flags", "base", "map" (columns by type with captions)
+  process: "elements kind=FormulaTask", "element ReadOrders", "params", "flows from=Start",
+           "script Calc" (the C# body of a script task, decoded - not the escaped CH1 in metadata.json); filters print a lookup
+           row as its name when the workspace's bindings hold it, and with `env=<clio name>` (e.g. "elements env=dev") also the
+           rows of base packages and hand-made ones, read from the site
+  rules  : "rules", "rule <name>"
+  dcm    : "stages", "stage Stage1", "steps stage=Stage1", "step DcmElement1", "moves from=Stage1", "filter"
+  user task: "params", "param RecordId", "methods", "method InternalExecute", "source"
+  data   : (a Data/<Name> binding) "columns", "rows limit=20 culture=en-US", "row <key>"
+  classic: (a 7.x client schema) "diff op=insert", "element UsrTotal", "methods", "method onSaved", "messages",
+           "attributes", "details", "find UsrTotal", "where UsrTotal" (caption, control, column with its caption, the
+           parentName chain, the layout cell, the layer; a detail with its filter column), "where" alone (opens from / shown on),
+           "map tab=UsrInfoTab" (the inserts as a captioned tree), "method init" (in every layer of the workspace, first to
+           last, callParent marked; "method init env=dev" over the site's layers), "callers onSaveClick" (file:line across the
+           workspace's client schemas), "outline" (attributes, messages, methods with lines)
+  C#     : (schema name, or "Files/cs/X.cs" / "X.cs" / "X") "classes", "members UsrService kind=method visibility=public",
+           "member UsrService.GetLabel" (one body), "usings", "regions", "operations" (ESQ, raw SQL, SysSettings,
+           process start, HTTP ... with line numbers), "find GetTypedColumnValue"
+  page   : "sections", "elements parent=SideAreaProfileContainer", "element UsrName",
+           "attributes bound=true", "data-sources", "handlers", "handler crt.SaveRecordRequest",
+           "validators", "converters", "containers", "find <text>", "map tab=GeneralInfoTab" (the page as a captioned tree), "about UsrStatus" (where + lookup target, rules, handlers
+           with line numbers, validators, converters, the framework's cases), "where UsrName" (caption, type, control ->
+           attribute -> column with its caption, the parent chain, the layer; culture=uk-UA, format=json),
+           "where" alone (opens from: the section, the object, the record type or the default page, from the SysModuleEdit
+           bindings; "where env=<clio name>" from the site's tables)
+  any    : "files", "resources culture=uk-UA", "resource Caption", "missing culture=ru-RU from=en-US"
+Nothing is returned that was not asked for: a page is a database, this is the query.
+A list is cut at `limit` lines; `offset` (or `offset=40` in the query) continues after the lines already read: the tail of a page after
+the first says `... N more; next: offset=<k>`. A body (handler, member, method, script) takes `lines=10-40` or `around=<text> [n=8]`
+for a window with the body's line numbers; a body over 120 lines starts with a line that names those keys.
+"""
+
 @mcp.tool()
 def describe_item(package: str, schema: str, query: str = "topics", limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
     """
-    One part of a schema, chosen by a query "<topic> [<name>] [key=value ...]";
-    "topics" lists what the schema can answer. Examples:
-      object : "columns type=Lookup", "column UsrAmount", "flags", "base", "map" (columns by type with captions)
-      process: "elements kind=FormulaTask", "element ReadOrders", "params", "flows from=Start",
-               "script Calc" (the C# body of a script task, decoded - not the escaped CH1 in metadata.json); filters print a lookup
-               row as its name when the workspace's bindings hold it, and with `env=<clio name>` (e.g. "elements env=dev") also the
-               rows of base packages and hand-made ones, read from the site
-      rules  : "rules", "rule <name>"
-      dcm    : "stages", "stage Stage1", "steps stage=Stage1", "step DcmElement1", "moves from=Stage1", "filter"
-      user task: "params", "param RecordId", "methods", "method InternalExecute", "source"
-      data   : (a Data/<Name> binding) "columns", "rows limit=20 culture=en-US", "row <key>"
-      classic: (a 7.x client schema) "diff op=insert", "element UsrTotal", "methods", "method onSaved", "messages",
-               "attributes", "details", "find UsrTotal", "where UsrTotal" (caption, control, column with its caption, the
-               parentName chain, the layout cell, the layer; a detail with its filter column), "where" alone (opens from / shown on),
-               "map tab=UsrInfoTab" (the inserts as a captioned tree), "method init" (in every layer of the workspace, first to
-               last, callParent marked; "method init env=dev" over the site's layers), "callers onSaveClick" (file:line across the
-               workspace's client schemas), "outline" (attributes, messages, methods with lines)
-      C#     : (schema name, or "Files/cs/X.cs" / "X.cs" / "X") "classes", "members UsrService kind=method visibility=public",
-               "member UsrService.GetLabel" (one body), "usings", "regions", "operations" (ESQ, raw SQL, SysSettings,
-               process start, HTTP ... with line numbers), "find GetTypedColumnValue"
-      page   : "sections", "elements parent=SideAreaProfileContainer", "element UsrName",
-               "attributes bound=true", "data-sources", "handlers", "handler crt.SaveRecordRequest",
-               "validators", "converters", "containers", "find <text>", "map tab=GeneralInfoTab" (the page as a captioned tree), "about UsrStatus" (where + lookup target, rules, handlers
-               with line numbers, validators, converters, the framework's cases), "where UsrName" (caption, type, control ->
-               attribute -> column with its caption, the parent chain, the layer; culture=uk-UA, format=json),
-               "where" alone (opens from: the section, the object, the record type or the default page, from the SysModuleEdit
-               bindings; "where env=<clio name>" from the site's tables)
-      any    : "files", "resources culture=uk-UA", "resource Caption", "missing culture=ru-RU from=en-US"
-    Nothing is returned that was not asked for: a page is a database, this is the query.
-    A list is cut at `limit` lines; `offset` (or `offset=40` in the query) continues after the lines already read: the tail of a page after
-    the first says `... N more; next: offset=<k>`. A body (handler, member, method, script) takes `lines=10-40` or `around=<text> [n=8]`
-    for a window with the body's line numbers; a body over 120 lines starts with a line that names those keys.
+    One part of a schema, chosen by a query "<topic> [<name>] [key=value ...]"; "topics" lists what the schema can answer.
+    The forms a task uses most: object "columns type=Lookup" / "column UsrAmount" / "map"; process "elements" / "element X" /
+    "params" / "script Calc" (the decoded C# body); page "elements" / "handler crt.SaveRecordRequest" / "about UsrStatus" /
+    "where UsrName"; classic "diff op=insert" / "method onSaved" / "callers X"; C# "members X" / "member X.Y"; any "resources",
+    "files". A list is cut at `limit`; `offset` continues it (the tail says `next: offset=<k>`); a body takes `lines=10-40` or
+    `around=<text>`. **`describe_item(package, schema, "help")` lists every form** (dcm, user task, data bindings, rules,
+    the page and classic "where" / "map" variants, cultures): read it once per task, not the file.
     """
+    if query.strip().lower() == "help":
+        return DESCRIBE_ITEM_HELP
     _tools_path()
     from creatio_schemas.describe import QueryError, describe_item as _di, parse_query
     try:
@@ -401,19 +431,12 @@ def describe_item(package: str, schema: str, query: str = "topics", limit: int =
 @mcp.tool()
 def index_workspace(path: str, rebuild: bool = False, stats: bool = False, env: str = "") -> str:
     """
-    Build or refresh the package index - the project's knowledge-base file
-    (<workspace>/.creatio-index/index.sqlite, one store for every package): for every schema its kind, caption,
-    summary, files and the schemas it refers to. `path` is a clio workspace root, a
-    packages folder or one package. The index checks itself against the disk on every
-    describe_* / find_schema call, so run this only after a `clio pull-pkg` to see what
-    changed, or with rebuild=True to start over. stats=True adds the store: size, format, FTS5, rows per table, per
-    package its build time and unreadable count. With `paths.platform` in project.json it also reads the local platform
-    install's captions once (the `platform <version>: N captions ...` line), the fallback of a base column's caption.
-    env=<clio environment> (read-only SQL): also the site's columns of every object's table that the workspace does not
-    define, with the package that defines each (`package not found` for a physical column) and its caption, and the site's
-    schemas of the workspace's prefixes that no workspace package holds (UId clashes listed); `columns`, `map`,
-    describe_schema, find_schema and resolve_caption show them until the next env pass. Run it first in a task that adds
-    columns or objects.
+    Build or refresh the package index (`<workspace>/.creatio-index/index.sqlite`, one store for every package): per schema
+    its kind, caption, summary, files and references. `path`: a clio workspace root, a packages folder or one package.
+    The index checks itself against the disk on every describe_* / find_schema call: run this after a `clio pull-pkg`,
+    or with `rebuild=True`. `stats=True` adds the store's size and rows. `env=<clio environment>` (read-only SQL) adds the
+    site's columns the workspace does not define and the site's schemas of the workspace's prefixes no package holds -
+    run it first in a task that adds columns or objects.
     """
     _tools_path()
     from creatio_schemas.describe import index_workspace as _iw
@@ -481,22 +504,26 @@ def find_schema(path: str, schema: str, limit: int = DEFAULT_LIMIT, offset: int 
 
 
 @mcp.tool()
-def find_text(path: str, pattern: str, kind: str = "", context: int = 0, limit: int = DEFAULT_LIMIT) -> str:
+def find_text(path: str, pattern: str, kind: str = "", context: int = 0, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
     """
-    A regex over the lines of every file the package index knows - the answer to "where
-    is this text" without a Grep over raw schema files: one line per hit,
-    `<Package>/<Item> (<kind>) <line>: <text>` (trimmed to 160 characters), `context`
-    lines before and after each (`<line>- <text>`). `kind` keeps the items of one kind
-    (object, page, process, rules, sql, csharp, data, ...); resource XML is skipped unless
-    kind="resource", which searches only it. `path` is a clio workspace root, a packages
-    folder or one package. Then describe_item on the schema it names.
+    A regex over the lines of every file the package index knows - the answer to "where is this text" without a Grep
+    over raw schema files: one line per hit, `<Package>/<Item> (<kind>) <line>: <text>`, `context` lines around each.
+    `kind` keeps one kind (object, page, rules, sql, csharp, data, ...); `kind="resource"` searches the resource XML the
+    others skip; **`kind="process"` searches the DECODED text of every process** (script task lines, flow conditions,
+    formulas, filters with lookup captions, Add/Modify values; lines `Package / Process / Element [type] / where: text`,
+    `offset` continues) - use it before a grep over metadata.json. `path`: a clio workspace root, a packages folder or
+    one package. Then describe_item on the schema it names.
     """
     _tools_path()
+    from creatio_schemas.describe import QueryError
     from creatio_schemas.describe.index import find_text as _ft
+    from creatio_schemas.describe.writes import find_in_processes as _processes
     try:
+        if kind.strip().lower() == "process":
+            return _processes(path, pattern, limit, offset)
         return _ft(path, pattern, kind, context, limit)
-    except (FileNotFoundError, KeyError, ValueError) as e:
-        return f"error: {e}"
+    except (FileNotFoundError, KeyError, ValueError, QueryError) as e:
+        return f"error: {e.args[0] if e.args else e}"
 
 
 @mcp.tool()
@@ -547,40 +574,42 @@ def schema_impact(path: str, schemas: str, tasks: str = "", current: str = "", m
 
 
 @mcp.tool()
-def merge_plan(path: str, schemas: str = "", env: str = "", limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
+def merge_plan(path: str, schemas: str = "", env: str = "", limit: int = DEFAULT_LIMIT, offset: int = 0, direction: str = "up") -> str:
     """What collapsing the replacing layers of a schema into one would do, without writing anything: per schema
-    `<Schema> <kind>: <N> layers, target <package>` (the lowest package, every other layer's package depends on it),
-    `layer <pkg>: +n columns / elements / methods` in the order the platform applies them, `siblings: ... (order
-    guessed)` when two layers have no dependency between them, `conflict ...` lines (one column name with two UIds,
-    one UId with two types, two layers changing one page element, one method overridden in two layers, a callParent
-    in a callback or with its value used, a lookup to an object of a package above the target), `depends: <target>
-    gains ...`; then `<M> schemas, <L> layers to remove, <C> conflicts` and the exit code (1 on a conflict).
-    `schemas` comma-separated (default: every schema replaced by more than one package of the workspace); `env`
-    (a clio environment) takes the layer order from the site instead of guessing it from DependsOn. Run it before
-    planning a layer merge; safe on a client workspace (no index is written). `offset` skips lines of the plan."""
+    `<Schema> <kind>: <N> layers, target <package>` (`direction` "up", the default: the top package, the one that depends on
+    every other layer's package, `depends: unchanged`, and `conflict reference from below` when a package under the top names
+    a column a removed layer adds; "down": the lowest package, which gains the removed packages' dependencies), `layer <pkg>: +n columns / elements / methods` in
+    the order the platform applies them, `siblings: ... (order guessed)` when two layers have no dependency between them,
+    `conflict ...` lines (the describe README "Merge plan" lists them: a column name with two UIds, two layers on one page
+    element, one method in two layers, a lookup above the target ...), `depends: <target> gains ...`; then `<M> schemas,
+    <L> layers to remove, <C> conflicts` and the exit code (1 on a conflict). `schemas` comma-separated (default: every
+    schema replaced by more than one package); `env` takes the layer order from the site. Safe on a client workspace."""
     _tools_path()
     from creatio_schemas.describe.merge import merge_plan as _plan
     try:
-        text, conflicts = _plan(path, [s.strip() for s in schemas.split(",") if s.strip()] or None, _env(env) if env else None, limit, offset)
+        text, conflicts = _plan(path, [s.strip() for s in schemas.split(",") if s.strip()] or None, _env(env) if env else None, limit, offset,
+                                direction)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return text + f"\nexit code {1 if conflicts else 0}"
 
 
 @mcp.tool()
-def merge_layers(path: str, schema: str, target: str = "", env: str = "") -> str:
+def merge_layers(path: str, schema: str, target: str = "", env: str = "", direction: str = "up") -> str:
     """The replacing layers of one OBJECT or PAGE (Freedom or Classic) collapsed into one layer of the target package -
     printed, NEVER written: the merge plan lines, then `write <file>` / `delete <folder>` for each file, or `stopped: ...
     - nothing written` (a conflict, siblings whose order only the site knows, a site row that still points at a layer to
-    remove, a Classic method that cannot fold). A page: its diff arrays concatenated in fold order, a Classic method in two
-    layers folded into one (the upper body with the lower body in place of its callParent). `target`: the package to merge
-    into (default the lowest layer's; every layer's package must depend on it). `env` (a clio environment) gives the
+    remove, a Classic method that cannot fold, a reference from below). A page: its diff arrays concatenated in fold order, a
+    Classic method in two layers folded into one (the upper body with the lower body in place of its callParent).
+    `direction` "up" (default): into the top package, nothing changes its dependencies; push the top, then the packages that
+    lost a layer (`allow_removed`), then the top again with its schema's descriptor date advanced (its generated source
+    still overrides the lower layers' columns until then). "down": into the lowest package. `target`: the package to merge into (default the single top, or the lowest with "down"). `env` (a clio environment) gives the
     site's layer order and runs the references check. To apply, the author runs `describe.py merge <workspace> <Schema>
     -e <env> --apply` and pushes the packages; prove it with schema_snapshot before and after."""
     _tools_path()
     from creatio_schemas.describe.merge import merge_schema
     try:
-        text, code = merge_schema(path, schema, target or None, _env(env) if env else None, apply=False)
+        text, code = merge_schema(path, schema, target or None, _env(env) if env else None, apply=False, direction=direction)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return text + f"\nexit code {code}"
@@ -625,26 +654,17 @@ def merge_run(path: str, child: str, parent: str, env: str, evidence: str) -> st
 def push_package(package: str, env: str, probe: bool = False, dry_run: bool = False,
                  project: str = "", tasks: str = "", task: str = "", force: bool = False,
                  baseline: str = "", skip_drift: bool = False, skip_foreign_files: bool = False,
-                 skip_sql_dates: bool = False, skip_compile_package: bool = False) -> str:
+                 skip_sql_dates: bool = False, skip_compile_package: bool = False, allow_removed: str = "") -> str:
     """
-    Install a package using push v2: check drift (schemas of the package modified on the
-    environment after the package's last git commit, found through SysPackage) and dropped
-    dependencies (DependsOn and csproj references present in git HEAD and gone now), check
-    task ownership, update changed SQL dates, clear IsChanged (SysSchema, SysPackageSchemaData,
-    SysPackageSqlScript), push-pkg and check compilation. Assembly packages are compiled
-    with compile-package --wait. compile-configuration runs only for processes with script
-    or user tasks and may take minutes. probe also checks objects and SQL scripts; dry_run
-    prints commands without launching processes or writing files: it sends nothing to the environment.
-
-    project and task select the current task for ownership checks; tasks overrides the
-    project tasks folder. Without either tasks or project the ownership check is skipped.
-    force, baseline and the skip flags have the same meaning as in the push CLI.
-
-    The answer is one line per step (drift, package schemas, bindings with their count, process dates, compile,
-    publish, probes) and `details: <file>` - the whole log, in the task folder when `task` is given. It stops when the
-    install would delete schemas absent from the package (git HEAD or the site has them), and on a binding value in a
-    force-update column the site holds otherwise (the install keeps the other columns); a changed process gets a new
-    descriptor ModifiedOnUtc (the install regenerates it only then); a publish error comes back whole.
+    Install a package with the push CLI's checks around it: drift (schemas modified on the site after the package's last
+    commit), dropped dependencies, task ownership (`project` + `task`, or `tasks`), SQL dates, IsChanged cleared, push-pkg,
+    the compilation (an assembly package through compile-package; compile-configuration only for processes with script
+    or user tasks, minutes). `probe` also checks objects and SQL scripts; `dry_run` prints the commands and sends nothing.
+    `force`, `baseline` and the `skip_*` flags are the CLI's. The answer is one line per step and `details: <file>`; it
+    stops when the install would delete a schema the site or git HEAD has, or would overwrite a force-update binding
+    value the site holds otherwise. `allow_removed` ("UsrOrder,UsrShipment"): the schemas a merge took out of this package
+    on purpose - pushed only when each is absent from the folder and no site row references it (the merge's check). A failed
+    compile names whose errors: `compile FAILED: N error(s) in <Pkg>, ...`.
     """
     package = _package_path(package, project)
     if not package.strip() or not (Path(package) / "descriptor.json").is_file():
@@ -662,7 +682,7 @@ def push_package(package: str, env: str, probe: bool = False, dry_run: bool = Fa
                           task=Path(task) if task else None, force=force,
                           baseline=Path(baseline) if baseline else None, skip_drift=skip_drift,
                           skip_foreign_files=skip_foreign_files, skip_sql_dates=skip_sql_dates,
-                          skip_compile_package=skip_compile_package, **details)
+                          skip_compile_package=skip_compile_package, allow_removed=allow_removed.split(","), **details)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         lines.append(f"error: {e.args[0] if e.args else e}")
         code = 2
@@ -1298,24 +1318,6 @@ def run_tests(env: str = "", project: str = "", category: str = "", test: str = 
 
 
 @mcp.tool()
-def find_in_processes(path: str, pattern: str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
-    """
-    Search the DECODED text of every business process in a workspace or package: script task lines
-    (not the escaped string in metadata.json), flow conditions, formulas, element filters (a lookup
-    GUID shown with its caption when a data binding names it), the column values of Add/Modify data,
-    parameter defaults. Lines `Package / Process / Element [type] / where: text`; case-blind, a regex
-    when the pattern parses as one. Use it before grep over metadata.json.
-    """
-    _tools_path()
-    from creatio_schemas.describe.writes import find_in_processes as _find
-    from creatio_schemas.describe import QueryError
-    try:
-        return _find(path, pattern, limit, offset)
-    except (FileNotFoundError, KeyError, QueryError) as e:
-        return f"error: {e.args[0] if e.args else e}"
-
-
-@mcp.tool()
 def who_sets(path: str, target: str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
     """
     Every place that WRITES a column: `<Entity>.<Column>` or `<Entity>.<Column> = <value>`. Process
@@ -1393,11 +1395,10 @@ def schema_layers(path_or_env: str, schema: str, rule: str = "", workspace: str 
     visible after a push: the copies of a schema on the environment in the order the platform applies them (the last wins):
     package, replacing or not, modified on / by, IsChanged, body size and md5. Run it BEFORE planning a change to a page
     or object that the platform or another package already has, and as the tester's first preflight step: a copy in the
-    customisation package (Custom) is applied after every package you push and silently overrides it - the answer then ends
-    with `Custom layer present: <package>`. `path_or_env` is a clio environment name or the path of project.json (its
-    environment.customLayer names the customisation package). `rule`: a business rule UId - its state (absent / enabled /
-    disabled / removed) in every layer. `workspace`: the workspace holding the schema - a schema the site renamed (the UId stays, a push from
-    git brings the old name back) is then found by its UId and the answer says `name on site: X (workspace: Y)`. Reads the environment (SELECTs), writes nothing."""
+    customisation package is applied after every package you push and silently overrides it - the answer then ends with
+    `Custom layer present: <package>`. `path_or_env`: a clio environment name or a project.json path (its
+    `environment.customLayer`). `rule`: a business rule UId, its state per layer. `workspace`: finds a schema the site renamed
+    by its UId. Reads the environment (SELECTs), writes nothing."""
     import json
     from creatio_schemas.describe.layers import CUSTOM_LAYER, render, schema_layers as _layers
     from creatio_schemas.environment import open_environment
@@ -1413,16 +1414,13 @@ def schema_layers(path_or_env: str, schema: str, rule: str = "", workspace: str 
 @mcp.tool()
 def schema_snapshot(schema: str, env: str = "", workspace: str = "", columns: str = "", out: str = "", limit: int = 0,
                     page_file: str = "") -> str:
-    """An OBJECT as text lines, to prove a layer merge changed nothing. `workspace`: the effective schema over every layer
-    on disk (`layers: a > b`, `column <Name> <uid> <type> [lookup X] [required] [default v]`, `index ...`; the site's layer
-    order when `env` is also given). `env`: what the site holds (`table T column <col> <type>`, `rows <n>`,
-    `checksum <col> <md5>` of every column's values ordered by Id, `copy <package> extendParent=<bool>` per layer).
-    Take it BEFORE and AFTER, then `snapshot_compare`. `columns`: a comma list to checksum (default every column but Id;
-    name them on a big table). `out`: a file to write the lines to (the evidence). Reads with SELECTs and files, writes
-    nothing to the site or the workspace. A PAGE: the folded elements (`element <name> <type> [parent] [caption]`,
-    `removed <name>`), `handler <request> #<n>` / `method <name>`, converter / validator / attribute ... keys on disk, the
-    `copy` lines on the site, and with `page_file` (the file creatio-tests `analyse` wrote from the live page) one
-    `page <code> <type> <label>` line per element."""
+    """An OBJECT (or a PAGE) as text lines, to prove a layer merge changed nothing. `workspace`: the effective schema over
+    every layer on disk (`layers: a > b`, `column <Name> <uid> <type> ...`, `index ...`); `env`: what the site holds
+    (`table T column <col> <type>`, `rows <n>`, `checksum <col> <md5>` per column ordered by Id, `copy <package>` per
+    layer). Take it BEFORE and AFTER, then `snapshot_compare`. `columns`: the columns to checksum (name them on a big
+    table). `out`: the file to write (the evidence). A page: its folded elements, handlers, methods and keys, plus one
+    `page <code> <type> <label>` line per element with `page_file` (the file creatio-tests `analyse` wrote). Reads with
+    SELECTs and files, writes nothing."""
     from creatio_schemas.describe import cut
     from creatio_schemas.integrity import snapshot
     _tools_path()
@@ -1474,9 +1472,11 @@ def tool_stats(days: int = 1) -> str:
     largest answer per tool, the ten largest answers (tool and argument names, never values) and the share of answers that were cut
     with a `... N more` tail, and ends with the count of gaps recorded by `report_gap` (all of them, not per day). Read it to see
     which tool costs the most context and whether the gaps were recorded at all (zero gaps next to twenty `env_sql` calls is the
-    signal). The same table is `python mcp-server/tool_stats.py [days]`. Off when the server runs with CREATIO_KB_STATS=0. Reads
+    signal). The first line names the role profile the server runs with (`profile: tester (40 of 66 tools)`). The same table is
+    `python mcp-server/tool_stats.py [days]`. Off when the server runs with CREATIO_KB_STATS=0. Reads
     `mcp-server/.stats/<date>.jsonl` and `dev/gaps/gaps.jsonl`, writes nothing."""
-    return stats_log.summarise(stats_log.read(days), stats_log.read_gaps())
+    profile = f"profile: all ({len(DEFINED)} tools)" if ROLE == "all" else f"profile: {ROLE} ({len(REGISTERED)} of {len(DEFINED)} tools)"
+    return profile + "\n" + stats_log.summarise(stats_log.read(days), stats_log.read_gaps())
 
 
 @mcp.tool()

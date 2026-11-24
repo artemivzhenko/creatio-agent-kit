@@ -137,6 +137,32 @@ meta-path codec behind `{Parameter:X}` in a formula:
 (`=` / `==` / `equal`, `is not null` / `filled`, `not contains`); the codec is `expressions.metapath`, and
 `ExpressionCodec` is its `Names` for one process.
 
+A stored filter's `comparisonType` is the platform's `FilterComparisonType`: 1 is null, 2 is not null, 3 =, 4 !=, 5 <,
+6 <=, 7 >, 8 >=, 15 exists, 16 not exists. Before S40-T07 the toolkit wrote `>` as 5 and read 5 back as `>` (and the null
+pair as 15 / 16): a signal or data filter it wrote with `>` or `<` runs the other way on the site. Re-write such a filter
+(`proc.py element ... filter` again) after updating; describe shows the stored operator truthfully now.
+
+## Formula functions
+
+What a formula element (and a `--expr` value) may call besides arithmetic: the static members of
+`Terrasoft.Common.DateTimeUtilities` and `Terrasoft.Common.FormulaUtilities`, read by reflection from the local 8.3.2
+`Terrasoft.Common.dll` (S42-T01); the names are the formula's, e.g. `DateTimeUtilities.DayOfWeek({Parameter:UsrDate})`.
+
+| class | member | answers |
+|---|---|---|
+| `DateTimeUtilities` | `Day(DateTime)`, `Month(DateTime)`, `DayOfWeek(DateTime)`, `GetQuarter(DateTime)` | int |
+| | `Time(DateTime)`, `Time(string)`, `DateTimeToShortTime(DateTime, int)` | TimeSpan |
+| | `StartOfWeek / StartOfMonth / StartOfQuarter / StartOfHalfYear / StartOfYear / StartOfHour(DateTime, int)` | DateTime |
+| | `DateTimeToDate(DateTime, int, bool)`, `GetDateTimeTillMinutes / TillSeconds / TillMillisecond(DateTime)` | DateTime |
+| | `IsDate(DateTime)`, `DayInRange(DateTime, DateTime, int, int)` | bool |
+| | `ToUnixTimeSeconds(DateTime)` | long |
+| `FormulaUtilities` | `Min(...)`, `Max(...)` over int, long, float, double, decimal or DateTime arguments | the argument type |
+| | `Avg(...)` over int, long, double or decimal | double / decimal |
+| | `Mod(a, b)` for int, long, float, double, decimal | the argument type |
+
+The meaning of the `int` argument of `StartOf...` and `DateTimeToShortTime` is not read here (a name, not its
+documentation); check it once on a site before a case depends on it.
+
 ## Signals
 
 Two kinds of signal share the start and catch elements; the keys below are what `metadata.json`
@@ -175,6 +201,10 @@ condition) and a script that writes a mark into the record was pushed, published
 threshold: one run in `SysProcessLog`, no error, the mark written. An update below the
 threshold started nothing, and the script's own save did not re-fire the signal because the
 watched column did not change.
+The rule, settled by twelve timed updates (S40-T07, P-1.13): a "modified" signal with a filter starts on every update
+after which the record meets the filter - the new values, whatever the old ones were - and an insert does not start it.
+The "opposite side" seen on 2026-11-23 was the toolkit writing `>` as the platform's Less (fixed in `filters.py`, see
+Conditions); the run above was read with the same inverted describe, so its direction is not evidence either way.
 
 ## Values and mappings
 
@@ -263,11 +293,14 @@ process synchronously and returns the result parameters in the same call
 (`ProcessEngineService.svc/RunProcess`, verified on 8.2.3: a formula, a gateway and a Read data
 task; a variable parameter can be passed in and read back).
 
-Trap: a process with user tasks (add / modify data) or a script task pushed as files answers
-"Publish the process before starting it" (`SysProcessLog.ErrorDescription`) although the push
-compiled with 0 errors: such a process has a compiled model, and the push's build does not
-publish it. `clio compile-configuration -e <env>` (3-4 minutes on 8.2.3) does - the next start
-ran clean. Formula, gateway and read-data processes run straight after `push-pkg`.
+Trap: a process with a script task pushed as files answers "Publish the process before starting
+it" (`SysProcessLog.ErrorDescription`) although the push compiled with 0 errors: such a process
+has a compiled model, and the push's build does not publish it. `clio compile-configuration -e
+<env>` (3-4 minutes on 8.2.3) does - the next start ran clean. Formula, gateway, read-data and
+add-data processes run straight after `push-pkg`: a new process whose only task is Add data, pushed
+with a bare `clio push-pkg` and no compile, completed and wrote its row on 8.2.3 (S40-T05, P-1.12).
+An earlier note here counted add / modify data among the processes that need the publish; for
+add data that does not hold on 8.2.3. Modify data alone was not re-checked.
 
 ## Keep the schema UId
 

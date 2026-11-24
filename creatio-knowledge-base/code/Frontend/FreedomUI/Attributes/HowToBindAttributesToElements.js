@@ -6,7 +6,10 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 		// Use "$AttributeName | ConverterName" to transform the value before rendering.
 		//
 		// Common bindable properties:
-		//   value    - field value (two-way binding)
+		//   control  - field value of an input (two-way binding). Not "value": the input
+		//              preprocessor reads `control` of every crt.Input, and one bound
+		//              with "value" stops the whole page from opening on 8.2.3 (TypeError
+		//              in _modifyInputType, S40-T05). crt.SearchFilter does take "value".
 		//   visible  - show/hide the element (boolean attribute)
 		//   readonly - make the field read-only (boolean attribute)
 		//   disabled - disable the element (boolean attribute)
@@ -24,7 +27,7 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHE
 					"type": "crt.Input",
 					"label": "$Resources.Strings.PDS_Name_h9kddsb",
 					"labelPosition": "auto",
-					"value": "$PDS_Name_h9kddsb",
+					"control": "$PDS_Name_h9kddsb",
 					"readonly": "$IsFormReadonly"
 				},
 				"parentName": "SideAreaProfileContainer",

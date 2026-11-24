@@ -6,7 +6,7 @@ modules, a C# style guide, **a no-code layer** (13 clio block skills with a refe
 each of its 261 commands, and 17 Python toolkits that build business processes, rules, objects,
 pages, cases, data bindings and SQL scripts as package files), **a describe layer** that answers
 questions about a package - what it holds, what a schema is, who depends on it, what changed -
-without reading the files, and an MCP server that gives an AI assistant all of it as 67 tools.
+without reading the files, and an MCP server that gives an AI assistant all of it as 66 tools.
 Four agent skills (Claude Code, Codex CLI, GitHub Copilot CLI) turn the tools into roles: an **author** that builds a task and a
 **tester** that proves it, under one task-folder contract.
 
@@ -156,7 +156,7 @@ whole or one section at a time.
 
 ## Using it with an AI assistant
 
-The MCP server gives the assistant 67 tools in three groups.
+The MCP server gives the assistant 66 tools in three groups.
 
 Recipes:
 
@@ -177,7 +177,7 @@ The describe layer, over a package folder or a clio workspace (`no-code/tools/de
 | `describe_schema(path, Name)` | the summary of one schema - 6x-40x fewer tokens than its files |
 | `describe_item(path, Name, "<topic> [<name>] [k=v]")` | one part: a column, an element, a handler's code, a stage, a parameter |
 | `resolve_caption(path, text)` | the workspace by a caption or a Usr name: objects, pages, columns, page elements, parameters, lookup values, ranked |
-| `find_in_processes(path, pattern)` | the decoded text of every process: script lines, flow conditions, filters with lookup captions, values |
+| `find_text(path, pattern, kind="process")` | the decoded text of every process: script lines, flow conditions, filters with lookup captions, values |
 | `who_sets(path, "Entity.Column [= v]")` | every place that writes a column: process steps and scripts, C#, pages, SQL scripts |
 | `who_reads_message(path, sender)` | the publishers and subscribers of a message sender |
 | `page_audit(path, Page, all?)` | what makes a Freedom page slow: elements per tab, unfiltered grids, deep attribute paths, comboboxes, rules, columns, timers - one line per finding over a threshold |

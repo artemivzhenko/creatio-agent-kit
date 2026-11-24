@@ -189,10 +189,12 @@ def main(argv=None) -> int:
     mp.add_argument("--project", help="project.json holding the environment")
     mp.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     mp.add_argument("--offset", type=int, default=0)
+    mp.add_argument("--direction", choices=("up", "down"), default="up", help='"up" (default): into the top package, the one that depends on every layer\'s package, dependencies unchanged; "down": into the lowest package, which gains the removed packages\' dependencies')
     mg = sub.add_parser("merge", help="the replacing layers of one object or page collapsed into one layer of the target package; prints the files, --apply writes them; exit 1 when it stops")
     mg.add_argument("path")
     mg.add_argument("schema")
-    mg.add_argument("--target", help="the package to merge into (default: the lowest layer's); every layer's package must depend on it")
+    mg.add_argument("--target", help="the package to merge into (default: the single top package with --direction up, the lowest with down)")
+    mg.add_argument("--direction", choices=("up", "down"), default="up", help='"up" (default): into the top package, the one that depends on every layer\'s package, dependencies unchanged; "down": into the lowest package, which gains the removed packages\' dependencies')
     mg.add_argument("-e", "--env", help="clio environment name: the site's layer order and the references check")
     mg.add_argument("--project", help="project.json holding the environment")
     mg.add_argument("--apply", action="store_true", help="write and delete the files (without it: print only)")
@@ -284,9 +286,9 @@ def main(argv=None) -> int:
         try:
             env = open_environment(args.env, args.project) if args.env or args.project else None
             if args.command == "merge":
-                text, code = merge_schema(args.path, args.schema, args.target, env, args.apply)
+                text, code = merge_schema(args.path, args.schema, args.target, env, args.apply, direction=args.direction)
             else:
-                text, conflicts = merge_plan(args.path, args.schemas, env, args.limit, args.offset)
+                text, conflicts = merge_plan(args.path, args.schemas, env, args.limit, args.offset, args.direction)
                 code = 1 if conflicts else 0
         except (ValueError, KeyError, OSError, RuntimeError, QueryError) as e:
             print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)

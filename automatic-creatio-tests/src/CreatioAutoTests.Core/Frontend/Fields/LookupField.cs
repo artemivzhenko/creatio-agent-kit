@@ -302,7 +302,7 @@ public sealed class LookupField : FieldElementBase, INavigableToRecord
         }
 
         var text = await ReadOptionTextAsync(option).ConfigureAwait(false);
-        return !text.TrimStart().StartsWith("Add new", StringComparison.OrdinalIgnoreCase);
+        return !InterfaceLanguage.IsAddNewRow(text);
     }
 
     /// <summary>

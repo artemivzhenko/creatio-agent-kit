@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using FluentAssertions;
 using NUnit.Framework;
 using Terrasoft.Configuration;
@@ -19,6 +20,8 @@ using Terrasoft.Core.Entities.Events;
 /// Mock* helpers cast to, `[MockSettings(RequireMock.All)]` wires the DB engine, resources and current user doubles.
 /// Trap the kit reproduces faithfully: a column nobody set is "not loaded" and `GetTypedColumnValue` throws
 /// `InvalidObjectStateException` (NotLoadedColumnValue) - guard with `IsColumnValueLoaded` first.
+/// A listener that refuses a save with `entity.Validating` (the kit's form, settled on 8.2.3 in S40-T05) is tested by
+/// calling `OnSaving`, then `entity.Validate()` and asserting `ValidationMessages` - not `Throw<...>`.
 /// Out of reach without an instance: `Entity.Save`, raw `Select`/`Insert` against the DB, DcmSchemaManager,
 /// `EnsureDBConnection` - prove those over OData from outside instead.
 /// Run with `dotnet test tests/UsrPkg/UsrPkg.Tests.csproj -c dev-nf` (net472) or `-c dev-n8` (.NET 8).
@@ -43,6 +46,11 @@ namespace UsrPkg.Tests {
 	//               order.SetColumnValue("UsrStatusId", status.GetTypedColumnValue<Guid>(idColumn));
 	//           }
 	//       }
+	//       public override void OnSaving(object sender, EntityBeforeEventArgs e) {
+	//           base.OnSaving(sender, e);
+	//           ((Entity)sender).Validating += ValidateAmount;   // refuses with a message, no throw
+	//       }
+	//       // ValidateAmount adds an EntityValidationMessage when UsrAmount < 0 (see HowToPreventRecordSaveWithEventListener)
 	//   }
 
 	[TestFixture]
@@ -101,9 +109,20 @@ namespace UsrPkg.Tests {
 		public void OnSaving_Refuses_ANegativeAmount() {
 			Entity order = CreateEntity("UsrOrder", new Dictionary<string, object> { { "UsrAmount", -1m } });
 
-			Action save = () => new UsrOrderEventListener().OnSaving(order, new EntityBeforeEventArgs());
+			new UsrOrderEventListener().OnSaving(order, new EntityBeforeEventArgs());
 
-			save.Should().Throw<InvalidOperationException>();
+			// A validation refusal is asserted through Validate(), which fires the handlers OnSaving subscribed.
+			order.Validate().Should().BeFalse();
+			order.ValidationMessages.Select(m => m.Text).Should().Contain("The order amount must not be negative");
+		}
+
+		[Test]
+		public void OnSaving_Accepts_AZeroAmount() {
+			Entity order = CreateEntity("UsrOrder", new Dictionary<string, object> { { "UsrAmount", 0m } });
+
+			new UsrOrderEventListener().OnSaving(order, new EntityBeforeEventArgs());
+
+			order.Validate().Should().BeTrue();
 		}
 
 	}

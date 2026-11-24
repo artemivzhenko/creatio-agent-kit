@@ -180,3 +180,30 @@ public sealed class ToggleTabValidationTests
         Assert.That(plan.IsValid, Is.False);
     }
 }
+
+/// <summary>S11-T18: a toggle that opens a panel is done when the panel is there; one retry click, never a sleep.</summary>
+[TestFixture]
+public sealed class ToggleTabPanelTests
+{
+    [TestCase(1, 1)]
+    [TestCase(2, 2)]
+    public async Task The_panel_that_opens_on_the_first_or_second_click_is_reported_with_that_click(int opensOn, int expected)
+    {
+        var n = 0;
+        var clicks = await ToggleTab.OpenPanelAsync(
+            () => { n++; return Task.CompletedTask; },
+            () => n >= opensOn ? Task.CompletedTask : throw new TimeoutException(),
+            "AttachmentList");
+        Assert.That(clicks, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void A_panel_that_never_opens_fails_after_two_clicks_not_three()
+    {
+        var clicks = 0;
+        var ex = Assert.ThrowsAsync<CommandFailedException>(() =>
+            ToggleTab.OpenPanelAsync(() => { clicks++; return Task.CompletedTask; }, () => throw new TimeoutException(), "AttachmentList"));
+        Assert.That(ex!.Message, Is.EqualTo("panel AttachmentList did not open after 2 clicks"));
+        Assert.That(clicks, Is.EqualTo(2));
+    }
+}

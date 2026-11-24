@@ -13,4 +13,10 @@ public sealed class ToggleTabOptions
     /// only record of what the group contains.
     /// </summary>
     public string[] Tabs { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Tab caption -> the <c>element-name</c> of the panel that tab opens (S11-T18). A tab listed here is done when that panel is
+    /// visible, with one more click when it is not; a tab not listed here is done when the group marks it.
+    /// </summary>
+    public Dictionary<string, string> Panels { get; set; } = new();
 }

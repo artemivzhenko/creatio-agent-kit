@@ -14,6 +14,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from .clio import Clio
 from .files import read_text, write_text
@@ -162,6 +163,8 @@ def _touch_process_dates(package: Path, paths: list[str] | None) -> list[str]:
     return processes + [f"binding {n}" for n in bindings]
 
 
+SITE_MANAGER_SQL = ('select s."ManagerName" from "SysSchema" s join "SysPackage" p on p."Id" = s."SysPackageId" '
+                    "where p.\"UId\" = '{uid}' and s.\"Name\" = '{schema}'")
 SITE_SCHEMAS_SQL = ('select s."Name" "Schema" from "SysSchema" s join "SysPackage" p on p."Id" = s."SysPackageId" '
                     "where p.\"UId\" = '{uid}'")
 
@@ -170,6 +173,23 @@ def missing_schemas(package: Path, head: set[str] | None, site: set[str] | None)
     """The schemas the install would delete: in git HEAD or on the site in this package, and no folder here."""
     here = {d.parent.name for d in package.glob("Schemas/*/descriptor.json")}
     return sorted(((head or set()) | (site or set())) - here)
+
+
+COMPILE_ERROR = re.compile(r"\berror\s+CS\d+", re.IGNORECASE)
+PKG_IN_PATH = re.compile(r"Pkg[\\/]([^\\/]+)[\\/]")
+PKG_IN_FILE = re.compile(r"([^\\/\s(]+?)\.([^.\\/\s(]+)\.cs\(")  # <Schema>.<Package>.cs(15,3): the generated source
+
+
+def errors_by_package(log_text: str) -> dict[str, list[str]]:
+    """The compiler error lines of a compilation log grouped by the package their file belongs to (`Pkg/<Pkg>/...` in the path,
+    else the `<Schema>.<Package>.cs` name the configuration build gives a schema's source; `?` when neither), in log order."""
+    groups: dict[str, list[str]] = {}
+    for line in log_text.splitlines():
+        if not COMPILE_ERROR.search(line):
+            continue
+        path, file = PKG_IN_PATH.search(line), PKG_IN_FILE.search(line)
+        groups.setdefault(path.group(1) if path else file.group(2) if file else "?", []).append(line.strip())
+    return groups
 
 
 def _head_schemas(package: Path) -> set[str] | None:
@@ -386,8 +406,9 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
           project: Path | None = None, tasks: Path | None = None, task: Path | None = None,
           force: bool = False, baseline: Path | None = None, skip_drift: bool = False,
           skip_foreign_files: bool = False, skip_sql_dates: bool = False,
-          skip_compile_package: bool = False, bin_dir: Path | None = None) -> int:
+          skip_compile_package: bool = False, bin_dir: Path | None = None, allow_removed: list[str] | None = None) -> int:
     package = Path(package).resolve()
+    allowed = sorted({s.strip() for s in allow_removed or [] if s.strip()})
     try:
         descriptor = json.loads((package / "descriptor.json").read_text(encoding="utf-8-sig"))["Descriptor"]
         pkg_name, assembly = descriptor["Name"], descriptor.get("Type") == 1
@@ -461,10 +482,24 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         except (RuntimeError, KeyError, ValueError, TypeError) as exc:  # no site answer: HEAD alone decides
             detail(f"  site schemas: {exc}")
             note = " (site not checked)"
-        missing = missing_schemas(package, head, site)
+        here = {d.parent.name for d in package.glob("Schemas/*/descriptor.json")}
+        still = [s for s in allowed if s in here]
+        if still:
+            raise RuntimeError("--allow-removed names a schema still in the package folder: " + ", ".join(still))
+        for schema in allowed:  # the merge's check: a NO ACTION key to the removed row rolls the whole install back
+            managers = [str(r["ManagerName"]) for r in clio.execute_sql_rows(SITE_MANAGER_SQL.format(
+                uid=uuid.UUID(descriptor["UId"]), schema=schema.replace("'", "''")))]
+            from .describe.merge import references
+            reader = SimpleNamespace(sql=clio.execute_sql_rows)  # references() reads through env.sql
+            refs = [r for m in managers for r in references(reader, schema, [pkg_name], m)]
+            if refs:
+                raise RuntimeError(f"{schema} is still referenced: " + "; ".join(
+                    re.sub(r"^references: (\S+ \d+ rows).*$", r"\1", r) for r in refs))
+        missing = [s for s in missing_schemas(package, head, site) if s not in allowed]
         if missing:  # no --force: the installer deletes them, and a foreign key rolls the whole install back
             raise RuntimeError("package install deletes schemas absent from the package: " + ", ".join(missing))
-        return ("ok" if head is not None or site is not None else "not checked (no git, no site)") + note
+        done = ("ok" if head is not None or site is not None else "not checked (no git, no site)") + note
+        return done + (f"; removal allowed: {', '.join(allowed)}" if allowed else "")
 
     def bindings():
         if not (package / "Data").is_dir():
@@ -576,6 +611,12 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         if not match:
             raise RuntimeError(summary)
         if int(match.group(1)) and baseline is None and not (assembly and not skip_compile_package):
+            groups = errors_by_package(compilation_log)
+            for lines in groups.values():
+                log(f"  {lines[0]}")
+            if groups:
+                raise RuntimeError("compile FAILED: " + ", ".join(f"{len(v)} error(s) in {k}" for k, v in groups.items())
+                                   + ("" if pkg_name in groups else f" (none in {pkg_name})"))
             raise RuntimeError(summary)
         return "ok"
 

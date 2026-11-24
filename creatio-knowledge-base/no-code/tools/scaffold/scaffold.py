@@ -227,6 +227,7 @@ SERVICE_CS = """namespace Terrasoft.Configuration.@NAME@Namespace
 	using System.ServiceModel.Activation;
 	using System.ServiceModel.Web;
 	using Terrasoft.Web.Common;
+	using Terrasoft.Web.Common.ServiceRouting;
 
 	#region Class: @NAME@
 

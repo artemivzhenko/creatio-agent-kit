@@ -8,7 +8,9 @@ version: 2.1
 
 One task, one human, two agents that never share a chat: the **author** builds the package
 artifacts, the **tester** proves them. They communicate only through files in the task folder;
-the human carries the task from one to the other. This file is the contract both roles read
+the human carries the task from one to the other. The author session starts with `CREATIO_KB_ROLE=author`, the tester
+session with `CREATIO_KB_ROLE=tester` (set in the shell before `claude`, `codex` or `copilot`; the MCP server inherits it
+and registers only that role's tools); without it both see every tool. This file is the contract both roles read
 first; [creatio-author](../creatio-author/SKILL.md) and [creatio-tester](../creatio-tester/SKILL.md)
 say what each role does with it.
 

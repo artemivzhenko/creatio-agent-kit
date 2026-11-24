@@ -156,7 +156,7 @@ public sealed class TextReportWriter : IReportWriter
 
             foreach (var note in testCase.DevNotes)
             {
-                builder.AppendLine("      dev-only: " + note);
+                builder.AppendLine("      " + (note.StartsWith("line ") ? "dev-only: " : note.StartsWith("cleanup: ") ? string.Empty : "note: ") + note);
             }
 
             if (testCase.Screenshot is not null)

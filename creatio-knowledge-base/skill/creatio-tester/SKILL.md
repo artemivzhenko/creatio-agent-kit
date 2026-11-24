@@ -25,7 +25,7 @@ say so in chat and stop.
    regression row `REG-nn` per dependent - a page runs its existing `.act` cases (`cases`) or at
    least `validate` of its page file, a process its process case, a rule or DCM `rules.py probe` /
    `dcm.py inspect`; a dependent you cannot exercise is a `not tested` row with its name, never silence. A criterion
-   about rights is proved through clio's MCP: `inspect-role` / `inspect-user` / `inspect-access` read who may do what,
+   about rights is proved through clio's MCP: `inspect-role` / `inspect-user` / `inspect-access` read who may do what (`role_members`, `user_roles` and `role_diff` answer from the site's tables when the roles of one user or two roles are the question),
    `manage-role` / `manage-access` / `set-record-rights` set a role up for a case (through `clio-run` when the tool is not
    in the list; `env_sql` only for what they do not answer).
    `describe.py diff <package>` (MCP `schema_diff`) shows what the author changed in schema terms - a `+`
@@ -43,7 +43,7 @@ say so in chat and stop.
    (`ProcessCases/`, `# writes`): `insert` / `update` over OData, then `check-record ... has` / `check-count` on what the
    backend did - a lookup filter as `Col/Id=$alias`. Seed rows a case does not own (a lookup value, a parent record)
    go through clio's `execute-dataservice-batch` (1-100 records, validators and listeners run) - never SQL inserts. The record a case inserts comes from `make_fixture(env, entity)` (made-up values of the object's shape); a real record is read with `sample_records`, never copied into a case. Backend cases over OData, process cases, probes (`objects.py probe`, `rules.py probe`, `sqlscripts.py probe`; a process is proved by a process case),
-   unit tests in `paths.unitTests` for a class the author left untested. Name the files by the
+   unit tests in `paths.unitTests` for a class the author left untested (`run_tests` runs them inside Creatio; `cases_from_package` drafts the backend cases a package's listeners and scripts call for). Name the files by the
    task id (`012-shipment-label.act`). Test data carries the prefix `project.json` names and is
    removed by the case.
 4. **Run.** Validate before a live run. Keep the full output of every failing command in
@@ -66,9 +66,9 @@ reports. You read them. The only writes you make are tests, evidence and your ow
 
 Before any `env_sql`, the question goes to the tool that answers it: a schema overridden in another
 package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
-`process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
+`process_runs(record=)`, a timer that should have fired - `process_timers` (`fire_timer` fires one), a record a failed case left or a case made - `find_record`, `record_context`, `record_history`, and which column went from what to what - `column_transitions`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
 `resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
-records of an object with their lookups named - `sample_records`; text inside schemas - `find_text`; a column's writers
+records of an object with their lookups named - `sample_records`, its columns - `describe_table`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
 

@@ -61,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-foreign-files", action="store_true", help="skip the task ownership check")
     p.add_argument("--skip-sql-dates", action="store_true", help="do not stamp changed SQL descriptors")
     p.add_argument("--skip-compile-package", action="store_true", help="skip the assembly package build")
+    p.add_argument("--allow-removed", metavar="SCHEMA,...", default="",
+                   help="schemas the package lost on purpose (a merge): pushed only when absent from the folder and no site "
+                        "row references them")
     p.add_argument("--bin", type=Path, help="Creatio assemblies for the script compile check; default $CREATIO_BIN, then the "
                                             "TestCoreLibPath of the workspace's tests/Directory.Build.props")
     args = p.parse_args(argv)
@@ -69,7 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         return push(resolve_package(args.package, args.project), args.env, Clio(args.env), args.probe, args.dry_run,
                     project=args.project, tasks=args.tasks, task=args.task, force=args.force, baseline=args.baseline,
                     skip_drift=args.skip_drift, skip_foreign_files=args.skip_foreign_files,
-                    skip_sql_dates=args.skip_sql_dates, skip_compile_package=args.skip_compile_package, bin_dir=args.bin)
+                    skip_sql_dates=args.skip_sql_dates, skip_compile_package=args.skip_compile_package, bin_dir=args.bin,
+                    allow_removed=args.allow_removed.split(","))
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2

@@ -69,12 +69,13 @@ def test_v2_options_are_forwarded_and_failure_reason_survives():
                 "project": Path("project.json"), "tasks": Path("tasks"), "task": Path("tasks/UsrTask"),
                 "force": True, "baseline": Path("baseline.txt"), "skip_drift": True,
                 "skip_foreign_files": True, "skip_sql_dates": True, "skip_compile_package": True,
+                "allow_removed": ["UsrGone", "UsrOld"],
             }
             log("push FAILED at compilation: new errors")
             return 1
         with patch.object(push_module, "Clio", return_value=FakeClio()), patch.object(push_module, "push", side_effect=fake_push):
             output = server.push_package(str(pkg), "dev", True, True, "project.json", "tasks", "tasks/UsrTask",
-                                         True, "baseline.txt", True, True, True, True)
+                                         True, "baseline.txt", True, True, True, True, "UsrGone,UsrOld")
         assert "new errors" in output and output.endswith("exit code 1")
 
 
@@ -191,12 +192,15 @@ def test_merge_plan_prints_and_writes_nothing():
                                                                                 "ManagerName": "EntitySchemaManager"}}), encoding="utf-8")
             (folder / "metadata.json").write_text(f'= MetaData.Schema.UId "uid-{name}"\r\n', encoding="utf-8")
         before = sorted(p.relative_to(root) for p in root.rglob("*"))
-        out = server.merge_plan(str(root))
-        assert out.splitlines()[0] == "Contact object: 2 layers, target UsrA" and out.endswith("1 schemas, 1 layers to remove, 0 conflicts\nexit code 0"), out
+        out = server.merge_plan(str(root))  # upward by default (S27-T09): into the top package
+        assert out.splitlines()[0] == "Contact object: 2 layers, target UsrB" and out.endswith("1 schemas, 1 layers to remove, 0 conflicts\nexit code 0"), out
+        assert "  depends: unchanged" in out
+        assert server.merge_plan(str(root), direction="down").splitlines()[0] == "Contact object: 2 layers, target UsrA"
         assert sorted(p.relative_to(root) for p in root.rglob("*")) == before
         assert server.merge_plan(str(root / "nowhere")).startswith("error: ")
         out = server.merge_layers(str(root), "Contact")
-        assert "delete packages/UsrB/Schemas/Contact" in out and out.endswith("(dry run; --apply writes)\nexit code 0"), out
+        assert "delete packages/UsrA/Schemas/Contact" in out and out.endswith("(dry run; --apply writes)\nexit code 0"), out
+        assert "delete packages/UsrB/Schemas/Contact" in server.merge_layers(str(root), "Contact", direction="down")
         assert sorted(p.relative_to(root) for p in root.rglob("*")) == before  # printed, never written
 
         # a page: merge_layers prints its merge, schema_snapshot folds it and reads a page file
@@ -215,7 +219,7 @@ def test_merge_plan_prints_and_writes_nothing():
         page_file.write_text(json.dumps({"elements": [{"code": "UsrX", "type": "Text", "label": "X"}]}), encoding="utf-8")
         before = sorted(p.relative_to(root) for p in root.rglob("*"))
         out = server.merge_layers(str(root), "UsrP")
-        assert out.startswith("UsrP page: 2 layers, target UsrA") and "write packages/UsrA/Schemas/UsrP/UsrP.js" in out and out.endswith("exit code 0"), out
+        assert out.startswith("UsrP page: 2 layers, target UsrB") and "write packages/UsrB/Schemas/UsrP/UsrP.js" in out and out.endswith("exit code 0"), out
         assert sorted(p.relative_to(root) for p in root.rglob("*")) == before
         snap = server.schema_snapshot("UsrP", workspace=str(root), page_file=str(page_file))
         assert snap.splitlines() == ["layers: UsrA > UsrB", "element UsrX crt.Input", "removed Base1", "page UsrX Text X"], snap
@@ -422,7 +426,7 @@ def test_offset_reaches_the_describe_tools():
             patch("creatio_schemas.describe.merge.merge_plan", return_value=("mp", 0)) as mp:
         assert server.find_schema(pages, "UsrOrder", 2, 4) == "fs" and fs.call_args.args == (pages, "UsrOrder", 2, 4)
         assert server.list_lookups(pages, 2, 4) == "lk" and lk.call_args.args == (pages, 2, 4)
-        assert server.merge_plan(pages, "", "", 2, 4) == "mp\nexit code 0" and mp.call_args.args[-2:] == (2, 4)
+        assert server.merge_plan(pages, "", "", 2, 4) == "mp\nexit code 0" and mp.call_args.args[-3:] == (2, 4, "up")
 
 
 def test_get_recipe_takes_a_part():
@@ -523,8 +527,11 @@ def test_process_text_tools_answer_and_refuse_a_bad_target():
     import server
 
     pkg = str(TOOLS / "process" / "tests" / "fixtures" / "UsrPkg")
-    assert "DeleteDataUserTask1" in server.find_in_processes(pkg, "macro")
-    assert server.find_in_processes(pkg, "no such text").startswith("no process text matches")
+    assert "DeleteDataUserTask1" in server.find_text(pkg, "macro", kind="process")
+    assert server.find_text(pkg, "no such text", kind="process").startswith("no process text matches")
+    assert not hasattr(server, "find_in_processes")  # folded into find_text(kind="process"), S41-T03
+    help_text = server.describe_item(pkg, "UsrOrder", "help")
+    assert help_text.startswith("One part of a schema") and 'classic: (a 7.x client schema)' in help_text and "callers onSaveClick" in help_text
     assert server.who_sets(pkg, "UsrOrder").startswith("error: give")
     assert server.who_reads_message(pkg, "Nobody").startswith("no publisher")
 
@@ -726,6 +733,39 @@ def test_env_diff_and_set_feature_wrap_clio():
         assert server.set_feature("dev", "UsrFeatureA", "on", str(project)).startswith("refused: dev is not a dev environment")
         assert server.set_feature("dev", "UsrFeatureA", "soon", str(project)).startswith("error: state must be on or off")
     assert [c[0] for c in calls] == ["save-state", "show-diff", "set-feature"]  # the refused ones never reached clio
+
+
+def _profile_run(role):
+    """The server imported fresh under CREATIO_KB_ROLE=<role>: (registered tool names, the stderr, the tool_stats first line)."""
+    import json
+    import subprocess
+    code = ("import asyncio, json, server; names = sorted(t.name for t in asyncio.run(server.mcp.list_tools())); "
+            "print(json.dumps([names, server.tool_stats(1).splitlines()[0]]))")
+    env = dict(os.environ, CREATIO_KB_STATS="0")
+    env.pop("CREATIO_KB_ROLE", None)
+    if role is not None:
+        env["CREATIO_KB_ROLE"] = role
+    run = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent, env=env, capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr
+    names, first = json.loads(run.stdout.strip().splitlines()[-1])
+    return set(names), run.stderr, first
+
+
+def test_role_profiles_register_their_tools_only():
+    everything, err, first = _profile_run(None)
+    assert len(everything) > 60 and not err.strip() and first == f"profile: all ({len(everything)} tools)", first
+    assert set().union(*server.PROFILES.values()) <= everything, "a profile names a tool the server does not define"
+    for role in ("author", "tester"):
+        names, err, first = _profile_run(role)
+        assert names == server.PROFILES[role], (role, names ^ server.PROFILES[role])
+        assert first == f"profile: {role} ({len(names)} of {len(everything)} tools)", first
+        assert {"report_gap", "tool_stats", "get_recipe", "env_sql"} <= names and not {"ci_deploy", "merge_run"} & names, role
+    assert "push_package" not in server.PROFILES["tester"] and "fire_timer" not in server.PROFILES["author"]
+    assert "push_package" in server.PROFILES["author"] and "fire_timer" in server.PROFILES["tester"]
+    names, err, first = _profile_run("Reviewer")
+    assert names == everything and "unknown CREATIO_KB_ROLE 'reviewer'" in err and first.startswith("profile: all"), err
+    names, _, first = _profile_run(" Tester ")
+    assert names == server.PROFILES["tester"], "the value is read case- and space-blind"
 
 
 if __name__ == "__main__":

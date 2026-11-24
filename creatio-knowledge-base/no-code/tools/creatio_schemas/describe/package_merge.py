@@ -130,7 +130,7 @@ def merge_package(workspace: Path | str, child: str, parent: str, env=None, appl
     # the layer merges, as a dry run first: a stop of any of them stops the whole package
     layer_text = {}
     for _, kind, name in sorted(layers):
-        text, code = merge_schema(workspace, name, parent, env, False, {child, parent})
+        text, code = merge_schema(workspace, name, parent, env, False, {child, parent}, direction="down")
         layer_text[name] = text
         n = text.splitlines()[0] if text else ""
         m = re.search(r": (\d+) layers?", n)
@@ -168,7 +168,7 @@ def merge_package(workspace: Path | str, child: str, parent: str, env=None, appl
     # --apply: the layers in the fixed order, then the moves, the descriptors, the child emptied
     written = []
     for _, kind, name in sorted(layers):
-        text, code = merge_schema(workspace, name, parent, env, True, {child, parent})
+        text, code = merge_schema(workspace, name, parent, env, True, {child, parent}, direction="down")
         if code:
             return "\n".join(lines + [f"stopped at the layer {name}: {text.splitlines()[-1]}"] + [f"written before: {w}" for w in written]), 1
         written.append(f"layer {name}")

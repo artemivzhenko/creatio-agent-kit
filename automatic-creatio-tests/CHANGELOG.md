@@ -6,11 +6,22 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- **The `create` command (S11-T08).** It followed a section's New button into a form; no bed has a section with a working New and `analyse` finds nothing on a Freedom UI list page, so nobody could run it. `add-record` and the `# writes` cases cover the same ground.
+
 ### Changed
+
+- **A failed `# writes` case still runs its later `delete-record` lines and reports the cleanup (S11-T19).** `cleanup:` lines under the failure; the case stays failed.
+- **A toggle that opens a panel is done when the panel is there (S11-T18).** `ToggleTab` takes `panels` (tab caption -> panel `element-name`); `set` waits for the panel, clicks once more, then fails `panel <name> did not open after 2 clicks`; the report notes a second click. Fixes the `s34-upload` flake.
+- **The elements of a page are made once per page (S11-T10).** `ExecutionSession` keeps the elements a tab materialised, one per page and code, and drops them on any change of the page (`open`, `navigate`, adopt, user change, a closed page, the same page opened again). Fewer objects and locators per command; the existence wait of each command is unchanged.
+- **`scripts/gate.py` (S11-T11).** One command: build, unit tests, `--validate-only`, the live run of the repository's cases on a test site (the README, "Running").
 
 - **A command on an element of another tab opens the tab (S11-T06).** `analyse` writes `tab` for a control shown on one page tab only (read from the per-tab passes of the walk); the executor clicks that tab before the first command on its elements, and again when a later line is on another tab. Validation inserts nothing and no longer warns "lies on tab"; the `click <Tab>` line stays valid. `--verbose` logs `opened tab <code>`.
 
 ### Fixed
+
+- **The picker icon and the dropdown's service row are read in the user's language (S11-T09).** One table (`InterfaceLanguage`: en-US, ru-RU, uk-UA) replaces the English-only `Calendar` / `Time` / `Date/Time` switch of `analyse` and the "Add new" test of the lookup; a ru-RU profile used to analyse every date control as `DateTime` with "no picker icon" and now gets `Date`, `DateTime`, `Time`. uk-UA words are not read from a live page (the test site serves no uk-UA resources); an unknown label still falls to the value rule.
 
 - **The first-run flake of `set` on a lookup (S11-T04, S34-T03).** The autocomplete panel re-renders when the search answers; the option found in the unfiltered list (`Nth(3)`) was gone by the click, and Playwright's `TimeoutException` (not a `PlaywrightException`) escaped the option-text read and waited the full element timeout. The read now has a short timeout and treats a vanished row as empty, the pick finds the option again when its click misses (4 attempts), and the option is awaited for the element budget instead of 5 s.
 - **`check X not exists` right after a change waits for the rule (S11-T13).** Within `elementTimeoutMs` of a `set` / `clear` / `click` / `answer` / `upload` line, absence is awaited for the element budget instead of `absenceTimeoutMs`; a pass returns at once.

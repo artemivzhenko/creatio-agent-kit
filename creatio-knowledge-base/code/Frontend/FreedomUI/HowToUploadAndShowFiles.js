@@ -2,29 +2,37 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 	return {
 
 		// --- How to show attachments and upload a file -------------------------
-		// crt.FileList renders the attachments of the page record. The upload
-		// action is a stock request pointed at that element BY NAME:
+		// crt.FileList renders the files of the page record, but only with its
+		// data wired: `items` is a collection attribute over an attachments data
+		// source, `primaryColumnName` that collection's Id attribute, `columns`
+		// at least the Name column, and `masterRecordColumnValue` +
+		// `recordColumnName` tie the files to the record. A bare
+		// {"type": "crt.FileList", "items": "$SomeName"} with no columns stops the
+		// WHOLE page from opening (TypeError "... is not iterable" in
+		// _setPredefinedColumnDefinitions; 8.2.3, S40-T05).
 		//
-		//   "clicked": {
-		//       "request": "crt.UploadFileRequest",
-		//       "params": { "viewElementName": "FileList_9ko9jdd" }
-		//   }
+		// WHICH FILE TABLE: an object with its own <Entity>File keeps files there
+		// (recordColumnName = its master lookup); an object without one keeps them
+		// in SysFile, matched by RecordId (and RecordSchemaName) - what a Freedom
+		// page created from a template gets. Check which exists before copying a
+		// list from another page.
 		//
-		// viewElementName must match the `name` of the crt.FileList entry exactly.
+		// THE DATA: a record template (PageWithTabsFreedomTemplate) already ships
+		// the `AttachmentList` collection attribute and `AttachmentListDS`; reuse
+		// them as below - settled on 8.2.3: this list showed the record's SysFile
+		// file. On a page whose template ships neither, the collection attribute
+		// (Id, Name, CreatedOn, CreatedBy, Size + sortingConfig) and the data
+		// source are the page's own inserts (not exercised by the kit).
+		//
+		// The upload action is a stock request pointed at the list BY NAME:
+		//   "clicked": { "request": "crt.UploadFileRequest",
+		//                "params": { "viewElementName": "FileList_9ko9jdd" } }
 		// A typo fails silently - the button does nothing and no error appears.
+		// The record must be SAVED before a file can be attached.
 		//
-		// The file list is backed by the <Entity>File table of the page entity,
-		// wired through its own data source, so the record must be SAVED before
-		// a file can be attached: an unsaved record has no id to attach to.
-		//
-		// CHECKING WHETHER FILES EXIST before allowing an action - for example
-		// refusing to submit an application without a scan - is done by querying
-		// the file entity with sdk.Model, not by reading the view element.
-		//
-		// The stock detail already offers add / delete / download in its own
-		// toolbar; add a custom upload button only when you need the action
-		// somewhere else on the page, such as in the header.
-		// Style: frontend guide 3.2, 3.4, 3.5
+		// CHECKING WHETHER FILES EXIST before allowing an action is a query of the
+		// file table with sdk.Model, not a read of the view element.
+		// Style: frontend guide 3.2, 3.3, 3.4, 3.5
 
 		viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[
 
@@ -33,9 +41,21 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 				"name": "FileList_9ko9jdd",
 				"values": {
 					"type": "crt.FileList",
-					"items": "$FileList_9ko9jdd",
-					"visible": true,
-					"fitContent": true
+					"masterRecordColumnValue": "$Id",
+					// SysFile.RecordId; the master lookup of <Entity>File when the object has one
+					"recordColumnName": "RecordId",
+					"items": "$AttachmentList",
+					"primaryColumnName": "AttachmentListDS_Id",
+					"viewType": "gallery",
+					"tileSize": "small",
+					"columns": [
+						{
+							"id": "5d2a1c3e-0000-4000-8000-000000000061",
+							"code": "AttachmentListDS_Name",
+							"caption": "#ResourceString(AttachmentListDS_Name)#",
+							"dataValueType": 28
+						}
+					]
 				},
 				"parentName": "MainContainer",
 				"propertyName": "items",

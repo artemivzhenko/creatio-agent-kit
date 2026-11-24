@@ -27,9 +27,10 @@ class HowToReadRecordsWithESQ {
 
         // --- Filter examples (add as many as needed — combined with AND by default) ---
 
-        // Filter by Guid
+        // Filter a lookup by Guid: the column name ("Country"), not "CountryId" - that path throws
+        // ItemNotFoundException "Column by path CountryId not found"; ESQ writes CountryId = @P itself
         esq.Filters.Add(esq.CreateFilterWithParameters(
-            FilterComparisonType.Equal, "CountryId", filterId));
+            FilterComparisonType.Equal, "Country", filterId));
 
         // Filter by date range
         esq.Filters.Add(esq.CreateFilterWithParameters(

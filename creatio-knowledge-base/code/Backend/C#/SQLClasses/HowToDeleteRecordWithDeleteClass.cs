@@ -8,6 +8,10 @@ using Terrasoft.Core.DB;
 ///   - you need maximum performance (no entity event handlers are triggered);
 ///   - you are doing a mass delete and don't need business logic to run.
 /// WARNING: Delete bypasses all entity event handlers (Deleting, Deleted, etc.).
+/// A parameter that must carry its type (a text compared on a column the engine would otherwise cast) is
+/// Column.Parameter(value, (DBDataValueType)userConnection.DataValueTypeManager.GetInstanceByName("Text")); a
+/// date-only compare on a DateTime column is Func.Cast("CreatedOn", <the "Date" type>) against a Date parameter -
+/// comparing the DateTime to midnight misses every row with a time (method 3).
 /// </summary>
 class HowToDeleteRecordWithDeleteClass {
 
@@ -41,5 +45,16 @@ class HowToDeleteRecordWithDeleteClass {
             dbExecutor.CommitTransaction();
             return affectedRows;
         }
+    }
+
+    // 3. One day's rows of one kind: the date-only compare (a cast) and a typed text parameter
+    public int DeleteOneDay(UserConnection userConnection, DateTime day, string kind) {
+        var date = (DBDataValueType)userConnection.DataValueTypeManager.GetInstanceByName("Date");
+        var text = (DBDataValueType)userConnection.DataValueTypeManager.GetInstanceByName("Text");
+        var delete = new Delete(userConnection)
+            .From("UsrOrderLog")
+            .Where(Func.Cast("CreatedOn", date)).IsEqual(Column.Parameter(day.Date, date))
+            .And("UsrKind").IsEqual(Column.Parameter(kind, text)) as Delete;
+        return delete.Execute();
     }
 }

@@ -401,10 +401,26 @@ as `- column UsrRating ...`.
 
 ## Merge plan
 
-`describe.py merge-plan <workspace> [<Schema>...] [-e <env>] [--limit N]` (MCP `merge_plan`; library
+`describe.py merge-plan <workspace> [<Schema>...] [-e <env>] [--direction up|down] [--limit N]` (MCP `merge_plan`; library
 `describe/merge.py::merge_plan`): for each schema with a replacing copy in more than one package of the workspace
 (or the named ones), what collapsing those layers into one would do. Read-only: it opens the layer files and
 writes nothing, no `.creatio-index` either, so it runs on a client workspace as it is.
+
+**Direction** (S27-T09). `up`, the default: the layers go into the TOP package of the fold - the one that depends on
+every other layer's package - so no base package gains a dependency or a column on behalf of a feature above it; the
+lower layers are deleted, `DependsOn` of every package stays as it is (`depends: unchanged`), and the packages are
+pushed top first. `down` (the toolkit's first form, and `merge-package`'s): into the lowest package, which gains the
+removed packages' dependencies; the example below is a `down` plan.
+
+```
+Contact object: 3 layers, target UsrC
+  layer UsrA: +1 column
+  layer UsrB: +1 column
+  layer UsrC: +1 column
+  conflict reference from below: UsrA/Files/cs/UsrHelper.cs uses Contact.UsrB1 (added by UsrB's layer)
+  depends: unchanged
+UsrThing object: 2 layers, no single top package: UsrB, UsrC
+```
 
 ```
 Contact object: 3 layers, target UsrA
@@ -419,8 +435,11 @@ UsrThing object: 2 layers, no common lowest package: UsrB, UsrC
 3 schemas, 3 layers to remove, 4 conflicts, 1 without a common lowest package
 ```
 
-- **Target**: the package every other layer's package depends on, directly or through other workspace packages
-  (`DependsOn`). Without one the schema is skipped with `no common lowest package: <the bottom layers>`.
+- **Target**: `up` - the package that depends on every other layer's package, directly or through other workspace
+  packages (`DependsOn`); two packages at the top (siblings) skip the schema with `no single top package: <the tops>`
+  (name one with `--target`; the other top then loses its layer to a package it does not depend on - a conflict, not a
+  choice). `down` - the package every other layer's package depends on; without one `no common lowest package: <the
+  bottom layers>`. A `--target` on the wrong side says `target <pkg> is not above (below) every layer: <packages>`.
 - **Layers** in `layers_in_order` (the site's order with `-e`, a copy only on the site says `on the site only, not
   merged`); the counts come from the describe answers: an object's added columns, a client schema's `diff` items
   and `methods`, a page's `viewConfigDiff` items and `handlers`, a process's elements and parameters, a DCM's stages, a rule
@@ -429,19 +448,22 @@ UsrThing object: 2 layers, no common lowest package: UsrB, UsrC
   with a `merge` / `remove` / `move` on one element (an `insert` below and a `merge` above is the normal form); one
   method overridden in two layers (`three-deep override` from three), and in such a method a `callParent` inside a
   nested function or with its value assigned; a lookup column whose object lives in a package that depends on the
-  target (the merged layer could not see it); an unreadable layer. Rule addons: the same own rule UId in two layers,
+  target (the merged layer could not see it); an unreadable layer; upward only, a **reference from below**: a `.js`,
+  `.cs` or `.json` file of a package that does not depend on the target (the removed layers' own packages first) naming a
+  column a removed layer adds (`<Column>` or `<Column>Id` as a whole word) - after the merge that column lives in the
+  top, out of that file's reach. Page elements and Classic methods are not followed yet (a `shortcut:` in the code). Rule addons: the same own rule UId in two layers,
   and a base rule removed in one layer and edited in another (several layers editing one base rule is not a conflict:
   the diffs concatenate in fold order, as the platform folds them).
 - **Processes, DCM and rule addons** are counted (`+3 elements, +2 parameters`, `+6 stages`, `+1 rule, ~2 base rules
   edited`); a process or a DCM carries `conflict process: not merged by this toolkit (T06)`, and `merge` refuses all
   three kinds (`merge writes objects and pages only`, exit 1).
-- **`depends:`** the packages a removed layer's package depends on that the target does not reach yet, leaving out
-  the layer packages and any package that depends on the target (that would be a cycle).
+- **`depends:`** `up`: `unchanged`. `down`: the packages a removed layer's package depends on that the target does not
+  reach yet, leaving out the layer packages and any package that depends on the target (that would be a cycle).
 - Exit code 1 when there is a conflict, 2 on an error.
 
 ## Merge of an object
 
-`describe.py merge <workspace> <Object> [--target <pkg>] [-e <env>] [--apply]` (MCP `merge_layers`, which prints only;
+`describe.py merge <workspace> <Object> [--target <pkg>] [--direction up|down] [-e <env>] [--apply]` (MCP `merge_layers`, which prints only;
 library `describe/merge.py::merge_object`): the replacing layers of one object collapsed into one layer of the target
 package. It prints the merge plan for the object, then `write <file>` / `delete <folder>` per file, and writes only with
 `--apply`. It stops with `stopped: ... - nothing written` and exit 1 on a plan conflict, on siblings without `-e` (their
@@ -463,9 +485,14 @@ to a layer a merge removes").
   object flags of the whole fold), the resource files merged key by key with the upper layer winning.
 - **The removed layers**: `Schemas/<Object>` and `Resources/<Object>.Entity` deleted from their packages; `push-pkg` of
   each package then drops its `SysSchema` row, and the table columns and their data stay (S24-T01). No backup step.
-- **`DependsOn`**: the target gains the `depends:` packages of the plan, each entry copied from the removed package's
-  descriptor.
-- Push the packages in any order (the target first is the natural one). Proved on the test site: three layers (two of them
+- **`DependsOn`**: `up` touches no descriptor. `down`: the target gains the `depends:` packages of the plan, each entry
+  copied from the removed package's descriptor.
+- Push the target first - upward it carries every column now - then each package that lost a layer
+  (`push.py <Pkg> -e <env> --allow-removed <Object>`, S27-T08). **Upward, then the target once more** with its merged
+  schema's `descriptor.json` `ModifiedOnUtc` advanced: the target's generated source was written while the lower layers
+  still existed and declares their columns as overrides; once they are gone the configuration build fails with `CS0115
+  no suitable method found to override` and `CS0111 already defines a member` in `<Object>Schema.<Target>.cs`, and a
+  push with an unchanged date does not regenerate it (S27-T09, the test site: the third push turned the compile green). Proved on the test site: three layers (two of them
   siblings) merged, the three packages pushed, the snapshot's columns, table, rows and checksums the same before and
   after, the merged layer pulled back byte-identical.
 

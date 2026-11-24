@@ -40,9 +40,9 @@ Run from `creatio-knowledge-base/no-code/tools`. `E` is the evidence folder.
 3. **Tests before.** One backend case per merged object under the utility's `Cases/Merge/Merge-<Object>.act`: an insert that
    sets a column of EVERY layer of the plan (`python env/data.py fixture -e <env> <Object> --columns <the layers' columns>`
    prints the `insert` and `delete` lines; a lookup column takes the value the fixture resolved), `check-record` of each
-   of those columns, `update` of one of them, `check-record`, the `delete` lines. A page merged alongside gets its
+   of those columns (a value with a space is quoted: `has UsrMrgA1 eq "UsrMrgA1 A"`; the fixture's `set` line takes it bare), `update` of one of them, `check-record`, the `delete` lines. A page merged alongside gets its
    `.act` from the utility's `analyse` of the live page. Name the files `Merge-<Object>.act`: `--filter` matches the file
-   name. Then `dotnet run --project src/CreatioAutoTests.Cli -- --filter Merge-` from the utility root; the report files
+   name. Then `dotnet run --project src/CreatioAutoTests.Cli -- --filter Merge-` (from the utility root, or `--root <utility root>` from anywhere); the report files
    from `Reports/` are copied to `E/before/`; the passed count is
    `E/before/passed.txt`. A red case before the merge is a stop (the baseline is broken, not the merge).
 4. **Snapshots before.** Per object: `python describe.py snapshot <Object> --workspace <workspace> -e <env> --out
@@ -51,9 +51,14 @@ Run from `creatio-knowledge-base/no-code/tools`. `E` is the evidence folder.
 5. **Merge.** `python describe.py merge <workspace> <Object> -e <env>` prints the plan, the `write` / `delete` lines and
    the references check; read it, then the same line with `--apply`. `stopped: ... - nothing written` is a stop. Repeat
    per object; `E/merge.txt` holds every print.
-6. **Push.** The target package first, then every package that lost a layer (its `SysSchema` row drops; the table's
-   columns and data stay): `python push/push.py <Pkg> -e <env>` each (it clears `IsChanged`, pushes, checks the
-   compilation). A failed push is a stop: roll back with the `rollback:` line of step 2 and report.
+6. **Push.** The target package first with `python push/push.py <Pkg> -e <env>` (it clears `IsChanged`, pushes, checks the
+   compilation), then every package that lost a layer with `python push/push.py <Pkg> -e <env> --allow-removed <Object,...>`
+   (the objects the plan removes from it): the flag lifts the delete stop for exactly those schemas after its own references
+   check, and `compilation log: FAILED` names the package whose code failed - errors in a package outside the fold are the
+   site's: write that line in the report and go on only when step 7's `layers` answers. Any other failed push is a stop:
+   roll back with the `rollback:` line of step 2 and report (`deploy --artifact` may fail once with `installation log
+   could not be attributed`, run it again; its closing compile may hit `another compilation is in progress` right after an
+   install - wait a minute and compile again, then check with `layers`).
 7. **Verify.** `python push/push.py verify <Pkg> -e <env>` per pushed package -> `E/verify.txt` (every schema `same`);
    `python describe.py layers <Object> -e <env>` -> `E/layers-after.txt`: one copy per object, in the target.
 8. **Snapshots after and compare.** Step 4 again into `E/after/`; `python describe.py compare E/before/<Object>.snapshot

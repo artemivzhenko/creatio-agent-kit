@@ -4,6 +4,7 @@ using System.ServiceModel.Activation;
 using System.ServiceModel.Web;
 using System.Web;
 using Terrasoft.Web.Common;
+using Terrasoft.Web.Common.ServiceRouting; // [DefaultServiceRoute], [SspServiceRoute]: CS0246 without it
 
 /// <summary>
 /// Pattern: receive a file uploaded by the client inside a custom web service.
@@ -16,7 +17,8 @@ using Terrasoft.Web.Common;
 ///   1. Access by field name — when the form always sends a field called "file".
 ///   2. Iterate all uploaded files — when the client may send one or several files.
 ///
-/// Namespace must follow the pattern Terrasoft.Configuration.{ServiceName}Namespace.
+/// The ...Namespace suffix is a convention, not a requirement: a service in plain Terrasoft.Configuration
+/// is routed as well (8.2.3, S40-T05).
 /// </summary>
 namespace Terrasoft.Configuration.FileUploadServiceNamespace {
 

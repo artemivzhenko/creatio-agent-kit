@@ -36,6 +36,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -53,14 +54,19 @@ def shown(cmd: list[str]) -> str:
     return " ".join("***" if i and cmd[i - 1] in ("-p", "--password") else x for i, x in enumerate(cmd))
 
 
-def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> int:
+def run_text(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
+    """The command's exit code and its whole output (stdout + stderr), printed as it is."""
     print("+ " + shown(cmd), flush=True)
     # captured, not inherited: the kit's MCP server runs these stages in-process and its stdout is the protocol channel
     result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     for text in (result.stdout, result.stderr):
         if text.strip():
             print(text.rstrip(), flush=True)
-    code = result.returncode
+    return result.returncode, (result.stdout or "") + (result.stderr or "")
+
+
+def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> int:
+    code, _ = run_text(cmd, cwd)
     if check and code:
         sys.exit(f"failed ({code}): {shown(cmd)}")
     return code
@@ -297,6 +303,27 @@ def clear_ischanged(env: str) -> None:
         run(["clio", "execute-sql-script", f'update "{table}" set "IsChanged"=false', "-e", env])
 
 
+IN_PROGRESS = "another compilation is in progress"
+WAIT_STEP_S, WAIT_LIMIT_S = 15, 600
+
+
+def compile_after_install(env: str, compile_all: bool, sleep=time.sleep) -> int:
+    """`compile-configuration` right behind a `push-pkg`: the install runs its own configuration build, and a compile sent
+    meanwhile fails with "another compilation is in progress" (P-9.9). That answer is a wait, not a failure: retried every
+    15 s, at most 600 s; any other failure stops the deploy as before. Returns the seconds waited."""
+    cmd = ["clio", "compile-configuration", "-e", env] + (["--all"] if compile_all else [])
+    waited = 0
+    while True:
+        code, text = run_text(cmd)
+        if not code:
+            print(f"waited {waited} s for the install's build", flush=True)
+            return waited
+        if IN_PROGRESS not in text.lower() or waited >= WAIT_LIMIT_S:
+            sys.exit(f"failed ({code}): {shown(cmd)}" + (f" (still in progress after {waited} s)" if waited >= WAIT_LIMIT_S else ""))
+        sleep(WAIT_STEP_S)
+        waited += WAIT_STEP_S
+
+
 def deploy(items: list[Path], env: str, restart: bool, redis: bool, compile_all: bool) -> None:
     """`items`: package folders (pushed by name from their parent) or .gz archives of an artifact (pushed by path)."""
     clear_ischanged(env)
@@ -305,7 +332,7 @@ def deploy(items: list[Path], env: str, restart: bool, redis: bool, compile_all:
             run(["clio", "push-pkg", str(item), "-e", env])
         else:
             run(["clio", "push-pkg", item.name, "-e", env], cwd=item.parent)
-    run(["clio", "compile-configuration", "-e", env] + (["--all"] if compile_all else []))
+    compile_after_install(env, compile_all)
     if restart:
         run(["clio", "restart-web-app", "-e", env, "--wait-ready"])
     if redis:

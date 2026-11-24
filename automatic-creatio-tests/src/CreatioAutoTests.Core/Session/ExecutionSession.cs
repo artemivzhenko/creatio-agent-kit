@@ -29,11 +29,29 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     private string? _tracedUser;
 
     // One entry per browser tab of the case (S34-T01): 'open' and 'navigate' work in the active one, 'tab new' adds one.
-    private sealed class Tab
+    internal sealed class Tab
     {
-        public IPage? Page;
+        private IPage? _page;
+        private string? _currentPage;
+
+        // An element is a thin wrapper over lazy locators bound to this tab's page, so one per page and code serves every command
+        // (S11-T10). Any change of the page or of the page the case treats as current drops them all: a locator of a closed page is stale.
+        public readonly Dictionary<string, IUiElement> Elements = new(StringComparer.Ordinal);
+
+        public IPage? Page
+        {
+            get => _page;
+            set { _page = value; Elements.Clear(); }
+        }
+
         public string? Name;
-        public string? CurrentPage;
+
+        public string? CurrentPage
+        {
+            get => _currentPage;
+            set { _currentPage = value; Elements.Clear(); }
+        }
+
         public string? ActiveCode;
         public int Ordinal;
     }
@@ -206,6 +224,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
             {
                 await _backend.DeleteAsync(entity, id, cancellationToken).ConfigureAwait(false);
                 _logger.LogDebug("Cleanup deleted {Entity} {Id}.", entity, id);
+                DevNotes.Add("cleanup: deleted " + entity + " " + id);
             }
             catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
             {
@@ -600,8 +619,21 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(target);
 
+        var tab = CurrentTab;
+        var key = target.Definition.Page + "/" + target.Code;
+        if (tab is not null && tab.Elements.TryGetValue(key, out var known))
+        {
+            return known;
+        }
+
         Catalog.TryGetPage(target.Definition.Page, out var pageDefinition);
-        return _factory.Create(target.Definition, pageDefinition, RequirePage(), Settings);
+        var element = _factory.Create(target.Definition, pageDefinition, RequirePage(), Settings);
+        if (tab is not null)
+        {
+            tab.Elements[key] = element;
+        }
+
+        return element;
     }
 
     private Tab AddFirstTab()

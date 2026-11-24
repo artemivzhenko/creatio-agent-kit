@@ -1,3 +1,4 @@
+using CreatioAutoTests.Execution;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 
@@ -36,6 +37,9 @@ public sealed class ToggleTab : FreedomElementBase, IValueElement
     private const int ContentSettleMs = 1000;
 
     private readonly ToggleTabOptions _options;
+
+    /// <summary>"toggle X: 'T' opened on the 2nd click" after a set that needed the retry; null otherwise. The set command puts it in the report.</summary>
+    public string? OpenNote { get; private set; }
 
     /// <summary>Initializes the group against its configured page control.</summary>
     /// <param name="context">Page, definition and run settings for this element.</param>
@@ -128,6 +132,22 @@ public sealed class ToggleTab : FreedomElementBase, IValueElement
         var inner = item.First.Locator("button");
         var target = await inner.CountAsync().ConfigureAwait(false) > 0 ? inner.First : item.First;
 
+        OpenNote = null;
+        if (_options.Panels.TryGetValue(wanted, out var panelName))
+        {
+            var panel = Page.Locator("[element-name=\"" + panelName + "\"]").First;
+            var clicks = await OpenPanelAsync(
+                () => target.ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }),
+                () => panel.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = TimeoutMs }),
+                panelName).ConfigureAwait(false);
+            if (clicks > 1)
+            {
+                OpenNote = "toggle " + Code + ": '" + wanted + "' opened on the 2nd click";
+            }
+
+            return;
+        }
+
         await target.ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
         await Page.WaitForTimeoutAsync(ContentSettleMs).ConfigureAwait(false);
 
@@ -149,6 +169,28 @@ public sealed class ToggleTab : FreedomElementBase, IValueElement
 
         throw new InvalidOperationException(
             "Toggle tab group '" + Code + "' still shows '" + opened + "' after '" + wanted + "' was clicked.");
+    }
+
+    /// <summary>
+    /// Click, wait for the panel; if it is not there, one more click and wait; then fail. Returns the number of the click that opened it.
+    /// </summary>
+    internal static async Task<int> OpenPanelAsync(Func<Task> click, Func<Task> waitForPanel, string panelName)
+    {
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await click().ConfigureAwait(false);
+            try
+            {
+                await waitForPanel().ConfigureAwait(false);
+                return attempt;
+            }
+            catch (TimeoutException)
+            {
+                // the click was accepted and the panel stayed shut: try once more
+            }
+        }
+
+        throw new CommandFailedException("panel " + panelName + " did not open after 2 clicks");
     }
 
     /// <summary>Reads the tab captions in one call, in the order the group renders them.</summary>

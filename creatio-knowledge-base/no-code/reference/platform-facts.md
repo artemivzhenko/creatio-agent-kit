@@ -49,8 +49,10 @@ cannot be read by SQL. Two copies of one process with the same signal both run o
 interleave within milliseconds. 8.3, sql. used by: `process_runs`, `process_error`, `process_runs steps=`
 (S33-T06), `check-process` (S34-T07).
 
-**P-A9 `SysProcessDisabled` exists (`SysSchemaId`).** A process absent from it ran by its signals; that a row
-disables a process is not verified (N-5).
+**P-A9 `SysProcessDisabled` exists (`SysSchemaId`); a row there does not stop a process.** On 8.2.3 (S40-T06) a
+row for a process left it running both through `ProcessEngineService.svc/<P>/Execute` and from its record signal
+(the run count rose the same with the row as without it; no cache was reset). What the designer's "deactivate"
+writes was not looked up. N-5 deleted.
 
 **P-1.1 The runtime reads element parameter values from the schema mappings, not from the element.** The value is
 stored twice: `BK4[].BP2[].L8` in the element and `BK15[]` in the mappings (`GT2 = [Element:{uid}].[Parameter:{uid}]`,
@@ -68,7 +70,7 @@ in a filter parameter `dataValueType` is 26. 8.3, run. used by: `proc.py filter`
 
 **P-1.4 `DataSourceFilters` is JSON inside a JSON string** (`serializedFilterEditData`, `dataSourceFilters`); the
 right side that names a process parameter is a `ParameterExpression` (`expressionType` 2) with `value.value` = the
-meta path. 8.3, source. used by: `proc.py filter`, `find_in_processes` (S33-T02).
+meta path. 8.3, source. used by: `proc.py filter`, `find_text(kind="process")` (S33-T02).
 
 **P-1.5 The columns ReadData reads** are one parameter, column UIds joined by `;`, order irrelevant (the designer
 re-saves them in another order). 8.3, source. used by: `proc.py` data steps.
@@ -90,7 +92,34 @@ does not show it. used by: `push` (S29-T02).
 out when reading. 8.3, sql. used by: `process_runs` noise filter.
 
 **P-1.11 `SysSchema.Caption` of a process stayed old after a push** although the resource file had the new caption.
-8.3, run. Cause not found (N-10).
+8.3, run. Not reproduced on 8.2.3 (S40-T06): a process caption changed in its resource file and pushed (descriptor
+date advanced by `proc.py`) reached `SysSchema.Caption` with that push. The likely cause of the old sighting is an
+unchanged descriptor date (P-2.4); not proved. N-10 deleted.
+
+**P-1.12 A process whose only task is Add data runs straight after `push-pkg`, with no `compile-configuration`.**
+A new process pushed with a bare `clio push-pkg`, started through `ProcessEngineService.svc/<Process>/Execute`:
+`SysProcessLog` Completed, the row written. Only a script task needs the publish (P-A4). 8.2.3, run (S40-T05).
+used by: `tools/process/README.md` (Testing a process). `push` still publishes for any user task (wider than needed).
+
+**P-1.13 A "record modified" signal with a filter starts on every modification after which the record meets the
+filter - the NEW values; the old ones do not matter - and never on an insert.** The signal element of the test process
+(modified, changed column the amount, filter `comparisonType` 5 = Less than 100): twelve updates, each read after two
+minutes, six on one record and the same six on a fresh record each, gave the same answer per pair: 800 -> 50, 600 -> 50
+and 50 -> 60 started it (within 2 s), 50 -> 800, 500 -> 600 and 150 -> 160 did not; an insert that already met the
+filter started nothing (T06). So not "on entering the condition" (50 -> 60 starts), not on the old values (50 -> 800
+does not), not blocked by a run of the same process for the same record (50 -> 60 right after 600 -> 50 starts). The
+"wrong side" T06 saw was the kit's: `filters.py` wrote `>` as 5 (Less) - fixed, see the process README. 8.2.3, run +
+sql (S40-T06, S40-T07). used by: `tools/process/README.md` (Signals), `filters.py` (`COMPARISON`, `OP_CODE`).
+
+**P-1.14 Runs of a per-minute timer overlap:** a new run starts while the previous one is still running. The
+platform's own per-minute timer process on the test site: 276 of 11467 runs started before an earlier, later
+completed run had finished (runs up to 89 s). 8.2.3, sql (S40-T06; N-9 settled). used by: `process_runs` readers -
+count a timer's runs by start, not as a sequence.
+
+**P-1.15 `SysProcessLog.StartDate` / `CompleteDate` are UTC on the test site:** the newest run's `StartDate` equals
+`now() at time zone 'UTC'` of the database to the second (the server clock is UTC+2), like `CreatedOn` of records
+(P-3.9). clio's "can be the user's local time marked Z" was not seen. 8.2.3, sql (S40-T06; N-18 deleted). used by:
+`process_runs` `time_zone`.
 
 ## Schemas, packages, layers
 
@@ -117,9 +146,11 @@ not rebuild the dll (new services 404, tests not found); `clio compile-package <
 **P-2.6 An assembly package does not see part of the configuration** (for example `Terrasoft.Mail.Sender`,
 `MacrosHelperV2`); reflection or own code. 8.3, build. used by: the C# recipes (S29-T09).
 
-**P-2.7 A data binding overwrites the site's value on install.** A `SysSettingsValue` binding set a production
-setting back to its package value right after a deploy; system setting values in bindings are dangerous. 8.3,
-run. used by: `push` binding check (S33-T01 narrows it to force-update columns), `sys_setting workspace=`.
+**P-2.7 A data binding overwrites the site's value on install - in its force-update columns.** A `SysSettingsValue`
+binding set a production setting back to its package value right after a deploy; system setting values in bindings
+are dangerous. 8.3, run. The cause is `IsForceUpdate`: on 8.2.3 (S40-T05) the same `SysSettingsValue` binding pushed
+over a value changed on the site kept the site's value with `IsForceUpdate` false on `TextValue` and wrote the
+package value back with `true`; the designer-saved setting binding read for this marks its value columns `true`; 8.2.3, run (S40-T05). used by: `push` binding check (S33-T01 narrows it to force-update columns), `sys_setting workspace=`.
 
 **P-2.8 A package pulled from a site differs from git** in line endings (LF for CRLF) on almost every file, in
 `descriptor.json` and `.csproj` dependencies (the site's, packages missing there disappear), and keeps resource
@@ -143,6 +174,25 @@ site's `SysPackageSchemaData.ModifiedOn`** (an older date counts too); a changed
 date is not applied. Applied, it rewrites the force-update columns of an existing row and keeps the site's
 value in the others; `SysPackageSchemaData.ModifiedOn` follows the descriptor. 8.3, run (S33-T01, five pushes
 of the test package). used by: `push` bindings check and binding dates.
+
+**P-2.14 `push-pkg` inserts a bound row the site lacks** when the binding is installed (its descriptor date
+changed, P-2.13): a row of a lookup binding deleted on the site was back after the next push. 8.2.3, run
+(S40-T05; N-12 and N-25 settled - the N-12 sighting is explained by an unchanged date). used by: `tools/data/README.md`.
+
+**P-2.15 `push-pkg` sets a process's `SysSchema.ModifiedOn` to its descriptor's `ModifiedOnUtc`, and leaves an
+object's and a page's `ModifiedOn` alone even when their body changed** (an object whose layer md5 changed and a page
+pushed six times kept their old dates). `ModifiedOn` says nothing about a push: compare the body (`push.py verify`).
+8.2.3, sql (S40-T06; N-6 settled). used by: `verify_pushed`.
+
+**P-2.16 A new object's OData endpoint answers 404 for a few seconds after `push-pkg`:** `/0/odata/<Entity>` was 404
+10 s after the push ended and 200 at 31 s - wait and retry, do not compile or restart. clio's "1-2 minutes" is the
+upper bound it names; the test site took half a minute. 8.2.3, run (S40-T06; N-13 settled). used by: the backend tier
+(a case right after a push that adds an object).
+
+**P-2.17 A package push stores a non-Latin `en-US` caption:** a column caption in Cyrillic under `en-US` was installed
+into `SysLocalizableValue` with no message. clio's "rejected" is its own tools' check, not the platform's; the en-US
+text being English stays a convention of the kit, not something the push enforces. 8.2.3, run (S40-T06; N-17 deleted).
+used by: -.
 
 ## Data, rights, settings
 
@@ -169,6 +219,27 @@ run. used by: `objects` add-column note.
 
 **P-3.8 Approvals are `SysApproval`** (`EntityId`, `IsCanceled`, a status lookup); a client's own approval tables
 exist beside it and processes cancel them independently. 8.3, sql + source. used by: -.
+
+**P-3.10 An entity listener refuses a save with `entity.Validating` + `EntityValidationMessage`, no exception.**
+Subscribed in `OnSaving`, the handler runs after it, in the same pass as the platform's required-column check; a
+message aborts the insert or the update. OData answers 500 with the text in `error.innererror.message`; DataService
+(the Freedom UI save) answers `success: false`, `responseStatus.ErrorCode` "ValidateException", the text in
+`Message`; the page shows the text in a toast and stays unsaved. A throw in `OnSaving` gives the same answers with
+the exception's class as `ErrorCode`, and comes before the required-column check. 8.2.3, run (S40-T05, a UI case
+and OData / DataService calls). used by: `HowToPreventRecordSaveWithEventListener`, the Tests recipe, CS 4.2.
+
+**P-3.12 Every record-right row carries a source, and the API grant replaces the row of the same unit and operation.**
+`SysEntitySchemaRecRightSource` is a lookup of four sources (`Author`, `Owner`, `Default`, `Manual`), not a row per
+detail; `Sys<Entity>Right` rows point at one through `SourceId`. A Contact created over OData got nine rows from the
+platform itself (Author and Owner: read, edit, delete; Default for "All employees": the rest); then
+`DBSecurityEngine.SetEntitySchemaRecordRightLevel(unit, schema, record, Read, Allow, <Manual source id>, false)` for
+"All employees" left nine rows - its read row now with source Manual and the level the call gave. Rights a detail
+grants go through that call, not through inserted rows. 8.2.3, run + sql (S42-T01). used by: `HowToManageRecordAccessRights`.
+
+**P-3.11 An ESQ filter on a lookup takes the column name, not `<Name>Id`.** `CreateFilterWithParameters(Equal,
+"UsrStatus", guid)` compiles to `"UsrStatusId" = @P1`; the path `"UsrStatusId"` throws `ItemNotFoundException`
+"Column by path UsrStatusId not found in schema". (`SetColumnValue` is the other way round, P-3.5.) 8.2.3, run
+(S40-T05, both forms in one service call). used by: `HowToReadRecordsWithESQ`, `HowToFilterWithOrGroupInESQ`, CS 10.
 
 **P-3.9 `ModifiedOn` of records and `SysProcessLog.StartDate` share one zone and agree to the second;** the user
 sees their own zone, so a search window must be converted or the log looks empty. 8.3, sql. used by:
@@ -223,6 +294,11 @@ used by: the DSL `delete`, `cases_from_package` cleanup.
 
 **P-5.4 Multi-line values come back in JSON raw;** strict parsers fail. 8.3, run. used by: `clio.py` strict=False.
 
+**P-5.5 OData refuses a row that carries an `Edm.Stream` column value before it writes anything:** a `SysFile` insert
+with `Data` answered `400 The request is invalid.` (inner: "Read called with an open stream or textreader"), no row;
+the same insert without `Data` was created. Files go through the file upload, not OData. 8.2.3 (.NET Framework), run
+(S40-T06; the first half of N-19). used by: -.
+
 ## Services and calls
 
 **P-6.1 REST and WCF need the login cookies and the `BPMCSRF` token;** a WCF error is an HTML page with the exception
@@ -237,6 +313,27 @@ used by: `who_reads_message` (S33-T02), Classic recipes.
 
 **P-6.4 A page that calls `init()` again from a server-message handler duplicates its sandbox and ServerChannel
 subscriptions.** source. used by: `page_audit` (a candidate line), Classic recipes.
+
+**P-6.5 A configuration service answers at `/0/rest/<Service>/<Method>`, never at `/0/ServiceModel/<Service>.svc/...`
+(.NET Framework).** A `[ServiceContract]` `BaseService` class in `Files/cs` of an assembly package, with no route
+attribute and in plain `Terrasoft.Configuration`, answered right after `push-pkg`; the same in a source code schema with
+`[DefaultServiceRoute]` answered only after `compile-configuration`; the `.svc` URL gave 500 / 404 for both.
+`[DefaultServiceRoute]` needs `using Terrasoft.Web.Common.ServiceRouting;` or the configuration build fails with
+CS0246 and the site shows "Compilation error". 8.2.3, run + build (S40-T05). used by: the API recipes, `scaffold
+source --service`, CS 3.7 and 10.
+
+**P-6.7 A configuration service built for both runtimes keeps `#if NETFRAMEWORK` / `#else` around the response
+object, and the .NET Framework site compiles the `NETFRAMEWORK` branch:** a probe service in `Files/cs` of the test
+package answered `branch;NETFRAMEWORK`, with `Content-Type: text/csv` from `MimeTypeDetector.GetMimeType("x.csv")` and
+the `Content-Disposition` set on `WebOperationContext.Current.OutgoingResponse`; the `ContentLength` set there did not
+reach the client as a `Content-Length` header (the response was streamed). The `#else` branch
+(`HttpContextAccessor.GetInstance().Response`) was not compiled here: no .NET host or bin at hand. 8.2.3, run + build
+(S42-T01). used by: `HowToReturnAFileFromAWebService`.
+
+**P-6.6 `Creatio.FeatureToggling.Features` has `GetIsEnabled(string)`, `GetIsEnabled(string, object)` and
+`GetIsEnabled<TFeature>()`;** the string code and the `FeatureMetadata` class read the same state; the TestKit stubs
+either (`FeatureStub.Setup("<Code>", bool)`, `Setup<TFeature>(bool)`, `Restore()`). 8.2.3 site and 8.3.2 assemblies,
+build + two unit tests (S40-T05). used by: CS 3.6 and 10.
 
 ## Classic UI (7.x) DOM and model
 
@@ -277,6 +374,30 @@ BINDPARAMETER (`property` 0 visible, 1 enabled, 2 required), 1 = FILTRATION, 3 =
 **P-8.2 A "page" built from copied HTML inside a Classic dialog runs none of the real page's rules and validations.**
 source. used by: -.
 
+**P-8.3 `sdk.HandlerChainService.instance.process` reaches the page's own `SCHEMA_HANDLERS` only with `scopes:
+[...request.scopes]`;** without it a `usr.*` request the page handles resolves to `undefined` and its handler does not
+run; with it, and through `request.$context.executeRequest` (which fills the scopes), the handler's value comes back.
+8.2.3, run (S40-T05, one button, three dispatches in one UI case; N-21 settled). used by: the frontend guide 3.4 and
+10, `StockRequestsReference`, `SdkFilterAndEnumReference`.
+
+**P-8.4 `request.silent` is set on 8.2.3:** `crt.HandleViewModelAttributeChangeRequest` for a data-source attribute
+comes with `silent: true` while the page loads the record and `false` for the user's edit. 8.2.3, run (S40-T05).
+used by: `HowToReactToFieldChange`, `HowToDisableControlProgrammatically`, the frontend guide 10.
+
+**P-8.5 A `crt.Input` binds its value through `control`; one with `"value": "$Attr"` and no `control` stops the
+whole page from opening** (`TypeError ... reading 'replace'` in `_modifyInputType`, the shell's loading screen stays).
+8.2.3, run (S40-T05). used by: `HowToBindAttributesToElements`, `HowToUseValidators`, `HowToUseConverters`.
+
+**P-8.6 `crt.RunBusinessProcessRequest` sent imperatively (`executeRequest`) needs no `processRunType`:** it answered
+`success: true` and the process wrote its row. 8.2.3, run (S40-T05). used by: `HowToRunBusinessProcessFromFrontend`.
+
+**P-8.7 A `crt.FileList` needs its data wired or the page does not open.** `{"type": "crt.FileList", "items": "$X"}`
+with no `columns` stops the whole page (`TypeError ... is not iterable` in `_setPredefinedColumnDefinitions`); with
+`items: "$AttachmentList"`, `primaryColumnName: "AttachmentListDS_Id"`, `masterRecordColumnValue: "$Id"`,
+`recordColumnName: "RecordId"` and one `AttachmentListDS_Name` column, on a page whose template ships the attachment
+attribute and data source, it showed the record's file from `SysFile` (the object has no `<Entity>File`). 8.2.3, run
+(S40-T05). used by: `HowToUploadAndShowFiles`, the frontend guide 10.
+
 **P-C1 `Model.create('<Entity>')` then `model.load({attributes: [...]})` from an Angular element** returns rows as
 plain objects keyed by attribute; only text columns and the no-filter call were exercised (N-3). 8.3, run.
 
@@ -312,6 +433,8 @@ statement), S33-T03.
 by: `Environment.sql` file form.
 
 **P-9.5 `-d <file>` wrote nothing on some queries** while the same SQL without `-d` worked; cause unknown (N-11).
+Not reproduced on 8.2.3 with clio 8.1.0.158 (S40-T06): a select with rows, an empty select (`[]`), an update (`0`) and
+two statements all wrote the file - and with two statements the file holds the FIRST statement's result only.
 used by: S33-T01 "drift not checked".
 
 **P-9.6 `push-pkg` prints noise on success** (an HTML 500 page, `AppInfoValidator`, "Error while saving the metadata
@@ -322,6 +445,17 @@ by: `push` compile step.
 
 **P-9.8 `last-compilation-log` shows `Terrasoft.Configuration` only, other packages' errors included.** run. used
 by: `push` compile log check.
+
+**P-9.9 One compilation at a time per site:** a `compile-configuration` sent while another build runs fails with
+`InvalidOperationException: Cannot run compilation because another compilation is in progress`. Seen twice on
+2026-11-23: two agents' compiles at once, and a compile sent 30 s after a `push-pkg` whose install was still running
+its own build (`Terrasoft.Configuration.Dev.csproj`). 8.2.3, run (S35-T03, S40-T06; the first half of N-14). used by:
+`push` (`compile FAILED` says whose), S35-T03; `pipeline.py deploy` waits it out (S35-T04).
+
+**P-9.10 The compile history is the table `CompilationHistory` (not `SysCompilationHistory`): one row per project,
+written as that project's build ends** (`ProjectName`, `Result`, `DurationInSeconds`, `ErrorsWarnings`); one full
+`compile-configuration` wrote 57 rows for 57 projects a few seconds apart. 8.2.3, sql (S40-T06; the first half of N-15).
+used by: -.
 
 **P-D2 Git Bash rewrites an argument starting with `/`** (`/0/Shell/...` becomes a Windows path); pass the full URL
 or `MSYS_NO_PATHCONV=1`. run. used by: `docs/dsl.md`.
@@ -359,28 +493,14 @@ and a 60 s window. source. used by: `HowToDrainQueueTableWithAttemptLimit`, the 
 
 | Id | Claim | Owner | The check that would verify it |
 |---|---|---|---|
-| N-2 | `HandlerChainService.instance.process({type: 'crt.UpdateRecordRequest', ...})` from a remote element without `$context` | middle | one case line on the test site |
-| N-3 | `model.load` with a `FilterGroup` from a remote element; lookup values as `{value, displayValue}` | middle | one case line on the test site |
-| N-4 | the Freedom record URL `#Card/<FormPage>/edit/<Id>` from a remote element | middle | one case line on the test site |
-| N-5 | a row in `SysProcessDisabled` stops a process | senior | a process case on the test site |
-| N-6 | `SysSchema.ModifiedOn` changes on `push-pkg` (seen for a process, not for other schemas); check a push by md5 of the body | senior | S33-T05 `verify_pushed` |
-| N-7 | ReadData with an empty filter reads an arbitrary row | middle | a process case on the test site |
-| N-8 | the "record changed" signal does not fire on an insert that already holds the value | middle | a process case on the test site |
-| N-9 | per-minute timer runs overlap when the previous run has not finished | senior | a log reading on the test site |
-| N-10 | why `SysSchema.Caption` of a process stayed old after a resource push | senior | S33-T05 |
-| N-11 | why `clio execute-sql-script -d <file>` wrote nothing on some queries | senior | S33-T01 drift step |
-| N-12 | a binding row the site lacks is not inserted by `push-pkg` (seen on `SysModuleInWorkplace` only, five pushes) | senior | one binding of a fresh `UsrTest_` row pushed to the test site, S33-T05 |
-| N-13 | after a new entity the OData controller `/0/odata/<Entity>` is rebuilt asynchronously (1-2 min): a 404 right after the push is expected, not a failure (clio core-rules, docs) | senior | a push of a new object, then OData reads every 15 s on the test site |
-| N-14 | the core serialises compilation per environment and rejects a second concurrent compile; a restart mid-compile breaks it (clio core-rules, docs) | senior | two `compile` calls in a row on the test site |
-| N-15 | the compilation history gets one row per project as each build ends; the application reloads about two minutes after the last row; a restarted instance warms up 1-10 minutes (clio core-rules-details, docs) | senior | `compile-status` polling against `SysCompilationHistory` on the test site |
-| N-16 | a `process-name` compile of a business process reloads the configuration on .NET Framework only; on a .NET host it reloads nothing (clio core-rules, docs) | senior | the test site is .NET Framework: a `compile-package` after a script change, then a run without restart |
-| N-17 | an `en-US` caption with non-Latin text is rejected by the platform (clio core-rules, docs) | middle | `objects.py column caption` with a Cyrillic en-US, push, read the error |
-| N-18 | `SysProcessLog` times can be the environment user's local time marked `Z` (clio core-rules-details, docs) | middle | one process run, `process_runs` against the site clock |
-| N-19 | OData rejects a row with an `Edm.Stream` column (`SysFile.Data`, `SysImage.Data`) before writing; a foreign-key rejection can come from an entity event handler, not the mapping (clio core-rules-details, docs) | middle | a backend case on the test site |
-| N-20 | an Interface Designer save keeps only the code inside the five markers of a Freedom UI page; helpers above `return` disappear (clio routing, docs) | middle | a page with a helper, one Designer save on the test site, `schema_diff` |
-| N-21 | `HandlerChainService.instance.process` without `scopes: [...request.scopes]` does not reach the page's own handlers (clio page-schema-handlers, docs; measured by clio on a newer build) | middle | one case line on the test site, 8.3 |
-| N-22 | `entity.Validating` + `EntityValidationMessage` from a listener aborts the save and shows the text in Freedom UI and over OData; a thrown exception shows differently (clio entity-event-listener, docs; the kit's recipe throws) | senior | a listener on `UsrOrder` on the test site, a UI case and a backend case (S40-T05) |
-| N-23 | a `SysSettingsValue_<Code>` binding with `IsForceUpdate` false does not overwrite a site value (clio sys-settings, docs); P-2.7 saw an overwrite | senior | a setting pushed twice with a changed site value on the test site (S40-T05) |
-| N-24 | a process with add / modify data elements and no script runs without a compile (clio process-modeling, docs); the kit saw "Publish the process before starting it" for one pushed as files on 8.2.3 (P-A4 is about a script) | senior | a script-free process pushed to the test site, run without compile (S40-T05) |
-| N-25 | `push-pkg` inserts a bound row the target lacks (clio data-bindings, verified by clio on a second environment); N-12 saw one not inserted | senior | the N-12 check (S40-T05) |
-| N-26 | an ESQ lookup filter takes the logical lookup name (`UsrOwner`) with a `Guid` and resolves `UsrOwnerId` itself (clio esq-filters-backend, docs); the kit's recipes filter by `<Name>Id` | middle | one ESQ in a unit test against the site (S40-T05) |
+| N-2 | `HandlerChainService.instance.process({type: 'crt.UpdateRecordRequest', ...})` from a remote element without `$context` | middle | one case line on the test site; S40-T06: the test site has no remote element built (no Angular project in its workspace) |
+| N-3 | `model.load` with a `FilterGroup` from a remote element; lookup values as `{value, displayValue}` | middle | one case line on the test site; S40-T06: the test site has no remote element built |
+| N-4 | the Freedom record URL `#Card/<FormPage>/edit/<Id>` from a remote element | middle | one case line on the test site; S40-T06: the test site has no remote element built |
+| N-7 | ReadData with an empty filter reads an arbitrary row | middle | a process case on the test site; S40-T06: not built - it needs the Read data result mapped into a parameter and an ordering to compare with |
+| N-11 | why `clio execute-sql-script -d <file>` wrote nothing on some queries | senior | S33-T01 drift step; not reproduced in four shapes (P-9.5) - needs the original query |
+| N-14 | a restart mid-compile breaks the compile (clio core-rules, docs; the serialising half is P-9.9) | senior | not tried: it would break the shared test site's build for everyone |
+| N-15 | the application reloads about two minutes after the last `CompilationHistory` row; a restarted instance warms up 1-10 minutes (clio core-rules-details, docs; the row half is P-9.10) | senior | a timed reload after a compile on the test site |
+| N-16 | a `process-name` compile of a business process reloads the configuration on .NET Framework only; on a .NET host it reloads nothing (clio core-rules, docs) | senior | the test site is .NET Framework: a `compile-package` after a script change, then a run without restart; S40-T06: the test site is .NET Framework only, the .NET half needs another host |
+| N-19 | a foreign-key rejection can come from an entity event handler, not the mapping (clio core-rules-details, docs; the `Edm.Stream` half is P-5.5) | middle | a backend case on a listener that writes a bad lookup |
+| N-20 | an Interface Designer save keeps only the code inside the five markers of a Freedom UI page; helpers above `return` disappear (clio routing, docs) | middle | a page with a helper, one Designer save on the test site, `schema_diff`; S40-T06: needs a save in the Interface Designer (a browser session the test utility does not drive) |
+| N-27 | which `UseAdminRights` value of an ESQ / Entity lifts the record rights: `HowToControlAdminRights` says the default `true` bypasses them, a client's system-wide count sets `false` to get every row (S42-T01 findings) - one of the two is wrong | senior | one count as a user without rights to some rows, run both ways on the test site (needs a non-admin user) |

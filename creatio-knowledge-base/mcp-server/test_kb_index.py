@@ -135,6 +135,19 @@ def test_platform_facts_register_answers_a_platform_question():
     assert "P-A4" in facts.source and "## Not verified" in facts.source
 
 
+def test_every_tool_has_a_home():
+    """S41-T01: an agent picks a tool by its name, so each creatio-kb tool is named in a skill or in the operator paragraph of the kit README."""
+    import re
+    here = Path(__file__).resolve().parent
+    names = re.findall(r"@mcp\.tool\(\)\s+def (\w+)\(", (here / "server.py").read_text(encoding="utf-8"))
+    skills = "\n".join(p.read_text(encoding="utf-8") for p in (here.parent / "skill").glob("*/SKILL.md"))
+    readme = (here.parent.parent / "README.md").read_text(encoding="utf-8")
+    at = readme.lower().find("the human's tools")
+    operator = readme[at:].split("\n\n", 1)[0] if at >= 0 else ""  # that paragraph only, not the rest of the README
+    homeless = [n for n in names if not re.search(rf"`{n}[`(]", skills) and not re.search(rf"`{n}[`(]", operator)]
+    assert len(names) > 60 and not homeless, f"tools named in no skill and not in the README operator paragraph: {', '.join(homeless)}"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

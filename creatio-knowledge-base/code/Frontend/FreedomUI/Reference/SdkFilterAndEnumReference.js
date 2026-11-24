@@ -59,7 +59,8 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		//
 		// EXECUTING A REQUEST - three equivalent routes, pick by context:
 		//   request.$context.executeRequest({ type, $context, ... })  most common
-		//   sdk.HandlerChainService.instance.process({ type, $context, ... })
+		//   sdk.HandlerChainService.instance.process({ type, $context, scopes: [...request.scopes], ... })
+		//     (no `scopes`: the page's own handlers are skipped, the call resolves to undefined)
 		//   sdk.request.send(type, { $context, ... })
 		// Style: frontend guide 3.4, 3.5
 

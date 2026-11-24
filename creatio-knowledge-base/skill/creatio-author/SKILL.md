@@ -16,7 +16,7 @@ folder.
 
 1. **Questions.** Read `task.md`, `project.json`, and the knowledge base around the task
    (`search_recipes`, `describe_package` of the package, `resolve_caption` first on a task that names things in
-   business words, `find_schema` for every schema the task names, `who_sets` before changing what a column means, `find_in_processes` instead of grep over `metadata.json`). Write `questions.md`: numbered, each with the assumption you would make if unanswered.
+   business words, `find_schema` for every schema the task names, `who_sets` before changing what a column means (`who_reads_message` for a client message), `sys_setting` for a setting the task reads or sets, `find_text(kind="process")` instead of grep over `metadata.json`). Write `questions.md`: numbered, each with the assumption you would make if unanswered.
    Say in chat that the questions are ready and stop. If there are none, write `No questions.`
    and go on.
 2. **Plan.** Copy answers the human gave in chat into `questions.md`. Run `describe.py layers
@@ -40,7 +40,7 @@ folder.
    --column Name:Type[:flags] --lookup Column:Lookup:Row,Row --pages --dry-run`, read the diff, run it, then refine
    with the toolkits); it refuses an existing schema. C# goes into
    `Files/cs` per `get_code_style("architecture")` 3.7 and gets a unit test per 3.8
-   (`clio new-test-project` once per package, `dotnet test` green before you say done).
+   (`clio new-test-project` once per package, `dotnet test` green before you say done; `run_tests` runs them inside Creatio).
    Client code (a Classic schema, a Freedom UI page, a remote module) follows
    `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push. For a
    Freedom UI page, clio's MCP gives the component and request catalogue of the site's exact platform version:
@@ -65,6 +65,7 @@ folder.
    the modified flag, `push-pkg`, reads the compilation log, runs `compile-configuration` when a process has a
    script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects
    and SQL scripts. `--dry-run` prints the commands. Then `probe` of anything else the plan lists (rules with values).
+   `page_audit` over a page before its push and `precommit_check` over the package before every push find what the push would only report later.
 5. **Done.** Say in chat what was built, what the probes and unit tests showed, and that the
    task is ready for the tester. Update `schemas.json` if the scope grew on the way.
 6. **Reports.** When the human brings a `report-N.md`: read every row. A `fail` with evidence is
@@ -82,7 +83,7 @@ Before any `env_sql`, the question goes to the tool that answers it: a schema ov
 package or in Custom, or a push whose changes are not visible - `schema_layers`; what ran when a record changed -
 `process_runs(record=)`; what my edit changed - `schema_diff`; which lookup value or schema a GUID is -
 `resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
-records of an object with their lookups named - `sample_records`; text inside schemas - `find_text`; a column's writers
+records of an object with their lookups named - `sample_records`, its columns - `describe_table`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
 the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
 

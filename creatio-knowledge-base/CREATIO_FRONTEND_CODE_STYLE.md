@@ -405,7 +405,10 @@ define("UsrOrders_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
   "usr.RecalculateOrderRequest", orderId})`; where no `$context` is at hand (a remote element, a service)
   `await sdk.HandlerChainService.instance.process({type: "crt.LoadDataRequest", config: {loadType: "reload"},
   dataSourceName: "PDS", $context: request.$context})`. Not `new HandlerChainService()`, not
-  `$context.handlerChain`.
+  `$context.handlerChain`. `process` reaches the page's own `SCHEMA_HANDLERS` only with `scopes: [...request.scopes]`;
+  without it a `usr.*` request the page handles resolves to `undefined` and nothing runs, while `executeRequest`
+  fills the scopes itself (settled on 8.2.3, S40-T05). So `executeRequest` stays the form inside a handler; pass
+  `scopes` whenever `process` must reach a page handler.
 - Request names are `<vendor>.<Verb><Noun>Request` in PascalCase; the SDK enforces `Vendor.Name` and PascalCase
   for `crt`. `crt.` is the platform's prefix: custom requests, converters and validators are `usr.*`
   (`usr.RecalculateOrderRequest`, `usr.ToOrderStatusCaption`, `usr.OrderNumberValidator`).
@@ -637,10 +640,15 @@ disagreement is settled on a site (S40-T05) this guide wins; these are the point
 - **Requests.** `crt.RunBusinessProcessRequest` needs `processRunType`, and its parameter keys are the process
   parameter codes (a wrong key is dropped silently); `crt.CreateRecordRequest` on an entity without a registered page
   fails only on click; `HandlerChainService.instance.process` without `scopes: [...request.scopes]` never reaches the
-  page's own handlers (clio measured it; the kit's recipes pass no scopes - S40-T05 decides the dispatch form).
+  page's own handlers (settled on 8.2.3 in S40-T05: `undefined` without scopes, the handler's value with them and
+  through `executeRequest`; this guide keeps `executeRequest` inside handlers, 3.4). Imperatively from a handler,
+  `crt.RunBusinessProcessRequest` ran without `processRunType` on 8.2.3 (`success: true`); the declarative button
+  keeps it. `request.silent` is still set on 8.2.3: `true` for the change requests of the page load, `false` for a
+  user's edit. A field binds its value through `control`; `"value"` on a `crt.Input` stops the page from opening.
 - **Feed and attachments.** `crt.Feed` and `crt.FileList` are merged or inserted depending on the template; `FileList`
-  needs its `AttachmentListDS`, the collection attribute and `recordColumnName`, and the file entity is `<Entity>File`
-  when it exists, `SysFile` with `RecordId` otherwise.
+  needs its `AttachmentListDS`, the collection attribute, `columns` and `recordColumnName`, and the file entity is
+  `<Entity>File` when it exists, `SysFile` with `RecordId` otherwise (settled on 8.2.3: a bare `FileList` stops the
+  page from opening; the wired one showed the record's `SysFile` file - recipe `HowToUploadAndShowFiles`, P-8.7).
 - **Serialized filters** (`Items_PredefinedFilter`, widgets): lookup equality is an `In` filter with an object value,
   dates are JSON-encoded strings, a backward reference carries `subFilters` inside the SubQuery.
 

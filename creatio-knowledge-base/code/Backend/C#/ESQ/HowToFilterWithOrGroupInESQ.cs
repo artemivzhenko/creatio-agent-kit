@@ -9,6 +9,8 @@ using Terrasoft.Core.Entities;
 /// To combine conditions with OR, create an EntitySchemaQueryFilterCollection with
 /// LogicalOperationStrict.Or and add your filters into that group.
 /// Groups can be nested to express any boolean logic: (A OR B) AND (C OR D).
+/// A lookup is filtered by its column name ("Status") with a Guid: ESQ compiles it to StatusId = @P;
+/// the path "StatusId" fails with ItemNotFoundException (settled on 8.2.3, S40-T05).
 /// </summary>
 class HowToFilterWithOrGroupInESQ {
 
@@ -20,8 +22,8 @@ class HowToFilterWithOrGroupInESQ {
 
         // All filters inside this group are combined with OR
         var orGroup = new EntitySchemaQueryFilterCollection(esq, LogicalOperationStrict.Or);
-        orGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "StatusId", statusAId));
-        orGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "StatusId", statusBId));
+        orGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "Status", statusAId));
+        orGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "Status", statusBId));
 
         // The OR group itself is added to the root AND collection
         esq.Filters.Add(orGroup);
@@ -41,8 +43,8 @@ class HowToFilterWithOrGroupInESQ {
 
         // OR group for two status values
         var statusOrGroup = new EntitySchemaQueryFilterCollection(esq, LogicalOperationStrict.Or);
-        statusOrGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "StatusId", statusAId));
-        statusOrGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "StatusId", statusBId));
+        statusOrGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "Status", statusAId));
+        statusOrGroup.Add(esq.CreateFilterWithParameters(FilterComparisonType.Equal, "Status", statusBId));
         esq.Filters.Add(statusOrGroup);
 
         // Resulting SQL: WHERE CreatedOn > @date AND (StatusId = @a OR StatusId = @b)

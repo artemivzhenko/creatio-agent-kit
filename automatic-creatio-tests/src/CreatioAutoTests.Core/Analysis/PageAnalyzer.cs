@@ -685,13 +685,7 @@ public sealed partial class PageAnalyzer
             // The icon is definitive when it is there. It is absent on a read-only control, which
             // renders a padlock instead, and its wording follows the interface language, so an
             // unrecognised label falls through to the value rather than being guessed at.
-            var byIcon = pickerHint.Trim() switch
-            {
-                "Calendar" => "Date",
-                "Time" => "Time",
-                "Date/Time" => "DateTime",
-                _ => null,
-            };
+            var byIcon = InterfaceLanguage.PickerKind(pickerHint);
 
             if (byIcon is not null)
             {

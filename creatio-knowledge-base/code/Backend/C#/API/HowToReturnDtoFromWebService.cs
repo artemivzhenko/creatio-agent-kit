@@ -4,6 +4,7 @@ using System.ServiceModel;
 using System.ServiceModel.Activation;
 using System.ServiceModel.Web;
 using Terrasoft.Web.Common;
+using Terrasoft.Web.Common.ServiceRouting; // [DefaultServiceRoute], [SspServiceRoute]: CS0246 without it
 
 /// <summary>
 /// Pattern: return structured data from a custom web service using DTO classes.
@@ -18,7 +19,11 @@ using Terrasoft.Web.Common;
 ///   - Name = "..." in [DataMember] sets the exact JSON key — use camelCase for JS clients.
 ///   - Complex types (lists, nested DTOs) are supported as long as they are also [DataContract].
 ///
-/// Namespace must follow the pattern Terrasoft.Configuration.{ServiceName}Namespace.
+/// The ...Namespace suffix is a convention, not a requirement: a service in plain Terrasoft.Configuration
+/// is routed as well (8.2.3, S40-T05).
+/// URL: /0/rest/<Service>/<Method> on .NET Framework (/rest/... on .NET). Settled on 8.2.3 (S40-T05):
+/// a service answers there both from Files/cs of an assembly package (after push-pkg alone) and from a
+/// source code schema (after compile-configuration); /0/ServiceModel/<Service>.svc/... answers neither (404/500).
 /// </summary>
 namespace Terrasoft.Configuration.ContactApiServiceNamespace {
 
@@ -54,7 +59,7 @@ namespace Terrasoft.Configuration.ContactApiServiceNamespace {
     [AspNetCompatibilityRequirements(RequirementsMode = AspNetCompatibilityRequirementsMode.Required)]
     public class ContactApiService : BaseService {
 
-        // GET /0/ServiceModel/ContactApiService.svc/GetContact?id=...
+        // GET /0/rest/ContactApiService/GetContact?id=...
         [OperationContract]
         [WebInvoke(Method = "GET",
             RequestFormat  = WebMessageFormat.Json,
@@ -69,7 +74,7 @@ namespace Terrasoft.Configuration.ContactApiServiceNamespace {
             };
         }
 
-        // GET /0/ServiceModel/ContactApiService.svc/GetContacts
+        // GET /0/rest/ContactApiService/GetContacts
         [OperationContract]
         [WebInvoke(Method = "GET",
             RequestFormat  = WebMessageFormat.Json,

@@ -159,6 +159,7 @@ def test_source_and_module():
         code, out = run("source", str(pkg), "UsrOrderApi", "--caption", "Order API", "--service", "--cultures", "en-US,ru-RU")
         api = CSharpSource(pkg, pkg / "Schemas" / "UsrOrderApi" / "UsrOrderApi.cs")
         assert code == 0 and "[ServiceContract]" in api.text and ": BaseService" in api.text and [m["name"] for m in api.members() if m["kind"] == "method"] == ["Ping"]
+        assert "using Terrasoft.Web.Common.ServiceRouting;" in api.text  # [DefaultServiceRoute] lives there: without it CS0246 (S40-T05)
         assert sorted(p.name for p in (pkg / "Resources" / "UsrOrderApi.SourceCode").iterdir()) == ["resource.en-US.xml", "resource.ru-RU.xml"]
         code, out = run("source", str(pkg), "UsrOrderApi", "--caption", "again")
         assert code == 2 and "exists" in out

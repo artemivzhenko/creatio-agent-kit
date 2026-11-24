@@ -42,6 +42,18 @@ folder does not stops the push with `package install deletes schemas absent from
 The install of a trimmed package deletes those schemas on the site (on a client site it then failed on a foreign key and
 rolled back). Without git and without a site answer the step says `not checked (no git, no site)`.
 
+A package that lost a schema on purpose - a merge folded its layer into another package - is pushed with
+`--allow-removed <Schema,...>` (MCP `allow_removed`): the stop is lifted for exactly those schemas, and only when each is
+absent from the folder and the site's references check of `describe.py merge` (every NO ACTION key to `SysSchema.Id`,
+`env/README.md` "References to a layer a merge removes") finds no row pointing at the package's layer; otherwise the push
+stops with `--allow-removed names a schema still in the package folder: <names>` or `<Schema> is still referenced:
+<table>.<column> N rows`. The step answers `ok; removal allowed: <names>`.
+
+When the compilation log has errors, the step groups the compiler lines by package (`Pkg/<Pkg>/` in the path, else the
+`<Schema>.<Package>.cs` name the configuration build gives a schema's source), prints the first error of each and stops
+with `compile FAILED: N error(s) in <Pkg>, M error(s) in <Other>` - `(none in <this package>)` when the errors are someone
+else's: the push still exits 1 (the site does not compile), but the line says whose code to fix.
+
 The `bindings` step reads every `Data/<Name>` of the package and, for the rows whose key (the binding's `IsKey` columns,
 else `Id`) already exists on the site, compares each column the binding writes with the site's value. Measured on the
 test site (S33-T01): the install applies a binding only when its `descriptor.json` `ModifiedOnUtc` differs from the

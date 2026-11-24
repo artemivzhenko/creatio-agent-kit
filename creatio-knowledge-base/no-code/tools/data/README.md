@@ -61,7 +61,14 @@ Data/<Name>/Localization/data.<c>.json  the localisable columns per culture: [{S
 ```
 
 - A row is matched on install by its **key columns** (`IsKey`; `Id` in 370 of 373 bindings, two
-  columns in 3). `IsForceUpdate` makes the install overwrite a column of an existing row.
+  columns in 3). `IsForceUpdate` makes the install overwrite a column of an existing row; a column
+  without it keeps the site's value. Settled on 8.2.3 (S40-T05, one push each with a changed site
+  value and a deleted row, the descriptor date advanced): a `SysSettingsValue` binding with
+  `IsForceUpdate` false kept the value set on the site, the same binding with `true` wrote the package
+  value back (P-2.7 is that case: the designer-saved `SysSettingsValue` binding read for this marks its
+  value columns force-update);
+  a bound row deleted on the site was inserted again (P-2.14). `new` writes `IsForceUpdate` false on
+  every column. All of it only when the descriptor's `ModifiedOnUtc` changed (P-2.13).
 - `"null"` (a string) is a null value. Lookup cells (`Lookup`, `ImageLookup`) carry the record's
   UId in `Value` and its caption in `DisplayValue`, which only the designer reads.
 - A localisable column (`Name`, `Description` of a lookup) is in `Localization/` and never in

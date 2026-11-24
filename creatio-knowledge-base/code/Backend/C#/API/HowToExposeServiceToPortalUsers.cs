@@ -2,6 +2,7 @@ using System.ServiceModel;
 using System.ServiceModel.Activation;
 using System.ServiceModel.Web;
 using Terrasoft.Web.Common;
+using Terrasoft.Web.Common.ServiceRouting; // [DefaultServiceRoute], [SspServiceRoute]: CS0246 without it
 
 /// <summary>
 /// Pattern: expose a custom web service to portal (SSP) users.
@@ -10,13 +11,14 @@ using Terrasoft.Web.Common;
 /// Add [SspServiceRoute] alongside [DefaultServiceRoute] to enable portal-side access.
 ///
 /// URL mapping:
-///   Internal users  → /0/ServiceModel/MyPortalService.svc/...
-///   Portal (SSP)    → /0/ssp/ServiceModel/MyPortalService.svc/...
+///   Internal users  → /0/rest/MyPortalService/...   (settled on 8.2.3, S40-T05; .svc does not answer)
+///   Portal (SSP)    → the ssp route of the same service (not exercised by the kit)
 ///
 /// Both routes point to the same service class; Creatio enforces authentication
 /// separately for each URL prefix.
 ///
-/// Namespace must follow the pattern Terrasoft.Configuration.{ServiceName}Namespace.
+/// The ...Namespace suffix is a convention, not a requirement: a service in plain Terrasoft.Configuration
+/// is routed as well (8.2.3, S40-T05).
 /// </summary>
 namespace Terrasoft.Configuration.MyPortalServiceNamespace {
 

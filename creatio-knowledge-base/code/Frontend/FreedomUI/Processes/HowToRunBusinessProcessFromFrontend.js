@@ -33,6 +33,13 @@ define("UsrMyPage_FormPage", /**SCHEMA_DEPS*/["@creatio-devkit/common"]/**SCHEMA
 		// processName            - code of the process in Creatio
 		// processParameters      - key-value input parameters for the process
 		// resultParameterNames   - list of output parameter names to retrieve
+		// processRunType         - not needed in this imperative form: on 8.2.3 the
+		//                          request ran without it (success: true, the process
+		//                          wrote its row; S40-T05). The declarative button
+		//                          ("clicked": {"request": ..., "params": {...}}) sets it,
+		//                          e.g. "ForTheSelectedPage".
+		// Keys of processParameters are the process PARAMETER CODES; clio says a wrong key is
+		// dropped silently.
 		//
 		// result.success                       - true if the process completed
 		// result.resultParameterValues.ParamName - value of an output parameter

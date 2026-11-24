@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using Terrasoft.Core;
+using Terrasoft.Core.Configuration;
 using Terrasoft.Core.Entities;
 using Terrasoft.Core.Entities.Events;
 
@@ -12,6 +14,10 @@ using Terrasoft.Core.Entities.Events;
 /// use them for validation and data enrichment.
 /// After-events (OnInserted, OnUpdated, OnSaved, OnDeleted) run after the DB write —
 /// use them for side effects like sending notifications or updating related records.
+/// Insert or update, and did this column change (OnSaving runs for both): entity.StoringState == StoringObjectState.New
+/// is the insert; entity.GetChangedColumnValues().Any(c => c.Name == "UsrAmount") says the column changed in THIS save -
+/// recompute a derived column only then. GetOldTypedColumnValue answers the value before the save, not whether it
+/// changed (a save that rewrites the same value is not a change); see Events/HowToReadOldColumnValueInEventListener.
 /// </summary>
 namespace Terrasoft.Configuration {
 
@@ -51,6 +57,16 @@ namespace Terrasoft.Configuration {
             var entity = (Entity)sender;
             var userConnection = entity.UserConnection;
             // custom logic before save (insert or update)
+        }
+
+        // Insert or update, and did this column change: recompute a derived column only when it must
+        private static void RecomputeAmountWithTax(Entity entity) {
+            bool isNew = entity.StoringState == StoringObjectState.New;
+            bool amountChanged = entity.GetChangedColumnValues().Any(c => c.Name == "UsrAmount");
+            if (isNew || amountChanged) {
+                decimal amount = entity.GetTypedColumnValue<decimal>("UsrAmount");
+                entity.SetColumnValue("UsrAmountWithTax", amount * 1.2m); // a made-up rate: the point is the guard
+            }
         }
 
         public override void OnSaved(object sender, EntityAfterEventArgs e) {

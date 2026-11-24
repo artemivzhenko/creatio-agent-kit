@@ -19,7 +19,6 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | goto | `goto <code>` | `INavigableToRecord` | `goto ComboBox_Account` |
 | clear | `clear <code>` | `IClearable` | `clear ComboBox_Contact` |
 | wait | `wait <number> second|minute` | none | `wait 2 second` |
-| create | `create <object>` | none | `create TestEntity` |
 | end | `end` | none | `end` |
 | analyse | `analyse ["<page path>"] [<pageName>]` | none | `analyse "/0/Shell/#Card/Contacts_FormPage/edit/<id>" ContactForm` |
 | analyse | `analyse ["<page path>"] [<pageName>]` | none | `analyse "/0/Shell/#Card/Contacts_FormPage/edit/{id}" ContactForm` |
@@ -268,7 +267,7 @@ before any of it runs, so elements `analyse` discovers are not addressable on th
 but they are addressable by the test cases, because the run has two phases. See "Analysis phase"
 below. The same work is available without a script as `creatio-tests analyse "<path>"`; its output has a `tabs:` line (`none` for a page without a tab panel, which analyses like any other). In Git Bash a `/0/Shell/...` argument is rewritten to `C:/Program Files/Git/0/Shell/...` (0 controls, no error): set `MSYS_NO_PATHCONV=1` for the command.
 
-`create` follows its configured section, New button, form, fields, and Save button. `end` logs readable values from the current page without changing the outcome. `analyse` describes a live page and writes its page configuration; it can also be run as the CLI subcommand `analyse`.
+`end` logs readable values from the current page without changing the outcome. `analyse` describes a live page and writes its page configuration; it can also be run as the CLI subcommand `analyse`.
 
 ## Backend cases
 
@@ -380,7 +379,7 @@ delete UsrOrder $Order
 - **`# writes`** is a header directive (a `#` line before the first command). It makes the case
   stop at its first failure whatever `continueOnFailure` says - a failed `set` must not be followed
   by a Save - and validation refuses an inserted alias that is neither deleted later in the case nor
-  marked `keep`. Cleanup runs for every case either way; the directive makes the author say it.
+  marked `keep`. Cleanup runs for every case either way; the directive makes the author say it. After a failure the case's later `delete-record` lines (the records a page or a process created, which no alias knows) still run, and the report puts `cleanup: ...` lines under the failure (`cleanup: deleted <Entity> <id>` for inserted records, `cleanup: delete failed <reason>` when one stays); a `delete-record` that finds nothing is silent, and the case stays FAILED.
 - **`# ac: AC-02`** names the acceptance criterion the case proves. Run with
   `--task-folder <dir>` (and optionally `--task <id>`), every case writes
   `<dir>/evidence/AC-02-report-N.txt` - each line with its outcome, the failed steps, the console
@@ -446,7 +445,7 @@ check-value ViewToggle eq "Tab 2"
 
 The distinction is the `type` in the page file, which is also what tells `analyse` how to read the
 control. `tabs` lists the captions the group offers, in display order; a toggle group has no caption
-of its own, so its `label` is empty. `click` does not accept a `ToggleTab` and `set` does not accept
+of its own, so its `label` is empty. `panels` maps a tab's caption to the `element-name` of the panel it opens (`"panels": {"Attachments": "AttachmentList"}`): `set` on such a tab is done when the panel is visible, clicks once more if it is not, and fails with `panel <name> did not open after 2 clicks`; a case that needed the second click carries `note: toggle <group>: '<tab>' opened on the 2nd click` in the report. `click` does not accept a `ToggleTab` and `set` does not accept
 a `Tab`: which of the two a control is decides how it is driven.
 
 `columns` lists the grid's column captions in display order, as `analyse` found them. Only the
@@ -454,7 +453,7 @@ columns a person sees are recorded: Creatio gives every grid a leading cell for 
 a trailing cell that absorbs the free width, and both announce themselves as column headers without
 naming any data.
 | Tab | `crt-tab-panel-header-item` | None | `pinned` |
-| ToggleTab | `crt-button-toggle-group` | Tab | `tabs`; `pinned` |
+| ToggleTab | `crt-button-toggle-group` | Tab | `tabs`; `panels`; `pinned` |
 | FileUpload | `crt-file-list` | Upload | `trigger` (the `element-name` of the add button when it is not inside the list) |
 | Text | `crt-input` | Text | `pinned` |
 | RichText | `crt-rich-text-editor` | Text | `pinned` |
@@ -745,7 +744,7 @@ grouped however suits the project. The file name is only a label; a page's ident
 The first pass checks all lines before a browser action runs: unknown commands, malformed arguments, absent pages/elements, unsupported capabilities, incompatible copies, invalid literals, and object workflow references.
 
 ```text
-Unknown command 'opne'. Known commands: add-record, analyse, check, check-value, click, clear, create, end, goto, open, set, use, wait.
+Unknown command 'opne'. Known commands: add-record, analyse, check, check-value, click, clear, end, goto, open, set, use, wait.
 Element 'X' on page 'ContactForm': Unknown element type 'Slider' for a FreedomUI page. Known types for FreedomUI pages: Boolean, Button, CasesBar, DataGrid, Date, DateTime, Decimal, Email, Integer, Link, Lookup, Phone, RichText, Tab, Text, Time, ToggleTab.
 Element 'Email' on page 'OrderClassic': Unknown element type 'Email' for a ClassicUI page. It exists for FreedomUI pages only. Known types for ClassicUI pages: Boolean, Button, Date, DateTime, Decimal, Integer, Lookup, RichText, Tab, Text, Time.
 'wait' expects the unit 'second' or 'minute'.

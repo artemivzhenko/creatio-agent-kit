@@ -54,8 +54,10 @@ public sealed class CommandExecutor
 
         try
         {
-            foreach (var step in plan.Steps)
+            var failedAt = -1;
+            for (var i = 0; i < plan.Steps.Count; i++)
             {
+                var step = plan.Steps[i];
                 var outcome = await ExecuteStepAsync(step, session, cancellationToken).ConfigureAwait(false);
                 result.Outcomes.Add(outcome);
 
@@ -69,8 +71,14 @@ public sealed class CommandExecutor
                 // A case that writes stops at its first failure: a later Save must not land after a step that did not happen.
                 if (!session.Settings.ContinueOnFailure || plan.StopOnFailure)
                 {
+                    failedAt = i;
                     break;
                 }
+            }
+
+            if (failedAt >= 0)
+            {
+                await RunRemainingDeletesAsync(plan, failedAt, session, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -97,6 +105,27 @@ public sealed class CommandExecutor
         result.Duration = stopwatch.Elapsed;
 
         return result;
+    }
+
+    /// <summary>
+    /// A case stopped at a failure still runs its later <c>delete-record</c> lines (S11-T19): they remove what a page or a process created and
+    /// no alias knows, so the cleanup of inserted records does not reach them. A line that finds no record is silent (the failure came before the
+    /// record existed); the others are reported under the failure as <c>cleanup:</c>. <c>delete $alias</c> lines are the session cleanup's.
+    /// </summary>
+    private async Task RunRemainingDeletesAsync(ExecutionPlan plan, int failedAt, IExecutionSession session, CancellationToken cancellationToken)
+    {
+        foreach (var step in plan.Steps.Skip(failedAt + 1).Where(s => s.Registration.Keyword == "delete-record"))
+        {
+            var outcome = await ExecuteStepAsync(step, session, cancellationToken).ConfigureAwait(false);
+            if (outcome.Success)
+            {
+                session.DevNotes.Add("cleanup: " + step.Command.RawText);
+            }
+            else if (outcome.Message is { } why && !why.Contains("no record to delete", StringComparison.Ordinal))
+            {
+                session.DevNotes.Add("cleanup: delete failed " + why + " (" + step.Command.RawText + ")");
+            }
+        }
     }
 
     // The page as it was when the command failed, before a later command or the cleanup changes it.

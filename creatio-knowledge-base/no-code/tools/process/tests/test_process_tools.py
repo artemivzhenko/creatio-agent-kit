@@ -179,7 +179,9 @@ def test_record_signals_modes_columns_and_conditions():
         assert kinds == ["Terrasoft.CompareFilter", "Terrasoft.CompareFilter", "Terrasoft.IsNullFilter"] and edit["rootSchemaName"] == "UsrPkg"
         assert len(run["items"]) == 3 and all("className" not in i for i in run["items"].values())
         gt = next(i for i in edit["items"].values() if i["leftExpression"]["columnPath"] == "UsrNumber")
-        assert gt["comparisonType"] == 5 and gt["rightExpression"]["parameter"]["value"] == 100 and gt["dataValueType"] == 4
+        assert gt["comparisonType"] == 7 and gt["rightExpression"]["parameter"]["value"] == 100 and gt["dataValueType"] == 4
+        filled = next(i for i in edit["items"].values() if i["leftExpression"]["columnPath"] == "UsrContactLookup")
+        assert filled["comparisonType"] == 2 and filled["isNull"] is False  # 2 = IsNotNull; 15 / 16 are Exists / NotExists
         flag = next(i for i in edit["items"].values() if i["leftExpression"]["columnPath"] == "UsrIsActive")
         assert flag["rightExpression"]["parameter"]["value"] is True and flag["dataValueType"] == 12
         assert p.describe_signal(start) == ("record signal: UsrPkg added or modified (columns: UsrName, UsrIsActive); "

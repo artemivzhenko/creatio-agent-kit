@@ -1357,7 +1357,7 @@ def test_merge_plan_targets_conflicts_and_dependencies():
         _object_layer(pk / "UsrC", "UsrThing", [])
         _page_layer(pk / "UsrA", {"onEntityInitialized": "this.callParent(arguments);"}, [("UsrName", "insert")])
         _page_layer(pk / "UsrB", {"onEntityInitialized": "var r = this.callParent(arguments); return r;"}, [("UsrName", "merge"), ("Tab1", "merge")])
-        text, conflicts = merge_plan(root, limit=0)
+        text, conflicts = merge_plan(root, limit=0, direction="down")
         lines = text.splitlines()
         assert lines[0] == "Contact object: 3 layers, target UsrA", lines
         assert lines[1:4] == ["  layer UsrA: +1 column", "  layer UsrB: +3 columns", "  layer UsrC: +1 column"], lines
@@ -1370,18 +1370,18 @@ def test_merge_plan_targets_conflicts_and_dependencies():
         assert not any("conflict element" in l for l in lines)  # an insert below and a merge above is the usual form
         assert "UsrThing object: 2 layers, no common lowest package: UsrB, UsrC" in lines
         assert lines[-1] == "3 schemas, 3 layers to remove, 4 conflicts, 1 without a common lowest package" and conflicts == 4
-        one, _ = merge_plan(root, ["contact", "UsrNope"])
+        one, _ = merge_plan(root, ["contact", "UsrNope"], direction="down")
         assert one.splitlines()[0] == "UsrNope: no copy in the workspace" and one.endswith("1 schemas, 2 layers to remove, 2 conflicts")
-        assert merge_plan(root, ["UsrBStatus"])[0].splitlines()[0] == "UsrBStatus: 0 replacing layers in the workspace, nothing to merge"
-        assert merge_plan(root, limit=2)[0].splitlines()[2].startswith("  ... ")
-        second = merge_plan(root, limit=2, offset=2)[0].splitlines()  # the next page of the plan, the totals line as always
+        assert merge_plan(root, ["UsrBStatus"], direction="down")[0].splitlines()[0] == "UsrBStatus: 0 replacing layers in the workspace, nothing to merge"
+        assert merge_plan(root, limit=2, direction="down")[0].splitlines()[2].startswith("  ... ")
+        second = merge_plan(root, limit=2, offset=2, direction="down")[0].splitlines()  # the next page of the plan, the totals line as always
         assert second[:2] == lines[2:4] and "next: offset=4" in second[2] and second[-1] == lines[-1], second
         assert list(root.rglob(".creatio-index")) == []
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            assert main(["merge-plan", str(root), "Contact"]) == 1
+            assert main(["merge-plan", str(root), "Contact", "--direction", "down"]) == 1
         assert "target UsrA" in out.getvalue()
         with contextlib.redirect_stdout(io.StringIO()):
-            assert main(["merge-plan", str(root), "UsrBStatus"]) == 0
+            assert main(["merge-plan", str(root), "UsrBStatus", "--direction", "down"]) == 0
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -1404,7 +1404,7 @@ def test_merge_plan_counts_processes_and_dcm_and_refuses_them():
             data = json.loads(descriptor.read_text("utf-8-sig"))
             data["Descriptor"]["ExtendParent"] = True
             descriptor.write_text(json.dumps(data), "utf-8")
-        text, conflicts = merge_plan(root, limit=0)
+        text, conflicts = merge_plan(root, limit=0, direction="down")
         lines = text.splitlines()
         process = lines.index("UsrDeleteOldLogs_Process process: 2 layers, target UsrA")
         assert lines[process + 1:process + 3] == ["  layer UsrA: +3 elements", "  layer UsrB: +3 elements"], lines  # the fixture process has no parameters
@@ -1412,7 +1412,7 @@ def test_merge_plan_counts_processes_and_dcm_and_refuses_them():
         dcm = lines.index("UsrRequestCases dcm: 2 layers, target UsrA")
         assert "stage" in lines[dcm + 1] and "  conflict dcm: not merged by this toolkit (T06)" in lines
         assert conflicts == 2 and lines[-1] == "2 schemas, 2 layers to remove, 2 conflicts"
-        out, code = merge_object(root, "UsrDeleteOldLogs_Process")
+        out, code = merge_object(root, "UsrDeleteOldLogs_Process", direction="down")
         assert code == 1 and "merge writes objects and pages only" in out and "conflict process" in out
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -1435,7 +1435,7 @@ def test_merge_plan_counts_rule_layers_and_names_their_conflicts():
         edited = RuleSchema(pk / "UsrA", name).base_edits()
         assert edited and "BRS1" in edited[0], edited  # the fixture's replacing addon edits one base rule
         uid = edited[0].split('["')[1].split('"]')[0]
-        text, conflicts = merge_plan(root, limit=0)
+        text, conflicts = merge_plan(root, limit=0, direction="down")
         lines = text.splitlines()
         assert lines[0] == f"{name} rules: 2 layers, target UsrA", lines
         assert lines[1:3] == ["  layer UsrA: +1 rule, ~1 base rule edited", "  layer UsrB: +1 rule, ~1 base rule edited"], lines
@@ -1446,10 +1446,10 @@ def test_merge_plan_counts_rule_layers_and_names_their_conflicts():
         top = RuleSchema(pk / "UsrB", name)
         top.remove_base(uid)
         top.save()
-        text, conflicts = merge_plan(root, limit=0)
+        text, conflicts = merge_plan(root, limit=0, direction="down")
         assert f"  conflict rule {uid} (removed in UsrB, edited in UsrA): UsrB and UsrA" in text.splitlines(), text
         assert conflicts == 2 and text.splitlines()[-1] == "1 schemas, 1 layers to remove, 2 conflicts"
-        out, code = merge_object(root, name)
+        out, code = merge_object(root, name, direction="down")
         assert code == 1 and "merge writes objects and pages only" in out
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -1487,7 +1487,7 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(("﻿" if b else "") + t, encoding="utf-8")
         snapshot = sorted(str(p) for p in root.rglob("*"))
-        text, code = merge_object(root, "Contact")
+        text, code = merge_object(root, "Contact", direction="down")
         assert code == 0 and text.splitlines()[0] == "Contact object: 3 layers, target UsrA", text
         assert "write packages/UsrA/Schemas/Contact/metadata.json" in text and "delete packages/UsrB/Schemas/Contact" in text
         assert "delete packages/UsrC/Resources/Contact.Entity" in text and text.endswith("3 layers -> 1 (dry run; --apply writes)")
@@ -1505,7 +1505,7 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
         for x in layers:
             one_by_one = SchemaDiff((x.folder / "metadata.json").read_text(encoding="utf-8")).apply(one_by_one)
         assert SchemaDiff(merged).apply(base)["D2"] == one_by_one["D2"]
-        text, code = merge_object(root, "Contact", apply=True)
+        text, code = merge_object(root, "Contact", apply=True, direction="down")
         assert code == 0 and text.endswith("merged Contact into UsrA: 3 layers -> 1"), text
         assert not (pk / "UsrB" / "Schemas" / "Contact").exists() and not (pk / "UsrC" / "Resources" / "Contact.Entity").exists()
         a = pk / "UsrA" / "Schemas" / "Contact"
@@ -1518,7 +1518,7 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
         assert [d["Name"] for d in json.loads((pk / "UsrA" / "descriptor.json").read_text(encoding="utf-8-sig"))["Descriptor"]["DependsOn"]] == ["UsrBase", "UsrExtra"]
         merged_res = Resources(pk / "UsrA" / "Resources" / "Contact.Entity")
         assert merged_res.get("Columns.UsrA1.Caption") == "A one, by C" and merged_res.get("Columns.UsrC1.Caption") == "C one"
-        assert merge_object(root, "Contact")[0].splitlines()[0] == "Contact: 1 replacing layer in the workspace, nothing to merge"
+        assert merge_object(root, "Contact", direction="down")[0].splitlines()[0] == "Contact: 1 replacing layer in the workspace, nothing to merge"
 
         # the UId rule the other way: a target without a layer takes the top layer's UId, every layer goes
         shutil.rmtree(root)
@@ -1526,8 +1526,8 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
         for name in ("UsrA", "UsrB"):
             _object_layer(pk / name, "Contact", [(f"{name}1", f"{name.lower()}-col", SHORT_TEXT)])
         top_uid = json.loads((pk / "UsrB" / "Schemas" / "Contact" / "descriptor.json").read_text(encoding="utf-8"))["Descriptor"]["UId"]
-        assert merge_object(root, "Contact", target="UsrB")[1] == 1  # not below UsrA
-        text, code = merge_object(root, "Contact", target="UsrBase", apply=True)
+        assert merge_object(root, "Contact", target="UsrB", direction="down")[1] == 1  # not below UsrA
+        text, code = merge_object(root, "Contact", target="UsrBase", apply=True, direction="down")
         assert code == 0 and "delete packages/UsrA/Schemas/Contact" in text and "delete packages/UsrB/Schemas/Contact" in text, text
         assert json.loads((pk / "UsrBase" / "Schemas" / "Contact" / "descriptor.json").read_text(encoding="utf-8"))["Descriptor"]["UId"] == top_uid
         assert '= MetaData.Schema.B6 "pkg-UsrBase"' in (pk / "UsrBase" / "Schemas" / "Contact" / "metadata.json").read_text(encoding="utf-8")
@@ -1542,16 +1542,16 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
         _object_layer(pk / "UsrB", "Contact", [("UsrB1", "b1", SHORT_TEXT)])
         _object_layer(pk / "UsrC", "Contact", [("UsrC1", "c1", SHORT_TEXT)])
         snapshot = sorted(str(p) for p in root.rglob("*"))
-        text, code = merge_object(root, "Contact", apply=True)
+        text, code = merge_object(root, "Contact", apply=True, direction="down")
         assert code == 1 and text.endswith("stopped: siblings: their order is a guess without the site; run with -e - nothing written"), text
         _object_layer(pk / "UsrB", "Contact2", [("UsrDup", "d1", SHORT_TEXT)])
         _object_layer(pk / "UsrA", "Contact2", [("UsrDup", "d2", SHORT_TEXT)])
         snapshot = sorted(str(p) for p in root.rglob("*"))
-        text, code = merge_object(root, "Contact2", apply=True)
+        text, code = merge_object(root, "Contact2", apply=True, direction="down")
         assert code == 1 and "conflict column UsrDup (two UIds): UsrA and UsrB" in text and "stopped: 1 conflicts" in text, text
         assert sorted(str(p) for p in root.rglob("*")) == snapshot
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            assert main(["merge", str(root), "Contact2"]) == 1
+            assert main(["merge", str(root), "Contact2", "--direction", "down"]) == 1
         assert "nothing written" in out.getvalue()
 
         # with the site: the siblings' order is known, the references check runs; a site-only layer among them stops
@@ -1578,11 +1578,11 @@ def test_merge_writes_one_layer_and_stops_on_what_it_cannot_prove():
         vendor = _row("CrtSales", "0", "3")
         for row in site + [vendor]:
             row["manager"] = "EntitySchemaManager"
-        text, code = merge_object(root, "Contact", env=SiteEnv(site))
+        text, code = merge_object(root, "Contact", env=SiteEnv(site), direction="down")
         assert code == 0 and "  references: none to the 2 layers removed" in text and text.endswith("(dry run; --apply writes)"), text
-        text, code = merge_object(root, "Contact", env=RefEnv(site))
+        text, code = merge_object(root, "Contact", env=RefEnv(site), direction="down")
         assert code == 1 and "  references: SysProcessLog.SysSchemaId 3 rows point at UsrC's Contact" in text and "stopped: 1 references" in text, text
-        text, code = merge_object(root, "Contact", env=SiteEnv(site + [vendor]), apply=True)
+        text, code = merge_object(root, "Contact", env=SiteEnv(site + [vendor]), apply=True, direction="down")
         assert code == 1 and "  layer CrtSales: on the site only, not merged" in text, text
         assert "stopped: a layer on the site only folds after the target: CrtSales; the merge would put the removed layers' lines before it" in text, text
         assert sorted(str(p) for p in root.rglob("*")) == snapshot
@@ -1656,10 +1656,10 @@ def test_merge_pages_fold_freedom_arrays_and_classic_methods():
         assert "removed BaseButton" in before
         assert before.count("handler crt.HandleViewModelInitRequest #1") == 1 and "converter usr.Upper" in before
         snap = sorted(str(p) for p in root.rglob("*"))
-        text, code = merge_schema(root, "UsrPage_FormPage")
+        text, code = merge_schema(root, "UsrPage_FormPage", direction="down")
         assert code == 0 and text.splitlines()[0] == "UsrPage_FormPage page: 3 layers, target UsrA", text
         assert "  converter usr.Upper: UsrB's kept, UsrA's dropped" in text and sorted(str(p) for p in root.rglob("*")) == snap
-        text, code = merge_schema(root, "UsrPage_FormPage", apply=True)
+        text, code = merge_schema(root, "UsrPage_FormPage", apply=True, direction="down")
         assert code == 0 and text.endswith("merged UsrPage_FormPage into UsrA: 3 layers -> 1"), text
         assert not (pk / "UsrB" / "Schemas" / "UsrPage_FormPage").exists()
         merged = PageSchema(pk / "UsrA", "UsrPage_FormPage")
@@ -1691,7 +1691,7 @@ def test_merge_pages_fold_freedom_arrays_and_classic_methods():
             _client_layer(pk / name, "UsrPage", CLASSIC_BODY.format(deps="", args="", attributes=attr, methods=methods, diff=diff))
         classic_before = snapshot(root, "UsrPage")
         assert "method onEntityInitialized" in classic_before and "layer method onEntityInitialized UsrA > UsrB > UsrC" in classic_before
-        text, code = merge_schema(root, "UsrPage", apply=True)
+        text, code = merge_schema(root, "UsrPage", apply=True, direction="down")
         assert code == 0 and "  method onEntityInitialized: folded UsrA > UsrB > UsrC" in text and "  attributes UsrA1: UsrB's kept" in text, text
         body = (pk / "UsrA" / "Schemas" / "UsrPage" / "UsrPage.js").read_text(encoding="utf-8")
         assert body.count("callParent") == 1 and body.index('+ "A"') < body.index('+ "B"') < body.index('+ "C"'), body
@@ -1711,9 +1711,9 @@ def test_merge_pages_fold_freedom_arrays_and_classic_methods():
             view = [{"operation": "merge", "name": "BaseField", "values": {"visible": name == "UsrB"}}]
             _client_layer(pk / name, "UsrPage_FormPage", FREEDOM_BODY.format(deps="[]", args="", view=json.dumps(view), vm="[]", handlers="", converters=""))
         snap = sorted(str(p) for p in root.rglob("*"))
-        text, code = merge_schema(root, "UsrPage", apply=True)
+        text, code = merge_schema(root, "UsrPage", apply=True, direction="down")
         assert code == 1 and "conflict method onEntityInitialized (UsrA > UsrB): callParent's value is used" in text and text.endswith("nothing written"), text
-        text, code = merge_schema(root, "UsrPage_FormPage", apply=True)
+        text, code = merge_schema(root, "UsrPage_FormPage", apply=True, direction="down")
         assert code == 1 and "conflict element BaseField (merge): UsrA and UsrB" in text and "stopped: 1 conflicts - nothing written" in text, text
         assert sorted(str(p) for p in root.rglob("*")) == snap
 
@@ -1726,7 +1726,7 @@ def test_merge_pages_fold_freedom_arrays_and_classic_methods():
                 if "tsp_GetSysSchemaParents" in text:
                     return [_row("UsrA", "0", "3"), _row("UsrB", "0", "2")]
                 return []
-        text, code = merge_schema(root, "UsrPage_FormPage", env=SiteEnv())
+        text, code = merge_schema(root, "UsrPage_FormPage", env=SiteEnv(), direction="down")
         assert code == 0 and "conflict element BaseField" in text and "references: none to the 1 layers removed" in text, text
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -3086,6 +3086,82 @@ def test_describe_schema_env_names_the_lookup_rows_only_the_site_holds():
         assert describe_schema(OBJECTS, "UsrOrder", 0, 0, "dev") == describe_schema(OBJECTS, "UsrOrder", 0)
     finally:
         _rm_tree(root)
+
+
+def test_merge_up_collapses_into_the_top_package_and_stops_on_a_reference_from_below():
+    """S27-T09: A < B < C, merged up into C: every column once in C, the lower layers deleted, no dependency gained; a file in a
+    package below the top naming a lower layer's column stops it; two tops stop; a wrong target is named."""
+    import shutil
+    import tempfile
+    from creatio_schemas.describe.merge import merge_object, merge_plan
+    from creatio_schemas.workspace import parse_diff
+
+    root = Path(tempfile.mkdtemp())
+    try:
+        _layer_workspace(root, {"UsrA": (["CrtBase"], {}), "UsrB": (["UsrA"], {}), "UsrC": (["UsrB"], {})})
+        pk = root / "packages"
+        for i, (name, cols) in enumerate({"UsrA": ["UsrA1"], "UsrB": ["UsrB1"], "UsrC": ["UsrC1"]}.items()):
+            _object_layer(pk / name, "Contact", [(c, f"c{i}{j}000000-0000-4000-8000-000000000000", SHORT_TEXT) for j, c in enumerate(cols)])
+        deps_before = {n: (pk / n / "descriptor.json").read_bytes() for n in ("UsrA", "UsrB", "UsrC")}
+        text, conflicts = merge_plan(root, ["Contact"])
+        assert text.splitlines()[0] == "Contact object: 3 layers, target UsrC" and "  depends: unchanged" in text and not conflicts, text
+        text, code = merge_object(root, "Contact", apply=True)
+        assert code == 0 and text.endswith("merged Contact into UsrC: 3 layers -> 1"), text
+        assert "delete packages/UsrA/Schemas/Contact" in text and "delete packages/UsrB/Schemas/Contact" in text and "gains" not in text
+        assert not (pk / "UsrA" / "Schemas" / "Contact").exists() and not (pk / "UsrB" / "Schemas" / "Contact").exists()
+        written = (pk / "UsrC" / "Schemas" / "Contact" / "metadata.json").read_text(encoding="utf-8")
+        names = [__import__("json").loads(v)["A2"] for op, pth, v in parse_diff(written) if pth == "MetaData.Schema.D2" and op == "+"]
+        assert names == ["UsrA1", "UsrB1", "UsrC1"], names  # every column once, in fold order
+        assert '= MetaData.Schema.B6 "pkg-UsrC"' in written
+        assert {n: (pk / n / "descriptor.json").read_bytes() for n in deps_before} == deps_before  # no DependsOn touched
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    root = Path(tempfile.mkdtemp())
+    try:  # a page in A names B's column: after the merge that column lives in C, out of A's reach
+        _layer_workspace(root, {"UsrA": (["CrtBase"], {}), "UsrB": (["UsrA"], {}), "UsrC": (["UsrB"], {})})
+        pk = root / "packages"
+        for i, name in enumerate(("UsrA", "UsrB", "UsrC")):
+            _object_layer(pk / name, "Contact", [(f"{name}1", f"c{i}0000000-0000-4000-8000-000000000000", SHORT_TEXT)])
+        page = pk / "UsrA" / "Schemas" / "UsrA_FormPage"
+        page.mkdir(parents=True)
+        (page / "UsrA_FormPage.js").write_text('define("UsrA_FormPage", [], function() { return {"control": "$PDS_UsrB1"}; });\n', encoding="utf-8")
+        (pk / "UsrA" / "Files" / "cs").mkdir(parents=True)
+        (pk / "UsrA" / "Files" / "cs" / "UsrHelper.cs").write_text('class UsrHelper { string c = "UsrB1Id"; string d = "UsrB10"; }\n', encoding="utf-8")
+        text, conflicts = merge_plan(root, ["Contact"])
+        lines = [l.strip() for l in text.splitlines() if "reference from below" in l]
+        assert lines == ["conflict reference from below: UsrA/Files/cs/UsrHelper.cs uses Contact.UsrB1 (added by UsrB's layer)"], text
+        assert conflicts == 1  # the page names `$PDS_UsrB1`, not the column word itself; `UsrB10` is another word
+        (page / "UsrA_FormPage.js").write_text('define("UsrA_FormPage", [], function() { return {"path": "PDS.UsrB1"}; });\n', encoding="utf-8")
+        text, code = merge_object(root, "Contact", apply=True)
+        assert code == 1 and "conflict reference from below: UsrA/Schemas/UsrA_FormPage/UsrA_FormPage.js uses Contact.UsrB1" in text, text
+        assert (pk / "UsrB" / "Schemas" / "Contact").exists()  # nothing written
+        assert merge_object(root, "Contact", direction="down")[1] == 0  # downward the column stays below every reader: no such stop
+        # a wrong target is named; the downward check of the same target is the other way round
+        text, code = merge_object(root, "Contact", target="UsrB")
+        assert code == 1 and "target UsrB is not above every layer: UsrC" in text, text
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    root = Path(tempfile.mkdtemp())
+    try:  # two tops: B and C both stand on A, neither depends on the other
+        _layer_workspace(root, {"UsrA": (["CrtBase"], {}), "UsrB": (["UsrA"], {}), "UsrC": (["UsrA"], {})})
+        pk = root / "packages"
+        for i, name in enumerate(("UsrA", "UsrB", "UsrC")):
+            _object_layer(pk / name, "Contact", [(f"{name}1", f"c{i}0000000-0000-4000-8000-000000000000", SHORT_TEXT)])
+        text, conflicts = merge_plan(root, ["Contact"])
+        assert text.splitlines()[0] == "Contact object: 3 layers, no single top package: UsrB, UsrC", text
+        assert text.splitlines()[-1].endswith("1 without a single top package"), text
+        text, code = merge_object(root, "Contact")
+        assert code == 1 and "no target; name one with --target" in text
+        try:
+            merge_plan(root, ["Contact"], direction="sideways")
+        except ValueError as e:
+            assert "up or down" in str(e)
+        else:
+            raise AssertionError("an unknown direction")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

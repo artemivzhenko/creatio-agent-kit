@@ -126,6 +126,31 @@ public sealed class WritingCaseTests
         Assert.That(session.Cleanups, Is.EqualTo(1));
     }
 
+    /// <summary>S11-T19: the record a page created has no alias, so the case's own delete-record line is its cleanup; a failure must not skip it.</summary>
+    [Test]
+    public async Task A_failed_writing_case_still_runs_its_delete_record_lines_and_reports_them()
+    {
+        var lines = new[] { "# writes", "use Supervisor", "check-record UsrOrder UsrName=Bed exists", "delete-record UsrOrder UsrName=Bed" };
+        var row = new[] { (IReadOnlyDictionary<string, string>)new Dictionary<string, string> { ["Id"] = "00000001-0000-0000-0000-000000000000" } };
+
+        var created = new FakeExecutionSession { OnQuery = (_, _, _, _) => row };
+        var failed = await Run(created, lines);
+        Assert.That(failed.Success, Is.False, "the case stays failed");
+        Assert.That(failed.Outcomes, Has.Count.EqualTo(2), "use and the failed check; the cleanup line is not an outcome");
+        Assert.That(created.Writes, Has.Some.StartsWith("delete UsrOrder 00000001"));
+        Assert.That(failed.DevNotes, Has.Some.StartsWith("cleanup: delete-record UsrOrder"));
+
+        var never = new FakeExecutionSession();
+        var early = await Run(never, lines);
+        Assert.That(early.Success, Is.False);
+        Assert.That(never.Writes, Is.Empty, "nothing was created, nothing is deleted");
+        Assert.That(early.DevNotes, Is.Empty, "and nothing is said about it");
+
+        var refused = new FakeExecutionSession { OnQuery = (_, _, _, _) => row, OnDelete = _ => "403 denied" };
+        var stuck = await Run(refused, lines);
+        Assert.That(stuck.DevNotes, Has.Some.StartsWith("cleanup: delete failed").And.Contain("403 denied"));
+    }
+
     [Test]
     public async Task A_writing_case_stops_at_its_first_failure_and_still_cleans_up()
     {
