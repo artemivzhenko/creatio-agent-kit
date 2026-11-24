@@ -34,6 +34,10 @@ Run from `creatio-knowledge-base/no-code/tools`. `E` is the evidence folder.
    per object, `layer <pkg>: +n columns`, `siblings`, `depends:`. A `conflict` line or `exit code 1` is a stop: write it
    in the report and hand the plan to the human. A conflict is never settled by editing a layer's files by hand.
    From the plan list the **packages of the fold**: the target and every package that loses a layer.
+   The plan merges **upward** by default: the target is the top package of the fold, the one that depends on every other
+   layer's package, and no package's dependencies change (`depends: unchanged`). `no single top package` or a
+   `conflict reference from below` is a stop for the human (name the top with `--target`, or move the reference first);
+   `--direction down` (the base as the target, which then gains dependencies) only when the human asks for it.
 2. **Backup.** `python ../../../ci-cd/pipeline.py backup --package <Pkg1,Pkg2,...> -e <env> --out E/backup`: `clio pull-pkg`
    of each package of the fold into `E/backup/Pkg-<stamp>.zip`; the printed `rollback:` line goes into the report as is.
    No zip, no merge.
@@ -51,14 +55,18 @@ Run from `creatio-knowledge-base/no-code/tools`. `E` is the evidence folder.
 5. **Merge.** `python describe.py merge <workspace> <Object> -e <env>` prints the plan, the `write` / `delete` lines and
    the references check; read it, then the same line with `--apply`. `stopped: ... - nothing written` is a stop. Repeat
    per object; `E/merge.txt` holds every print.
-6. **Push.** The target package first with `python push/push.py <Pkg> -e <env>` (it clears `IsChanged`, pushes, checks the
-   compilation), then every package that lost a layer with `python push/push.py <Pkg> -e <env> --allow-removed <Object,...>`
-   (the objects the plan removes from it): the flag lifts the delete stop for exactly those schemas after its own references
-   check, and `compilation log: FAILED` names the package whose code failed - errors in a package outside the fold are the
-   site's: write that line in the report and go on only when step 7's `layers` answers. Any other failed push is a stop:
-   roll back with the `rollback:` line of step 2 and report (`deploy --artifact` may fail once with `installation log
-   could not be attributed`, run it again; its closing compile may hit `another compilation is in progress` right after an
-   install - wait a minute and compile again, then check with `layers`).
+6. **Push.** Three pushes, in this order. The top (target) package first with `python push/push.py <Pkg> -e <env>` (it
+   clears `IsChanged`, pushes, checks the compilation); then every package that lost a layer with `python push/push.py <Pkg>
+   -e <env> --allow-removed <Object,...>` (the objects the plan removes from it: the flag lifts the delete stop for exactly
+   those schemas after its own references check); then **the top once more** after advancing its merged schema's
+   `descriptor.json` `ModifiedOnUtc` - until the top's generated source is regenerated it still overrides the lower layers'
+   columns, and the compile fails with CS0115 / CS0111 in `<Object>Schema.<Top>.cs`. `compilation log: FAILED` names the
+   package whose code failed; errors in a package outside the fold are the site's: write that line in the report and go on
+   only when step 7's `layers` answers. Any other failed push is a stop: roll back with the `rollback:` line of step 2 and
+   report (`deploy --artifact` may fail once with `installation log could not be attributed`, run it again; its closing
+   compile waits out `another compilation is in progress` by itself). The first `push-pkg` right after a site restart has
+   failed once with no reason in clio's output and passed a minute later (N-28): a silent failure right after a restart is
+   one retry, not a stop.
 7. **Verify.** `python push/push.py verify <Pkg> -e <env>` per pushed package -> `E/verify.txt` (every schema `same`);
    `python describe.py layers <Object> -e <env>` -> `E/layers-after.txt`: one copy per object, in the target.
 8. **Snapshots after and compare.** Step 4 again into `E/after/`; `python describe.py compare E/before/<Object>.snapshot
