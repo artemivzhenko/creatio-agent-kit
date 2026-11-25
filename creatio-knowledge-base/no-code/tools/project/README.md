@@ -13,6 +13,27 @@ Existing unrelated configuration and case folders are retained; new files use
 file is the source of truth; do not copy credentials back from the framework.
 When an existing file changes it is rewritten as JSON; its comments and formatting
 are not retained.
+
+## The unit-test project: `tests-init` (S46-T09)
+
+`python no-code/tools/project.py tests-init <project.json>` makes `package.workspace` run the package's unit tests, each step
+answering `exists` on a second run: a clio workspace (`clio create-workspace --empty`; `Packages` and `ApplicationVersion`
+from `package.name` and `environment.platformVersion`), the package project `Files/<Pkg>.csproj` + `Directory.Build.targets`
+(clio's template: `add-package` in a scratch workspace, its `Libs/*.dll` left out), `clio new-test-project --package <Pkg>`,
+the test binaries copied from `paths.unitTestBin` into clio's layout `.application/net-framework/core-bin` (+ the newest
+`conf/bin/*/Terrasoft.Configuration.dll` into `.application/net-framework/bin`; a copy, not a link, so a clio refresh never
+deletes inside an install), `tests/<Pkg>/app.config` with a binding redirect for every `Terrasoft.*` / `Creatio.*` assembly
+of those binaries (the clio test kit is built on 8.3.2.4166 / 8.3.3.1767; without it `FileLoadException` in `SetUp`), then
+`paths.unitTests`, `paths.solution` and `commands.unitTests` into project.json and the line `run the unit tests: dotnet test
+"<solution>" -c dev-nf`. No `paths.unitTestBin` and no binaries in the layout: the line says so and the exit is 1.
+
+**Which binaries (the decision).** Two local installs serve two builds, and project.json is the only place their paths live:
+`paths.platformBin` is the site version's `Terrasoft.WebApp/bin`, the one `push.py --build` compiles the package's dll against
+for the push, and `paths.unitTestBin` is any local bin the clio test kit accepts (8.3.2 or newer), the one the unit tests run on.
+A version is matched by prefix only where it matters, for the push: `Terrasoft.Core.dll`'s FileVersion of the bin must start
+with `environment.platformVersion` (`8.2.3` matches `8.2.3.1351`), else the push stops at `build`; there is no version map
+outside the project (`--bin` overrides `paths.platformBin` for one push).
+
 ## Commands
 
 <!-- commands:start -->
@@ -20,5 +41,6 @@ are not retained.
 | --- | --- |
 | `sync` | write the framework environment from project.json |
 | `tasks-from-csv` | one task folder per row of a tracker's CSV export |
+| `tests-init` | make the workspace run the package's unit tests; write the run command into project.json |
 <!-- commands:end -->
 

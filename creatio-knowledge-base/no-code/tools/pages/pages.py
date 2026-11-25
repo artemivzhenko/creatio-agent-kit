@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Freedom UI pages stored in a package (library: ../creatio_schemas/page).
 
+    python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list]
+                              [--cultures en-US,ru-RU] [--dry-run]
     python pages.py inspect   <package> <Page>
     python pages.py add-field <package> <Page> <Column> [--parent SideAreaProfileContainer] [--row N] [--col N] [--span N]
     python pages.py add-grid  <package> <Page> <Name> --entity UsrOrder --columns UsrName,UsrAmount [--parent GeneralInfoTabContainer] [--rows 6] [--editable]
+                              [--master UsrOrder] [--add-button] [--page UsrOrderItem_FormPage] [--literal-captions]
     python pages.py set-value <package> <Page> <Element> <Property> <Value> [--text "Caption"] [--culture en-US]
     python pages.py remove    <package> <Page> <Element>
     python pages.py validate  <package> <Page>
     python pages.py audit     <package> <Page> [--all]
     python pages.py from-schema <package> <Page> [--name UsrOrderForm] [--out Configuration/pages/UsrOrderForm.json] [--compare <page file>] [--culture en-US]
+
+`new` makes a page for an object that already exists (scaffold makes pages only with a new object): the template's page,
+then a field per --fields column (default: every own column of the object); an existing page is refused. It is built in
+a scratch copy and validated first; --dry-run lists the files it would write.
 
 The page body (<Page>.js) is edited through its JSON marker sections; a bound field gets the
 control the designer would give the column's type and a PDS attribute, a grid gets its data
@@ -28,10 +35,53 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scaffold"))
 
 from creatio_schemas.cli import CommandLine  # noqa: E402
 from creatio_schemas.files import write_text  # noqa: E402
 from creatio_schemas.page import PageSchema, compare_page_files  # noqa: E402
+
+
+def new(_, a):
+    import shutil
+    from scaffold import changed_files, scratch_copy
+    from creatio_schemas.resources import Resources
+    from creatio_schemas.workspace import BASE_COLUMNS, Workspace
+    package = Path(a.package).resolve()
+    ws = Workspace(package)
+    if ws.find(a.page, "ClientUnitSchemaManager") or (package / "Schemas" / a.page).exists():
+        raise FileExistsError(f"{a.page} exists")
+    found = ws.find(a.entity, "EntitySchemaManager")
+    if not found:
+        raise KeyError(f"object {a.entity} is not in the workspace")
+    if a.fields and a.template != "form":
+        raise ValueError("--fields goes with --template form")
+    caption = a.caption
+    if not caption:
+        try:
+            base = Resources(found[0]["dir"].parent.parent / "Resources" / f"{a.entity}.Entity").get("Caption", "en-US") or a.entity
+        except (OSError, KeyError):
+            base = a.entity
+        caption = base + (" form" if a.template == "form" else "")
+    scratch = scratch_copy(package)
+    try:
+        page = PageSchema.create(scratch, a.page, a.entity, a.template, caption, a.cultures.split(",") if a.cultures else None)
+        if a.template == "form":
+            for col in a.fields.split(",") if a.fields else [c for c in page.workspace.columns(a.entity) if c not in BASE_COLUMNS]:
+                page.add_field(col.strip())
+        page.save()
+        problems = [p for p in PageSchema(scratch, a.page).validate()]
+        if problems:
+            raise ValueError("validation refuses the page:\n  " + "\n  ".join(problems))
+        files = changed_files(scratch, package)
+        for rel, f in files.items():
+            print(f"  {rel.as_posix()}")
+            if not a.dry_run:
+                (package / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(f, package / rel)
+    finally:
+        shutil.rmtree(scratch.parent.parent, ignore_errors=True)
+    print(f"{len(files)} file(s) " + ("would be written (dry run: nothing written)" if a.dry_run else f"written to {package.name}; validation: ok"))
 
 
 def inspect(page, a):
@@ -52,7 +102,10 @@ def add_field(page, a):
 
 
 def add_grid(page, a):
-    op = page.add_grid(a.name, a.entity, a.columns.split(","), parent=a.parent, rows=a.rows, editable=a.editable)
+    if not a.master:
+        print(f"warning: no --master: the grid lists every row of {a.entity}")
+    op = page.add_grid(a.name, a.entity, a.columns.split(","), parent=a.parent, rows=a.rows, editable=a.editable, master=a.master,
+                       add_button=a.add_button, entity_page=a.entity_page, literal_captions=a.literal_captions)
     print(f"add {a.name}: grid of {a.entity} in {a.parent} row {op['values']['layoutConfig']['row']}")
 
 
@@ -101,6 +154,13 @@ def audit(page, a):
 
 def build() -> CommandLine:
     c = CommandLine(__doc__, "page")
+    p = c.command("new", new, "a form or list page for an object that exists")
+    p.add_argument("--entity", required=True)
+    p.add_argument("--fields", help="comma-separated columns, in this order; default every own column of the object")
+    p.add_argument("--caption", help="default: the object's caption + ' form'")
+    p.add_argument("--template", choices=["form", "list"], default="form")
+    p.add_argument("--cultures", help="comma-separated; default the package's cultures")
+    p.add_argument("--dry-run", action="store_true", help="list the files, write nothing")
     c.command("inspect", inspect, "elements, attributes, data sources and problems")
     c.command("validate", validate, "problems; exit code 1 on errors")
     p = c.command("add-field", add_field, "a field bound to a column of the page's object", writes=True)
@@ -116,6 +176,10 @@ def build() -> CommandLine:
     p.add_argument("--parent", default="GeneralInfoTabContainer")
     p.add_argument("--rows", type=int, default=6, help="rowSpan in the parent grid container")
     p.add_argument("--editable", action="store_true")
+    p.add_argument("--master", metavar="COLUMN", help="the entity's lookup column to this page's record: writes the detail filter (dependencies)")
+    p.add_argument("--add-button", action="store_true", help="a New button above the grid (crt.CreateRecordRequest, the master column preset)")
+    p.add_argument("--page", dest="entity_page", help="the page the New button opens; default <entity>_FormPage")
+    p.add_argument("--literal-captions", action="store_true", help="column captions as plain text (a probe); default: resource strings")
     p = c.command("set-value", set_value, "one property of an element; a #ResourceString(Key)# value gets its B2 entry and string", writes=True)
     p.add_argument("element")
     p.add_argument("property")
@@ -135,7 +199,7 @@ def build() -> CommandLine:
 
 
 def main(argv=None) -> int:
-    return build().run(sys.argv[1:] if argv is None else argv, lambda a: PageSchema(Path(a.package), a.page))
+    return build().run(sys.argv[1:] if argv is None else argv, lambda a: None if a.command == "new" else PageSchema(Path(a.package), a.page))
 
 
 if __name__ == "__main__":

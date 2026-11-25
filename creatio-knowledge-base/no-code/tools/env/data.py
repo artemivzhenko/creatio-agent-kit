@@ -3,7 +3,7 @@
 
     python data.py lookup-values -e <env> <Lookup> [--limit 50] [--offset 0]
     python data.py sample  -e <env> <Entity> [--filter "\\"UsrAmount\\" > 10"] [--n 3] [--columns "CreatedOn,ModifiedBy"]
-    python data.py fixture -e <env> <Entity> [--alias A] [--columns "UsrNotes,UsrStatus"]
+    python data.py fixture -e <env> <Entity> [--alias A] [--columns "UsrNotes,UsrStatus"] [--workspace <path>]
 
 `sample` reads records to look at; `fixture` prints a DSL `insert` block of the object's shape with made-up values (a lookup
 takes its first row by Name) for a backend case to paste - it writes nothing. Read-only.
@@ -37,6 +37,7 @@ def main(argv=None, **env_kw) -> int:
     fixture.add_argument("entity")
     fixture.add_argument("--alias", default="A")
     fixture.add_argument("--columns", default="", help="optional columns to set too (comma list)")
+    fixture.add_argument("--workspace", default="", help="package or workspace whose object metadata names the required columns")
     for sub in (values, sample, fixture):
         sub.add_argument("-e", "--env", help="clio environment name")
         sub.add_argument("--project", help="project.json")
@@ -48,7 +49,7 @@ def main(argv=None, **env_kw) -> int:
         elif a.command == "sample":
             print(sample_records(env, a.entity, a.filter, a.n, a.columns))
         else:
-            print(make_fixture(env, a.entity, a.alias, a.columns))
+            print(make_fixture(env, a.entity, a.alias, a.columns, a.workspace or None))
         return 0
     except (ValueError, KeyError, FileNotFoundError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)

@@ -16,6 +16,7 @@ renames a schema everywhere, `clio push-pkg` installs, and
 `clio call-service --method GET --service-path "ServiceModel/ProcessEngineService.svc/<Process>/Execute?ResultParameterName=X"`
 runs it. Verified end to end on 8.2.3: formulas, gateways with conditions, a Read data
 task, captions in several cultures, a rename that kept the schema UId.
+Read data counts rows with `ResultType` 1 / `FunctionType` 0 and the count lands in `ResultCount`; a process parameter gets it through a formula task (a direct mapping of `ResultCount` onto the parameter stayed 0 on 8.2.3): `proc.py element <pkg> <Process> count <El> --into <Param>`.
 
 To **test** a process - start it with parameters, assert its results and the records it
 touched, in a report next to the UI cases - write a process case for the UI test utility

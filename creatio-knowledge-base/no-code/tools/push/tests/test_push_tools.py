@@ -384,7 +384,7 @@ def test_dropped_dependencies_stop_the_push_unless_forced():
         root = Path(tmp)
         pkg = package(root)
         (pkg / "descriptor.json").write_bytes(b"\xef\xbb\xbf" + json.dumps({"Descriptor": {
-            "Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001", "DependsOn": [{"Name": "Base"}]}}).encode())
+            "Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001", "DependsOn": [{"UId": "00000000-0000-4000-8000-0000000000b1", "PackageVersion": "7.8.0", "Name": "Base"}]}}).encode())
         (pkg / "Files").mkdir()
         (pkg / "Files" / "UsrPkg.csproj").write_text(csproj("Terrasoft.Core"), encoding="utf-8")
         head = {"descriptor.json": "\ufeff" + descriptor("Base", "Custom"),
@@ -1184,6 +1184,234 @@ def test_resolve_task_meets_the_projects_tasks_folder():
         assert resolve_task("002-new", None, None) == Path("002-new") and resolve_task(None, None, None) is None
         (root / "project.json").write_text("{}", encoding="utf-8")
         assert resolve_task("003", None, root / "project.json") == Path("003")  # no paths.tasks: as given
+
+
+def test_without_git_foreign_files_is_skipped_and_a_cs_in_a_plain_package_warns():
+    """S46-T08 items 2 and 6: no git -> `skipped (no git; ...)` and the push goes on; Files/cs in a non-assembly package -> WARN."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        tasks = Path(tmp) / "tasks"
+        (tasks / "001-a").mkdir(parents=True)
+        (pkg / "Files" / "cs").mkdir(parents=True)
+        (pkg / "Files" / "cs" / "UsrHelper.cs").write_text("class UsrHelper { }", encoding="utf-8")
+        logs = []
+        with patch("creatio_schemas.push._git", return_value=None):
+            code = push(pkg, "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True, tasks=tasks, task=tasks / "001-a")
+        assert code == 0 and "foreign files: skipped (no git; schema_impact is the lock between tasks)" in logs, logs
+        assert "stale bin: WARN Files/cs is never compiled - not an assembly package (Type 1, ProjectPath)" in logs, logs
+
+
+def test_deps_fills_empty_entries_and_adds_from_the_site():
+    from creatio_schemas.push import fill_dependencies
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        base_uid, ui_uid = "00000000-0000-4000-8000-0000000000b1", "00000000-0000-4000-8000-0000000000b2"
+        (pkg / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrPkg", "DependsOn": [
+            {"UId": "", "PackageVersion": "", "Name": "Base"},
+            {"UId": ui_uid, "PackageVersion": "7.8.0", "Name": "Done"}]}}, indent=2), encoding="utf-8")
+        queries = []
+        rows = lambda sql: queries.append(sql) or [{"Name": "Base", "UId": base_uid, "Version": "7.8.0"},
+                                                    {"Name": "UsrUi", "UId": ui_uid, "Version": "7.9.1"}]
+        lines, found = fill_dependencies(pkg, rows, ["UsrUi", "Gone"], dry_run=True)
+        assert len(queries) == 1 and "'Done'" not in queries[0] and "'Gone'" in queries[0]
+        assert not found and json.loads((pkg / "descriptor.json").read_text())["Descriptor"]["DependsOn"][0]["UId"] == ""  # dry run
+        assert [l.split(":")[0] for l in lines] == ["filled Base", "unchanged Done", "added UsrUi", "not on the site Gone"], lines
+        lines, found = fill_dependencies(pkg, rows, ["UsrUi"])
+        deps = json.loads((pkg / "descriptor.json").read_text())["Descriptor"]["DependsOn"]
+        assert found and deps[0] == {"UId": base_uid, "PackageVersion": "7.8.0", "Name": "Base"}
+        assert deps[2] == {"UId": ui_uid, "PackageVersion": "7.9.1", "Name": "UsrUi"} and len(deps) == 3
+        assert fill_dependencies(pkg, rows)[0] == ["unchanged Base", "unchanged Done", "unchanged UsrUi"] and len(queries) == 3 - 1  # nothing to ask
+
+
+def test_an_empty_dependency_entry_stops_the_push_and_no_git_says_so():
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        desc = json.loads((pkg / "descriptor.json").read_text())
+        desc["Descriptor"]["DependsOn"] = [{"UId": "", "PackageVersion": "", "Name": "Base"}]
+        (pkg / "descriptor.json").write_text(json.dumps(desc), encoding="utf-8")
+        fake, logs = FakeClio(), []
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", fake, log=logs.append, skip_drift=True) == 1
+        assert "dependencies: FAILED Base has no UId/version - run push.py deps UsrPkg -e dev" in logs
+        assert not any(args[0] == "push-pkg" for args, _ in fake.calls)
+        desc["Descriptor"]["DependsOn"][0].update(UId="00000000-0000-4000-8000-0000000000b1", PackageVersion="7.8.0")
+        (pkg / "descriptor.json").write_text(json.dumps(desc), encoding="utf-8")
+        logs.clear()
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True) == 0
+        assert "dependencies: ok (no git: not compared)" in logs, logs
+        desc["Descriptor"]["DependsOn"][0]["PackageVersion"] = ""  # S45-T09: the site's package has no version, `deps` filled it so
+        (pkg / "descriptor.json").write_text(json.dumps(desc), encoding="utf-8")
+        logs.clear()
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True) == 0, logs
+
+
+def test_a_bare_task_name_resolves_under_tasks_even_when_the_cwd_holds_that_folder():
+    """S46-T08 item 3: the push log must not land beside the workspaces because a folder of that name exists here."""
+    from creatio_schemas.push import details_path, resolve_task
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "011-shipments").mkdir()
+        (root / "tasks").mkdir()
+        old = Path.cwd()
+        os.chdir(root)
+        try:
+            task = resolve_task("011-shipments", root / "tasks")
+            assert task == root / "tasks" / "011-shipments" and details_path(root, task).parent == task
+        finally:
+            os.chdir(old)
+
+
+def test_the_cli_push_writes_the_whole_clio_failure_to_the_details_file():
+    """S46-T08 item 5: the screen keeps the 200-character cut, the details file the whole clio output; the CLI asks for the file."""
+    long = "clio exited 1: " + "bad metadata " * 60 + "THE-END"
+
+    class Failing(FakeClio):
+        def run(self, args, cwd=None):
+            if args[0] == "push-pkg":
+                raise RuntimeError(long)
+            return super().run(args, cwd)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg, logs, details = package(Path(tmp)), [], Path(tmp) / "task" / "push.log"
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", Failing(), log=logs.append, skip_drift=True, skip_sql_dates=True, details=details) == 1
+        assert not any("THE-END" in line for line in logs) and "THE-END" in details.read_text(encoding="utf-8")
+        sys.path.insert(0, str(HERE.parent))
+        import push as cli
+        seen = {}
+        with patch.object(cli, "push", lambda *a, **k: seen.update(k) or 0), patch.object(cli, "Clio", lambda env: None):
+            assert cli.main([str(pkg), "-e", "dev"]) == 0
+        assert seen["details"].name.startswith("push-UsrPkg-"), seen
+
+
+def _fake_bin(folder: Path, version: str) -> Path:
+    folder.mkdir(parents=True)
+    (folder / "Terrasoft.Core.dll").write_bytes(b"MZ..." + "FileVersion\0".encode("utf-16-le") + f"{version}\0".encode("utf-16-le"))
+    return folder
+
+
+def test_build_finds_the_site_version_binaries_or_stops_naming_both_places():
+    """S46-T09: --bin, else paths.platformBin; the bin's Terrasoft.Core.dll version must start with environment.platformVersion."""
+    from creatio_schemas.push import site_bin
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        project = root / "project.json"
+        project.write_text(json.dumps({"environment": {"platformVersion": "8.2.3"}}), encoding="utf-8")
+        for given, where in ((None, None), (None, project)):
+            try:
+                site_bin(given, where)
+                raise AssertionError("no stop")
+            except RuntimeError as exc:
+                assert "--bin" in str(exc) and "paths.platformBin" in str(exc), exc
+        old, new = _fake_bin(root / "b823", "8.2.3.1351"), _fake_bin(root / "b832", "8.3.2.4199")
+        assert site_bin(old, project) == (old, "8.2.3.1351")
+        project.write_text(json.dumps({"environment": {"platformVersion": "8.2.3"}, "paths": {"platformBin": "b823"}}), encoding="utf-8")
+        assert site_bin(None, project) == (old, "8.2.3.1351")  # relative to project.json
+        try:
+            site_bin(new, project)
+            raise AssertionError("a wrong version passed")
+        except RuntimeError as exc:
+            assert "is 8.3.2.4199, the site is 8.2.3" in str(exc), exc
+        assert site_bin(new) == (new, "8.3.2.4199")  # no project: nothing to match
+
+
+def test_build_runs_dotnet_with_the_site_bin_and_summarises_msb3245():
+    from creatio_schemas.push import build_dll
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        try:
+            build_dll(pkg, "UsrPkg", Path(tmp) / "bin", "8.2.3.1351", run=None)
+            raise AssertionError("no csproj passed")
+        except RuntimeError as exc:
+            assert "Files/UsrPkg.csproj is missing" in str(exc) and "tests-init" in str(exc)
+        (pkg / "Files").mkdir()
+        (pkg / "Files" / "UsrPkg.csproj").write_text("<Project />", encoding="utf-8")
+        calls, details = [], []
+        warn = ('x.targets(2453,5): warning MSB3245: Could not resolve this reference. Could not locate the assembly "{0}". Check [UsrPkg.csproj]\n')
+
+        def dotnet(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, (warn.format("ErrorOr") + warn.format("ATF.Repository")) * 2, "")
+        with patch("creatio_schemas.push.shutil.which", return_value="dotnet"):
+            line = build_dll(pkg, "UsrPkg", Path(tmp) / "bin", "8.2.3.1351", detail=details.append, run=dotnet)
+        assert line == f"built against 8.2.3.1351 ({Path(tmp) / 'bin'}); 2 MSB3245 (unresolved: ATF.Repository, ErrorOr)", line
+        args = calls[0]
+        assert args[:5] == ["dotnet", "build", str(pkg / "Files" / "UsrPkg.csproj"), "-c", "Release"], args
+        assert "-p:CoreTargetFramework=net472" in args and f"-p:CoreLibPath={Path(tmp) / 'bin'}" in args and "-p:DebugType=none" in args and "-p:DefaultItemExcludes=obj/**" in args
+        assert any(a.startswith("-p:BaseIntermediateOutputPath=") and "creatio-build/UsrPkg/obj/" in a for a in args), args
+        assert len(details) == 4
+
+        def broken(args, **kwargs):
+            return subprocess.CompletedProcess(args, 1, "a.cs(3,1): error CS0246: The type 'UsrX' could not be found\n" * 2, "")
+        with patch("creatio_schemas.push.shutil.which", return_value="dotnet"):
+            try:
+                build_dll(pkg, "UsrPkg", Path(tmp) / "bin", "8.2.3.1351", detail=details.append, run=broken)
+                raise AssertionError("a failed build passed")
+            except RuntimeError as exc:
+                assert str(exc).startswith("dotnet build exit 1: a.cs(3,1): error CS0246") and "more" not in str(exc), exc
+        logs = []
+        assert build_dll(pkg, "UsrPkg", Path(tmp) / "bin", "8.2.3.1351", dry_run=True, log=logs.append, run=None) == "dry run"
+        assert logs[0].startswith("  dotnet build ")
+
+
+def test_push_build_stops_before_the_install_without_binaries_and_builds_first_with_them():
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        (pkg / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001",
+                                                                       "Type": 1}}), encoding="utf-8")
+        logs, fake = [], FakeClio()
+        with patch("creatio_schemas.push._git", return_value=None):
+            assert push(pkg, "dev", fake, log=logs.append, skip_drift=True, skip_sql_dates=True, build=True) == 1
+        assert any(l.startswith("build: FAILED no binaries for the site's version") for l in logs) and "push FAILED at build" in logs, logs
+        assert not any(a[0] == "push-pkg" for a, _ in fake.calls)
+        bin_dir = _fake_bin(Path(tmp) / "bin", "8.2.3.1351")
+        project = Path(tmp) / "project.json"  # a tasks folder and no --task: without git the ownership check skips, not stops
+        project.write_text(json.dumps({"environment": {"platformVersion": "8.2.3"}, "paths": {"tasks": "tasks", "platformBin": "bin"}}),
+                           encoding="utf-8")
+        logs, order = [], []
+        with patch("creatio_schemas.push._git", return_value=None), \
+             patch("creatio_schemas.push.build_dll", side_effect=lambda *a, **k: order.append(a[2]) or "built against 8.2.3.1351 (x)"):
+            push(pkg, "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True, build=True, project=project,
+                 skip_compile_package=True)
+        steps = [l.split(":")[0] for l in logs if not l.startswith(" ")]
+        assert order == [bin_dir] and steps.index("build") < steps.index("stale bin") and "build: built against 8.2.3.1351 (x)" in logs, logs
+        assert "foreign files: skipped (no git; schema_impact is the lock between tasks)" in logs, logs
+
+
+def test_verify_retries_the_site_sql_once_after_a_timeout():
+    """S46-T08 item 7: a first Timeout is retried and said; any other error and a second timeout still raise."""
+    from creatio_schemas.verify import verify
+
+    class Site:
+        def __init__(self, errors, rows=()):
+            self.errors, self.rows, self.calls = errors, list(rows), 0
+
+        def sql(self, text):
+            self.calls += 1
+            if self.errors:
+                raise RuntimeError(self.errors.pop(0))
+            return self.rows
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        (pkg / "Schemas" / "UsrLf").mkdir(parents=True)
+        (pkg / "Schemas" / "UsrLf" / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrLf"}}), encoding="utf-8")
+        site = Site(["sql: request Timeout"])
+        assert verify(pkg, site) == [("UsrLf", "not on the site")] and site.calls == 2
+        rows = [{"name": "UsrLf", "manager": "EntitySchemaManager", "meta": "", "content": ""}]
+        (pkg / "Schemas" / "UsrLf" / "metadata.json").write_bytes(b"")
+        import hashlib
+        rows[0]["meta"] = hashlib.md5(b"").hexdigest()
+        site = Site(["Timeout"], rows)
+        assert verify(pkg, site) == [("UsrLf", "same (sql retried once)")]
+        for errors in (["boom"], ["Timeout", "Timeout"]):
+            try:
+                verify(pkg, Site(errors))
+                raise AssertionError("no error")
+            except RuntimeError:
+                pass
 
 
 if __name__ == "__main__":

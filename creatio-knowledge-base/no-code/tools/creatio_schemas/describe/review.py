@@ -193,6 +193,10 @@ def site_clashes(workspace: Path, rel: str, notes: list[str]) -> list[str]:
     return out
 
 
+class NotGitTree(RuntimeError):
+    """The workspace is not a git work tree (S46-T08)."""
+
+
 def precommit(workspace: Path | str, notes: list[str] | None = None) -> list[str]:
     """`<path>: <reason>` for each staged file (added, copied, modified, renamed) that must not be committed: over 5 MB,
     an archive, a binary outside `packages/<P>/Files/Bin` of an assembly package, a file outside `packages/` and the
@@ -202,6 +206,12 @@ def precommit(workspace: Path | str, notes: list[str] | None = None) -> list[str
     workspace = Path(workspace).resolve()
     if not workspace.is_dir():
         raise FileNotFoundError(f"{workspace} is not a folder")
+    try:
+        _git(workspace, ["rev-parse", "--is-inside-work-tree"])
+    except RuntimeError as e:  # outside a repository `git diff` turns into `--no-index` and prints its usage text
+        if "not a git repository" in str(e):
+            raise NotGitTree(f"not a git work tree: {workspace} - the git checks are skipped") from e
+        raise
     staged = [p for p in _git(workspace, ["diff", "--cached", "--name-only", "-z", "--relative", "--diff-filter=ACMR"]).split("\0") if p]
     out = []
     allowed = allowed_settings(workspace)

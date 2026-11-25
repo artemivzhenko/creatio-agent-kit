@@ -493,6 +493,33 @@ def test_file_get_writes_the_bytes_and_prints_the_size():
         assert run_cli("file", ["get", "Usr;drop", pid, "-e", "dev", "--out", str(out_path)], settings=s, clio_run=FakeClio())[0] == 2
 
 
+def test_site_restart_polls_until_the_site_answers():
+    site = load("site")
+    e, opener = env({("GET", "/0/odata/Contact"): (200, "{}")}, clio_name="ti")
+    ran, clock = [], iter([0, 41, 42, 99])
+    ok, line = site.restart(e, 120, clio_run=ran.append, sleep=lambda s: None, clock=lambda: next(clock))
+    assert ok and line == "restarted in 41 s" and ran == [["restart-web-app", "-e", "ti"]], (line, ran)
+    e2, _ = env({}, clio_name="ti")  # never answers
+    ticks = iter(range(0, 1000, 50))
+    ok, line = site.restart(e2, 100, clio_run=lambda a: None, sleep=lambda s: None, clock=lambda: next(ticks))
+    assert not ok and line == "not up after 100 s", line
+
+
+def test_site_process_off_and_on_post_the_service_and_read_the_table_back():
+    site = load("site")
+    sid = "11111111-2222-3333-4444-555555555555"
+    for off, rows, line, good in ((True, 1, "UsrP off (SysProcessDisabled rows: 1)", True), (False, 0, "UsrP on (SysProcessDisabled rows: 0)", True),
+                                  (True, 0, "UsrP off (SysProcessDisabled rows: 0)", False)):
+        e, opener = env({("POST", "/0/ServiceModel/ProcessEngineService.svc/" + ("DisableProcess" if off else "EnableProcess")): (200, "{}")},
+                        clio_name="ti", clio_run=FakeClio([[{"Id": sid, "Package": "UsrA"}], [{"n": rows}]]))
+        ok, got = site.switch(e, "UsrP", off)
+        post = [r for r in opener.requests if r["method"] == "POST" and "ProcessEngineService" in r["path"]][-1]
+        assert got == line and ok == good and post["query"] == "sysSchemaId=" + sid, (got, post)
+    e._clio_run = FakeClio([[{"Id": sid, "Package": "UsrA"}, {"Id": sid[::-1], "Package": "UsrB"}]])
+    raises(lambda: site.switch(e, "UsrP", True), ValueError, "UsrA, UsrB")
+    raises(lambda: site.switch(e, "x'; drop", True), ValueError, "letters")
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_")]:
         fn()

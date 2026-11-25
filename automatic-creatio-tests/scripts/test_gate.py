@@ -30,3 +30,14 @@ def test_the_counts_are_per_bed():
     beds = {"bench-a": "bench", "abc-b": "test-package"}
     report = "PASS  bench-a   (1s)\nFAIL  abc-b   (1s)\nPASS  abc-c   (1s)\n"
     assert gate.bed_counts(report, beds) == "test-package: 1 passed, bench: 1 passed"
+
+
+def test_the_page_files_are_copied_and_a_page_a_bench_case_names_stays():
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        gate.copy_cases(Path(d), "Abc", set())
+        pages = Path(d) / "Configuration" / "pages"
+        assert (pages / "UsrOrderBenchForm.json").exists(), "named by a bench case: as it is"
+        assert not (pages / "AbcOrderBenchForm.json").exists()
+        assert (pages / "AbcOrderForm.json").exists() and not (pages / "UsrOrderForm.json").exists()

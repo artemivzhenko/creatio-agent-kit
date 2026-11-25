@@ -220,6 +220,16 @@ class PageSchema(Schema):
         return self._part("dataSources", "SCHEMA_MODEL_CONFIG", "SCHEMA_MODEL_CONFIG_DIFF", True)
 
     @property
+    def dependencies(self) -> dict:
+        """The detail filters: `{<data source>: [{attributePath, relationPath}]}` of the model config, `{}` when there are none."""
+        return self._part("dependencies", "SCHEMA_MODEL_CONFIG", "SCHEMA_MODEL_CONFIG_DIFF", False)
+
+    def dependencies_w(self) -> dict:
+        if "SCHEMA_MODEL_CONFIG" in self.sections:
+            return self._part("dependencies", "SCHEMA_MODEL_CONFIG", "SCHEMA_MODEL_CONFIG_DIFF", True)
+        return self._merge_values(self.section("SCHEMA_MODEL_CONFIG_DIFF").value, [], True).setdefault("dependencies", {})  # the designer's root merge
+
+    @property
     def primary(self) -> str:
         """Name of the primary data source: `primaryDataSourceName` where the body states it, else PDS,
         else the one data source of page scope (designer-made pages name it after the object)."""
@@ -352,26 +362,36 @@ class PageSchema(Schema):
         return op
 
     def add_grid(self, name: str, entity: str, columns: list[str], parent: str = DEFAULT_GRID_PARENT,
-                 rows: int = 6, editable: bool = False) -> dict:
-        """A list of another object's records: the grid, its collection attribute and its data source."""
+                 rows: int = 6, editable: bool = False, master: str | None = None, add_button: bool = False,
+                 entity_page: str | None = None, literal_captions: bool = False) -> dict:
+        """A list of another object's records: the grid, its collection attribute and its data source.
+        `master` (a lookup column of `entity` to this page's record) writes the designer's detail filter; `add_button` a New button
+        above the grid; captions are resource strings (`#ResourceString(<Grid>DS_<Col>)#`) unless `literal_captions`."""
         if self.has(name):
             raise KeyError(f"{self.name} already has an element {name}")
         known = self.workspace.columns(entity)
-        missing = [c for c in columns if c not in known]
+        missing = [c for c in columns + ([master] if master else []) if c not in known]
         if missing:
             raise KeyError(f"{entity} has no column {', '.join(missing)}")
         ds = f"{name}DS"
         captions = self._captions_of(entity)
+        row = self._next_row(parent)
+        if add_button:
+            self.view_config_diff.append(self._add_button(f"{name}AddButton", entity, entity_page, master, parent, row))
+            row += 1
+        if not literal_captions:
+            for c in columns:
+                self.ensure_resource_string(f"{ds}_{c}", captions.get(c, c))
         op = {
             "operation": "insert",
             "name": name,
             "values": {
                 "type": "crt.DataGrid",
-                "columns": [{"id": new_uid(), "code": f"{ds}_{c}", "caption": captions.get(c, c),
+                "columns": [{"id": new_uid(), "code": f"{ds}_{c}", "caption": captions.get(c, c) if literal_captions else f"#ResourceString({ds}_{c})#",
                              "dataValueType": DVT_CODE.get(known[c][0], 1), "width": 200} for c in columns],
                 "items": f"${name}",
                 "primaryColumnName": f"{ds}_Id",
-                "layoutConfig": {"column": 1, "row": self._next_row(parent), "colSpan": 2, "rowSpan": rows},
+                "layoutConfig": {"column": 1, "row": row, "colSpan": 2, "rowSpan": rows},
                 "features": {"editable": {"enable": editable}, "rows": {"selection": {"enable": True, "multiple": True}}},
                 "visible": True,
             },
@@ -391,7 +411,33 @@ class PageSchema(Schema):
             "scope": "viewElement",
             "config": {"entitySchemaName": entity, "attributes": {c: {"path": c} for c in columns}},
         }
+        if master:
+            self.dependencies_w().setdefault(ds, []).append({"attributePath": master, "relationPath": f"{self.primary}.Id"})
         return op
+
+    def _add_button(self, name: str, entity: str, entity_page: str | None, master: str | None, parent: str, row: int) -> dict:
+        """The designer's New button of a detail: creates a record of `entity`, the master column set to this record's Id."""
+        key = f"{name}_Caption"
+        self.ensure_resource_string(key, "New")
+        params = {"entityName": entity, "entityPageName": entity_page or f"{entity}_FormPage"}
+        if master:
+            params["defaultValues"] = [{"attributeName": master, "value": "$Id"}]
+        return {
+            "operation": "insert",
+            "name": name,
+            "values": {
+                "type": "crt.Button",
+                "caption": f"#ResourceString({key})#",
+                "icon": "add-button-icon",
+                "color": "default",
+                "clickMode": "default",
+                "layoutConfig": {"column": 1, "row": row, "colSpan": 1, "rowSpan": 1},
+                "clicked": {"request": "crt.CreateRecordRequest", "params": params},
+            },
+            "parentName": parent,
+            "propertyName": "items",
+            "index": len(self._siblings(parent)),
+        }
 
     # -- resource strings as element values (#ResourceString(Key)#) ---------------- #
 
@@ -436,6 +482,8 @@ class PageSchema(Schema):
 
     def set_value(self, element: str, prop: str, value, text: str | None = None, culture: str | None = None) -> None:
         """Set one property of an element's `values`; a `#ResourceString(Key)#` value gets its string written with it."""
+        if isinstance(value, str):  # the command line gives strings: true / false / digits are JSON values
+            value = {"true": True, "false": False}.get(value, int(value) if value.isdigit() else value)
         values = self.element(element).setdefault("values", {})
         values[prop] = value
         if isinstance(value, str):

@@ -279,6 +279,7 @@ Every class in `Files/cs` with a branch gets a test in `tests/<Package>/` (the p
 
 - In a script task, call configuration classes by full name, `Terrasoft.Configuration.UsrOrderHelper`: the usings are the process's own (CS0103 otherwise).
 - `Terrasoft.Core.Configuration.SysSettings.GetValue` by full name next to `using Terrasoft.Configuration` (it has an entity named `SysSettings`).
+- `StoringObjectState` is in `Terrasoft.Core.Configuration`: a listener that tests `entity.StoringState == StoringObjectState.New` needs that `using` (CS0103 with only `Terrasoft.Core` and `Terrasoft.Common`).
 - A lookup is set by its value column: `entity.SetColumnValue("UsrStatusId", id)`; the bare name saves nothing.
 - One static `HttpClient` per integration: its timeout and headers are shared by every call - set them where it is built and say so there.
 - A queue table has an attempts counter with a maximum and a terminal state for an error no retry fixes (a recipient that cannot be matched); an in-memory queue dies with the application, so a Quartz worker over it de-duplicates by a key and a time window.

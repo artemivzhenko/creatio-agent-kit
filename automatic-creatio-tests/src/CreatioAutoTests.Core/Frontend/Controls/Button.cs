@@ -9,9 +9,11 @@ namespace CreatioAutoTests.Frontend.Controls;
 /// rather than a hard-coded type enum, so a project can describe its own buttons in configuration.
 /// </summary>
 [UiElement("Button", HostTag = "crt-button", Options = typeof(ButtonOptions))]
-public sealed class Button : FreedomElementBase, IClickable, IUploadable
+public sealed class Button : FreedomElementBase, IRefusable, IUploadable
 {
     private const string NotificationSelector = "output[data-qa=\"notificationPopup\"].crt-notify-message";
+
+    private const string ValidationSelector = "mat-error, .mat-mdc-form-field-error, [role=\"alert\"], [class*=\"validation-message\"], [class*=\"error-message\"]";
 
     private readonly ButtonOptions _options;
 
@@ -56,6 +58,52 @@ public sealed class Button : FreedomElementBase, IClickable, IUploadable
         }
 
         await CompleteSaveAsync(target, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>click X expect error "text"</c>: the click without the save wait, then the page's refusal read from the three places a
+    /// Freedom UI page shows one - the message under a control, the error toast, a dialog.
+    /// </summary>
+    public async Task<string> ClickReadingRefusalAsync(string expected, CancellationToken cancellationToken = default)
+    {
+        if (!await ExistsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw NotFound();
+        }
+
+        await EnsureEnabledAsync().ConfigureAwait(false);
+        var target = await ResolveClickTargetAsync().ConfigureAwait(false);
+        await target.ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
+
+        var until = DateTime.UtcNow.AddMilliseconds(Math.Min(_options.DisappearTimeoutMs, 8000));
+        var shown = string.Empty;
+        while (true)
+        {
+            shown = await ReadRefusalAsync().ConfigureAwait(false);
+            if (shown.Contains(expected, StringComparison.OrdinalIgnoreCase) || DateTime.UtcNow >= until)
+            {
+                return shown;
+            }
+
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> ReadRefusalAsync()
+    {
+        var parts = new List<string>();
+        try
+        {
+            parts.AddRange(await Page.Locator(ValidationSelector).AllInnerTextsAsync().ConfigureAwait(false));
+            parts.AddRange(await Page.Locator(NotificationSelector).AllInnerTextsAsync().ConfigureAwait(false));
+        }
+        catch (PlaywrightException)
+        {
+            // the page is moving: the next poll reads again
+        }
+
+        parts.AddRange((await DialogProbe.ReadAsync(Page).ConfigureAwait(false)).Select(d => d.Text));
+        return string.Join(" | ", parts.Select(p => p.Trim()).Where(p => p.Length > 0).Distinct());
     }
 
     /// <summary>

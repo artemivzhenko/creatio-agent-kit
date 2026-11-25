@@ -124,7 +124,7 @@ transfer:
   `area="ClassicUI"`.
 - C# → **Backend**. Search with `area="Backend"`.
 
-**Where new C# goes** (`get_code_style("architecture")`, 3.7): plain files in
+**Where new C# goes** (`get_code_style("3.7")`): plain files in
 `<Package>/Files/cs/` of an assembly package (`"Type": 1`, `"ProjectPath"` in the package
 descriptor). Only an API the platform exposes - a configuration web service
 (`ServiceModel/<Name>.svc`, `BaseService`) - is a source code schema in

@@ -20,8 +20,10 @@ python push.py <package> -e <environment>          push and check
 python push.py <package> -e <environment> --probe  also run probes
 python push.py <package> -e <environment> --dry-run print commands only
 python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
+python push.py <package> -e <environment> --build [--project <project.json>]  first build Files/Bin/<Pkg>.dll against the site version's bin
 python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
 python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
+python push.py deps <package> -e <environment> [--add <Package>[,<Package>]] [--dry-run]  fill DependsOn UId/version from the site's SysPackage
 ```
 <!-- commands:end -->
 
@@ -55,6 +57,19 @@ rolled back). Without git and without a site answer the step says `not checked (
 (the folder's time moves) - or no dll at all while sources exist stops the push with the file and the minutes: `push-pkg`
 installs that dll as it is, and the site keeps running the old classes (seen: a deleted probe service still answered).
 Build the package and push again; `--skip-stale-bin` (MCP `skip_stale_bin`) passes on purpose and the step says so.
+**`--build`** (S46-T09) does that build as a step before `stale bin`: `dotnet build Files/<Pkg>.csproj -c Release
+-p:CoreTargetFramework=net472 -p:CoreLibPath=<bin> -p:DebugType=none` with obj in temp, so the package gets the dll only;
+the step answers `build: built against <version> (<bin>); 2 MSB3245 (unresolved: ATF.Repository, ErrorOr)` (the template's
+`Libs` references, left out of the package). `<bin>` is `--bin`, else `paths.platformBin` of `--project`; its
+`Terrasoft.Core.dll` version must start with the project's `environment.platformVersion`, and no bin, or another version, stops
+the push at `build` naming both places (the decision: `project/README.md`). The script compile check then uses the same bin.
+The unit tests (`dotnet test` of `tests-init`'s command) rebuild the dll against the local test binaries: push with `--build`.
+A package that is not an assembly package but whose `Files/cs` holds `.cs` files answers `stale bin: WARN Files/cs is never
+compiled - not an assembly package (Type 1, ProjectPath)` (a warning, not a stop). Without git the `foreign files` step answers
+`skipped (no git; schema_impact is the lock between tasks)` and the push goes on (with or without `--task`); with git it still stops on another task's files.
+The CLI writes the whole log to `push-<Pkg>-<time>.log` (the task folder, else temp) and prints the summary and `details: <file>`.
+
+**DependsOn from the site** (S46-T04): `push.py deps <package> -e <env> [--add A,B] [--dry-run]` reads `SysPackage` once and fills every entry with an empty `UId` or `PackageVersion` and adds the `--add` names (one line each: `filled`, `added`, `unchanged`, `not on the site` - exit 1). The push's `dependencies` step stops on such an entry (`<Name> has no UId/version - run push.py deps`) and says `ok (no git: not compared)` without git.
 
 **One page without the install** (S44-T03): `push.py page <package> <Page> -e <env> [--dry-run] [--force]` (MCP
 `push_package(page=...)`) saves that Freedom UI page's body from the working copy with clio `update-page` - replace mode, into

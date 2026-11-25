@@ -343,6 +343,10 @@ def test_a_page_task_lists_its_buttons_and_the_flow_each_leads_to():
         assert "buttons:" not in describe_item(tmp / "UsrPkg", "UsrDeleteOldLogs_Process", "element TerminateEvent1")
         from creatio_schemas import ProcessSchema
         assert "SequenceFlow2: DeleteDataUserTask1 -> TerminateEvent1 when button UsrSaveButton" in ProcessSchema(tmp / "UsrPkg", "UsrDeleteOldLogs_Process").describe()  # proc.py inspect
+        # the designer's own GV2 form (S45-T09): "$type" beside the element key, each list wrapped in "$values"
+        flow["GV2"] = json.dumps({"$type": "Dictionary", "b0000000-0000-4000-8000-000000000004": {"$type": "Collection", "$values": [save]}})
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        assert "UsrSaveButton  'Save it'  -> SequenceFlow2 to TerminateEvent1" in describe_item(tmp / "UsrPkg", "UsrDeleteOldLogs_Process", "element DeleteDataUserTask1")
     finally:
         shutil.rmtree(tmp.parent, ignore_errors=True)
 
@@ -3277,6 +3281,30 @@ def test_a_commented_block_in_a_page_and_a_binding_without_rows_do_not_break_the
             assert str(e).startswith(str(blocker)) and "the index folder cannot be opened" in str(e) and "junction or symlink" in str(e), e
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_a_site_pass_with_zero_columns_is_a_pass_and_scaffold_says_no_duplicate():
+    """S46-T08 item 4: the pass is the stored row with its date, not the column count."""
+    import tempfile
+    from creatio_schemas.describe.index import index_path
+    from creatio_schemas.describe.site import NO_PASS, column_clash, pass_date, schema_clash, site_pass
+
+    root = Path(tempfile.mkdtemp())
+    try:
+        pkg = root / "packages" / "UsrPkg"
+        pkg.mkdir(parents=True)
+        assert schema_clash(pkg, "UsrNew") == ("note", NO_PASS)
+        site_pass(index_path(pkg), None, "dev", {}, {}, set())  # nothing beyond the workspace: env is never asked
+        assert schema_clash(pkg, "UsrNew") is None  # a pass: no clash, no NO_PASS note
+        assert column_clash(pkg, "UsrOrder", "UsrArea") is None
+        sys.path.insert(0, str(TOOLS / "scaffold"))
+        import scaffold
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            assert scaffold.stopped(pkg, ["UsrNew"], False) is False
+        assert err.getvalue().strip() == f"site pass of {pass_date(index_path(pkg))}: no duplicate", err.getvalue()
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

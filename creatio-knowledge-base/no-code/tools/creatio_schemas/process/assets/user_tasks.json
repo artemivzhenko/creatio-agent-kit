@@ -7450,7 +7450,8 @@
      "direction": null,
      "default": {},
      "refSchemaUId": null,
-     "refSchemaName": null
+     "refSchemaName": null,
+     "result": true
     },
     {
      "name": "Url",
@@ -8539,7 +8540,8 @@
      "direction": null,
      "default": {},
      "refSchemaUId": null,
-     "refSchemaName": null
+     "refSchemaName": null,
+     "result": true
     },
     {
      "name": "OwnerId",

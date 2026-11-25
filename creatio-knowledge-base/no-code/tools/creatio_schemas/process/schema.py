@@ -72,7 +72,9 @@ def _flow_buttons(flow: dict) -> list[str]:
     """The button UIds in a flow's `GV2`: `{"<completion parameter UId>": ["<button UId>", ...]}`."""
     raw = flow.get("GV2")
     found = json.loads(raw) if isinstance(raw, str) and raw.startswith("{") else raw
-    return [u for v in (found.values() if isinstance(found, dict) else []) for u in v]
+    # the designer's form carries "$type" and wraps each list as {"$type": ..., "$values": [...]} (S45-T09)
+    lists = [v.get("$values", []) if isinstance(v, dict) else v for k, v in (found.items() if isinstance(found, dict) else []) if k != "$type"]
+    return [u for v in lists for u in v]
 
 
 def _disagree(value: dict | None, mapping: dict | None) -> bool:
@@ -380,7 +382,7 @@ class ProcessSchema(Schema):
     def set_entity(self, element: dict, entity: str) -> None:
         """Point a data element (read/add/modify/delete) or a record-signal start at an entity (name from the workspace, or UId)."""
         uid = self.workspace.uid_of(entity, "EntitySchemaManager")
-        name = "" if is_uid(entity) else entity
+        name = (self.workspace.name_of(entity) or "") if is_uid(entity) else entity  # L16 (the schema name) is needed by the run
         if short_type(element) == "ProcessSchemaStartSignalEvent":
             element["FC2"] = uid
             element["DZ13"] = self.empty_filter(name)

@@ -749,7 +749,7 @@ def test_test_data_tools_answer_from_the_database():
         assert server.sample_records("dev", "UsrOrder", filter="1=1; drop table x") == "error: filter must be one where fragment: no ';'"
         fixture = server.make_fixture("dev", "UsrOrder")
         assert fixture == ("# UsrStatus = Draft (the first UsrOrderStatus by Name)\n"
-                           f"insert UsrOrder as A set UsrStatus={status}\n# the end of the case: delete what the block inserted, newest first\ndelete UsrOrder $A\ncolumns: 1 required, 1 lookups resolved, 0 references inserted"), fixture
+                           f"insert UsrOrder as A set UsrStatus={status}\n# the end of the case: delete what the block inserted, newest first\ndelete UsrOrder $A\ncolumns: 1 required (database), 1 lookups resolved, 0 references inserted"), fixture
         assert server.lookup_values("dev", "OrderStatus").startswith('error: no table "OrderStatus" on the site; UsrOrderStatus exists')
 
 
@@ -801,13 +801,13 @@ def test_role_profiles_register_their_tools_only():
     everything, err, first = _profile_run(None)
     assert len(everything) > 60 and not err.strip() and first == f"profile: all ({len(everything)} tools)", first
     assert set().union(*server.PROFILES.values()) <= everything, "a profile names a tool the server does not define"
-    for role in ("author", "tester"):
+    for role in ("dev", "tester"):
         names, err, first = _profile_run(role)
         assert names == server.PROFILES[role], (role, names ^ server.PROFILES[role])
         assert first == f"profile: {role} ({len(names)} of {len(everything)} tools)", first
         assert {"report_gap", "tool_stats", "get_recipe", "env_sql"} <= names and not {"ci_deploy", "merge_run"} & names, role
-    assert "push_package" not in server.PROFILES["tester"] and "fire_timer" not in server.PROFILES["author"]
-    assert "push_package" in server.PROFILES["author"] and "fire_timer" in server.PROFILES["tester"]
+    assert "push_package" not in server.PROFILES["tester"] and "fire_timer" not in server.PROFILES["dev"]
+    assert "push_package" in server.PROFILES["dev"] and "fire_timer" in server.PROFILES["tester"]
     names, err, first = _profile_run("Reviewer")
     assert names == everything and "unknown CREATIO_KB_ROLE 'reviewer'" in err and first.startswith("profile: all"), err
     names, _, first = _profile_run(" Tester ")
@@ -835,6 +835,27 @@ def test_a_tool_that_raises_answers_an_error_line_and_is_logged():
         assert tool_stats.summarise([], [], errors).endswith("\n" + tool_stats.errors_line(errors)) and tool_stats.summarise([], []) == "(no tool calls logged)\ngaps: 0"
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_precommit_check_outside_git_answers_one_line_and_the_push_log_follows_tasks():
+    """S46-T08 items 1 and 3."""
+    with tempfile.TemporaryDirectory() as tmp:
+        answer = server.precommit_check(tmp)
+        assert answer.startswith("not a git work tree: ") and answer.endswith(" - the git checks are skipped") and len(answer.splitlines()) == 1, answer
+        pkg = Path(tmp) / "UsrPkg"
+        pkg.mkdir()
+        (pkg / "descriptor.json").write_text('{"Descriptor": {"Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001"}}', encoding="utf-8")
+        (Path(tmp) / "011-shipments").mkdir()
+        (Path(tmp) / "tasks" / "011-shipments").mkdir(parents=True)
+        old = Path.cwd()
+        os.chdir(tmp)
+        try:
+            with patch.object(push_module, "Clio", return_value=FakeClio()), patch.object(push_module, "_git", return_value=None):
+                output = server.push_package(str(pkg), "dev", tasks=str(Path(tmp) / "tasks"), task="011-shipments", skip_drift=True, skip_sql_dates=True)
+        finally:
+            os.chdir(old)
+        details = Path(next(line for line in output.splitlines() if line.startswith("details: "))[len("details: "):])
+        assert details.parent == Path(tmp) / "tasks" / "011-shipments", details
 
 
 if __name__ == "__main__":

@@ -52,8 +52,14 @@ def bed_counts(report: str, beds: dict[str, str]) -> str:
     return ", ".join(f"{b}: {n} passed" for b, n in passed.items())
 
 
+def bench_pages(text: str) -> set[str]:
+    """The pages a case's `open` / `on` lines name."""
+    return set(re.findall(r"^\s*(?:open|on)\s+(\w+)", text, re.M))
+
+
 def copy_cases(live_root: Path, prefix: str | None, skip: set[str], beds: dict[str, str] | None = None) -> int:
     n = 0
+    bench: set[str] = set()
     for folder in ("Cases", "ProcessCases"):
         target = live_root / folder
         target.mkdir(parents=True, exist_ok=True)
@@ -67,6 +73,8 @@ def copy_cases(live_root: Path, prefix: str | None, skip: set[str], beds: dict[s
             bed = bed_of(text)
             if prefix and bed == "test-package":
                 text, name = mapped(text, prefix), mapped(name, prefix)
+            if bed == "bench":
+                bench |= bench_pages(text)
             if beds is not None:
                 beds[Path(name).stem] = bed
             (target / name).write_text(text, encoding="utf-8")
@@ -79,6 +87,13 @@ def copy_cases(live_root: Path, prefix: str | None, skip: set[str], beds: dict[s
                 (live_root / folder / mapped(src.name, prefix)).write_text(mapped(src.read_text(encoding="utf-8"), prefix), encoding="utf-8")
             else:
                 (live_root / folder / src.name).write_bytes(src.read_bytes())
+    # the page files: mapped like a test-package case, except the pages a bench case names
+    for src in sorted((HERE / "Configuration/pages").glob("*.json")):
+        (live_root / "Configuration/pages").mkdir(parents=True, exist_ok=True)
+        if prefix and src.stem not in bench:
+            (live_root / "Configuration/pages" / mapped(src.name, prefix)).write_text(mapped(src.read_text(encoding="utf-8"), prefix), encoding="utf-8")
+        else:
+            (live_root / "Configuration/pages" / src.name).write_bytes(src.read_bytes())
     return n
 
 

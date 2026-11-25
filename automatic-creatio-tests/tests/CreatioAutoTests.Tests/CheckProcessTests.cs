@@ -105,6 +105,24 @@ public sealed class CheckProcessTests
     }
 
     [Test]
+    public async Task The_run_the_case_started_counts_whenever_it_began()
+    {
+        string? filter = null;
+        var session = Site(_ => One());
+        session.LastProcess = new CreatioAutoTests.Session.ProcessRunResult("UsrOrder_Process", Run, true, null, new Dictionary<string, string>());
+        var inner = session.OnQuery!;
+        var spy = new FakeExecutionSession
+        {
+            Settings = session.Settings, LastProcess = session.LastProcess,
+            OnQuery = (e, s, f, t) => { if (e == "SysProcessLog" && !f.StartsWith("StartDate ge 2000")) filter = f; return inner(e, s, f, t); },
+        };
+
+        await Execute("check-process UsrOrder_Process started", spy);
+
+        Assert.That(filter, Does.EndWith("(StartDate ge 2026-11-21T08:00:00.000Z or Id eq " + Run + ")"));
+    }
+
+    [Test]
     public async Task A_step_completes_by_its_caption_case_blind()
     {
         var steps = new[] { Row(("Caption", "Status"), ("CompleteDate", "2026-11-21T08:01:00Z"), ("ErrorDescription", "")) };

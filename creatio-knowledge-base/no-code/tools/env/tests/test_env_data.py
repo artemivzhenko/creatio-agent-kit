@@ -156,7 +156,7 @@ def test_make_fixture_prints_the_insert_block_with_a_lookup_a_reference_and_a_ch
         "# UsrStatus = Draft (the first UsrOrderStatus by Name)",
         f"insert UsrOrder as A set UsrName=UsrName A;UsrAmount=1;UsrDue={today};UsrStatus={DRAFT};UsrContact=$UsrContact;UsrNotes=UsrNotes A",
         "# the end of the case: delete what the block inserted, newest first", "delete UsrOrder $A", "delete Contact $UsrContact",
-        "columns: 5 required, 1 lookups resolved, 1 references inserted"], text
+        "columns: 5 required (database), 1 lookups resolved, 1 references inserted"], text
     assert "UsrDone" not in text  # NOT NULL with a default: the site fills it
     assert not any(s.lstrip().lower().startswith(("insert", "update", "delete")) for s in e.statements)  # it only reads
     short = testdata.make_fixture(fixture_env(), "UsrOrder", alias="B")
@@ -175,8 +175,42 @@ def test_make_fixture_edge_cases():
                  "with recursive up": []})
     assert testdata.make_fixture(e, "UsrTree").splitlines() == ["# UsrParent: set by hand, UsrTree needs UsrTree",
                                                                     "# insert UsrTree as A: no column a sample can be written to - set by hand",
-                                                                    "columns: 1 required, 0 lookups resolved, 0 references inserted"]  # nothing inserted, nothing to delete
+                                                                    "columns: 1 required (database), 0 lookups resolved, 0 references inserted"]  # nothing inserted, nothing to delete
     raises(lambda: testdata.make_fixture(e, "UsrTree", alias="$A"), ValueError, "must be a name")
+
+
+def workspace_with_order(required_in_metadata=True):
+    """A one-package workspace whose UsrOrder marks UsrName, UsrNumber (text) and UsrStatus (lookup) required; the table keeps them nullable."""
+    import json
+    import tempfile
+    pkg = Path(tempfile.mkdtemp()) / "packages" / "UsrPkg"
+    schema = pkg / "Schemas" / "UsrOrder"
+    schema.mkdir(parents=True)
+    (pkg / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": "7d1af160-6bd7-46aa-9884-deb78ed6a6df", "Name": "UsrPkg"}}), encoding="utf-8")
+    (schema / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": "6f5a53ad-3796-4386-b381-2730e76d3a4a", "Name": "UsrOrder", "ManagerName": "EntitySchemaManager",
+                                                                       "Parent": {"UId": "1bab9dcf-17d5-49f8-9536-8e0064f1dce0", "Name": "BaseEntity"}}}), encoding="utf-8")
+    req = {"E2": 1} if required_in_metadata else {}
+    cols = [{"UId": f"00000000-0000-0000-0000-00000000000{i}", "A2": n, "S2": "x", **req, **s} for i, (n, s) in enumerate(
+        (("UsrName", {}), ("UsrNumber", {}), ("UsrStatus", {"S4": "9" * 8 + "-0000-0000-0000-000000000000"}), ("UsrNotes", {"E2": 0})), 1)]
+    (schema / "metadata.json").write_text(json.dumps({"MetaData": {"Schema": {"UId": "6f5a53ad-3796-4386-b381-2730e76d3a4a", "A2": "UsrOrder", "D2": cols}}}), encoding="utf-8")
+    return pkg.parent.parent
+
+
+def test_make_fixture_takes_the_required_columns_from_the_workspace_metadata():
+    nullable = SYSTEM_COLUMNS + [col("UsrName", length="50"), col("UsrNumber", length="50"), col("UsrStatusId", "uuid"), col("UsrNotes"), col("UsrAmount", "numeric")]
+    e = FakeEnv({table("UsrOrder"): nullable, fk("UsrOrder"): [{"table": "UsrOrder", "column": "UsrStatusId", "ref_table": "UsrOrderStatus"}],
+                 "with recursive up": [{"table": "UsrOrderStatus"}], 'from "UsrOrderStatus" order by "Name", "Id" limit 1': [{"Id": DRAFT, "Name": "Draft"}]})
+    ws = workspace_with_order()
+    text = testdata.make_fixture(e, "UsrOrder", workspace=str(ws))
+    assert f"insert UsrOrder as A set UsrName=UsrName A;UsrNumber=UsrNumber A;UsrStatus={DRAFT}" in text and "UsrNotes" not in text, text
+    assert text.splitlines()[-1] == "columns: 3 required (workspace), 1 lookups resolved, 0 references inserted", text
+    assert testdata.make_fixture(e, "UsrOrder", workspace=str(workspace_with_order(False))).splitlines()[-1].startswith("columns: 0 required (workspace)")
+    plain = testdata.make_fixture(e, "UsrOrder")  # no workspace: the database rule, as before
+    assert plain.splitlines()[-1].startswith("columns: 0 required (database)") and "UsrNumber" not in plain
+    other = testdata.make_fixture(e, "UsrOrder", workspace=str(ws / "packages"))  # a folder of packages works too
+    assert "(workspace)" in other
+    e.answers['from "UsrOrderStatus" order by "Name", "Id" limit 1'] = []
+    assert "# UsrStatus: no rows - insert one first (UsrOrderStatus is empty)" in testdata.make_fixture(e, "UsrOrder", workspace=str(ws))
 
 
 def test_data_cli():

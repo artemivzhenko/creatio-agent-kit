@@ -546,6 +546,58 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         _logger.LogDebug("Navigated to {Page} through {Hash}.", page.Name, url[at..]);
     }
 
+    // The application's own route to a task page (the communication panel's task list does the same): the element's execution data is
+    // read from ProcessEngineService.GetExecutionData and the page opens over the current one. The page has no address of its own.
+    private const string OpenProcessPageScript =
+        "id => new Promise((resolve, reject) => require(['@creatio-devkit/common'], sdk => sdk.HandlerChainService.instance" +
+        ".process({ type: 'crt.OpenProcessPageRequest', processElementUId: id, $context: null }).then(resolve, reject), reject))";
+
+    /// <summary>Opens the page of the newest waiting element of the newest running run of the process since the case began (S45-T09).</summary>
+    public async Task OpenProcessTaskAsync(string process, string pageName, CancellationToken cancellationToken = default)
+    {
+        if (_currentUser is null)
+        {
+            throw new InvalidOperationException("No user is selected; 'use' must run before a page is opened.");
+        }
+
+        var since = CaseStartedUtc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        var deadline = DateTime.UtcNow.AddMilliseconds(Settings.PageCheckTimeoutMs);
+        string? element = null;
+        while (element is null)
+        {
+            var runs = await QueryRecordsAsync("SysProcessLog", new[] { "Id", "CompleteDate" },
+                "SysSchema/Name eq '" + process + "' and StartDate ge " + since, 50, cancellationToken).ConfigureAwait(false);
+            var running = runs.Where(r => !Commands.CheckProcessCommand.Done(r["CompleteDate"])).Select(r => "SysProcess/Id eq " + r["Id"]).ToArray();
+            if (running.Length > 0)
+            {
+                var waiting = await QueryRecordsAsync("SysProcessElementLog", new[] { "Id", "CompleteDate", "StartDate" },
+                    string.Join(" or ", running), 200, cancellationToken).ConfigureAwait(false);
+                element = waiting.Where(e => !Commands.CheckProcessCommand.Done(e["CompleteDate"])).OrderByDescending(e => e["StartDate"], StringComparer.Ordinal)
+                    .Select(e => e["Id"]).FirstOrDefault();
+            }
+
+            if (element is null)
+            {
+                if (DateTime.UtcNow > deadline)
+                {
+                    throw new CommandFailedException("no running task of " + process + " started since " + since + " (" + runs.Count + " run(s), none waiting on a page).");
+                }
+
+                await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (_page is null)
+        {
+            await NavigateAsync("/0/Shell/", cancellationToken).ConfigureAwait(false);
+        }
+
+        await RequirePage().EvaluateAsync(OpenProcessPageScript, element).ConfigureAwait(false);
+        ActiveTabCode = null;
+        _logger.LogDebug("Opened the task {Element} of {Process}.", element, process);
+        await AdoptPageAsync(pageName, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Opens an unconfigured raw path for analysis and leaves no configured current page bound.</summary>
     public async Task NavigateAsync(string path, CancellationToken cancellationToken = default)
     {

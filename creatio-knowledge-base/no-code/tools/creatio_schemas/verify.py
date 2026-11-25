@@ -75,7 +75,14 @@ def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | N
         folders = [d for d in folders if d.name.lower() in wanted]
     from .workspace import Package
 
-    site = {r["name"]: r for r in env.sql(SITE_SQL.format(package=quote(Package(package).name)))}
+    sql, retried = SITE_SQL.format(package=quote(Package(package).name)), ""
+    try:
+        rows = env.sql(sql)
+    except (RuntimeError, OSError) as e:  # right after a long push the site's SQL answers a timeout once
+        if "timeout" not in str(e).lower() and "timed out" not in str(e).lower():
+            raise
+        rows, retried = env.sql(sql), " (sql retried once)"
+    site = {r["name"]: r for r in rows}
     scripts = set(script_processes(package))
     out = []
     for d in folders:
@@ -103,7 +110,7 @@ def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | N
                 status = "not served: conf/content has no such file"
             elif _normal(body.read_bytes().decode("utf-8-sig", errors="replace")) not in _normal(text):
                 status = "not served: conf/content holds another body (the site's client cache is older)"
-        out.append((name, status))
+        out.append((name, status + retried if status.startswith("same") else status))
     return out
 
 

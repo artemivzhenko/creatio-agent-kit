@@ -38,7 +38,10 @@ def _has_filter(pg: PageSchema, attr: dict) -> bool:
     mc = attr.get("modelConfig") or {}
     if any(mc.get(k) for k in FILTER_KEYS) or mc.get("filterAttributes"):
         return True
-    ds = pg.data_sources.get((mc.get("path") or "").split(".")[0]) or {}
+    ds_name = (mc.get("path") or "").split(".")[0]
+    if pg.dependencies.get(ds_name):
+        return True
+    ds = pg.data_sources.get(ds_name) or {}
     return any((ds.get("config") or {}).get(k) for k in FILTER_KEYS)
 
 
@@ -87,7 +90,7 @@ def audit(pg: PageSchema, show_all: bool = False, t: dict | None = None) -> list
         if ds_name == pg.primary or ds.get("scope") == "page":  # the page's own list, not a detail of a record
             continue
         entity = (ds.get("config") or {}).get("entitySchemaName", "?")
-        put(not _has_filter(pg, attr), f"grid {op['name']} ({entity}): no master filter")
+        put(not _has_filter(pg, attr), f"grid {op['name']} ({entity}): no master filter (accepted: a `dependencies` entry of its data source in modelConfigDiff, `filterAttributes` or a filter on its attribute, a `filter` / `PredefinedFilter` on its data source)")
 
     deep = 0
     for k, a in pg.attributes.items():

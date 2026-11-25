@@ -38,6 +38,11 @@ public sealed class FakeExecutionSession : IExecutionSession
         return Task.CompletedTask;
     }
     public Task NavigateAsync(string path, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task OpenProcessTaskAsync(string process, string pageName, CancellationToken cancellationToken = default)
+    {
+        Navigations.Add("process-task " + process + " on " + pageName);
+        return Task.CompletedTask;
+    }
 
     /// <summary>Tab calls in order: "new", "new as second", "switch 1".</summary>
     public List<string> TabCalls { get; } = new();

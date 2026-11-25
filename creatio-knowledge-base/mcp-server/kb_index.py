@@ -527,11 +527,12 @@ class KnowledgeBase:
         text = path.read_text(encoding="utf-8")
         if not section.strip():
             return text
-        chunks = re.split(r"(?m)^(?=## )", text)
         key = section.strip().lower().rstrip(".")
+        level = "###" if re.fullmatch(r"\d+\.\d+", key) else "##"  # "3.8" is one sub-section; "3" or words a section
+        chunks = re.split(rf"(?m)^(?={level} )", text)
         for chunk in chunks:
             heading = chunk.split("\n", 1)[0].lower()
-            if heading.startswith("## ") and (heading.startswith(f"## {key}.") or key in heading):
+            if heading.startswith(f"{level} ") and (heading.startswith(f"{level} {key}.") or heading.startswith(f"{level} {key} ") or key in heading):
                 return chunk.strip()
         return ""
 

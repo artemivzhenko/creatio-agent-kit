@@ -33,7 +33,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas.classicui import ClassicSchema  # noqa: E402
 from creatio_schemas.classicui.write import MODULE_BASE_UID  # noqa: E402
 from creatio_schemas.cli import CommandLine  # noqa: E402
-from creatio_schemas.describe.site import schema_clash, site_says  # noqa: E402
+from creatio_schemas.describe.index import index_path  # noqa: E402
+from creatio_schemas.describe.site import pass_date, schema_clash, site_says  # noqa: E402
 from creatio_schemas.data import DataBinding  # noqa: E402
 from creatio_schemas.entity import EntitySchema  # noqa: E402
 from creatio_schemas.files import CRLF, dump_json, new_uid, read_text, write_text  # noqa: E402
@@ -149,9 +150,17 @@ def changed_files(scratch: Path, package: Path) -> dict[Path, Path]:
     return out
 
 
+# the package that holds PageWithTabsFreedomTemplate and ListPageV2Template (F-7 saw it on 8.2.3)
+TEMPLATES_PACKAGE = "CrtUIPlatform"
+
+
 def stopped(package: Path, names: list[str], force: bool) -> bool:
     """What the last `index --env` pass says about each new schema name (S31-T12); True when one is on the site."""
-    return any([site_says(schema_clash(package, n), force) for n in names])  # a list: every name prints its line
+    found = any([site_says(schema_clash(package, n), force) for n in names])  # a list: every name prints its line
+    day = pass_date(index_path(package))
+    if day and not found:
+        print(f"site pass of {day}: no duplicate", file=sys.stderr)
+    return found
 
 
 def entity(_, a) -> int:
@@ -180,6 +189,9 @@ def entity(_, a) -> int:
     finally:
         shutil.rmtree(scratch.parent.parent, ignore_errors=True)
     print("\n".join(f"  {m}" for m in made))
+    if a.pages and TEMPLATES_PACKAGE not in {d["Name"] for d in Descriptor(package / "descriptor.json").data.get("DependsOn") or []}:
+        print(f"warning: the page templates live in {TEMPLATES_PACKAGE}, not a dependency of {package.name}: "
+              f"push.py deps {package.name} -e <env> --add {TEMPLATES_PACKAGE}", file=sys.stderr)
     print(f"{len(files)} file(s) " + ("would be written (dry run: nothing written)" if a.dry_run else f"written to {package.name}"))
     return 0
 

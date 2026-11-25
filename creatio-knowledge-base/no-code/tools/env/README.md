@@ -1,5 +1,5 @@
 ---
-description: Creatio environment tools - one Python client (Environment) for a site - login with cookies and BPMCSRF, OData 4 CRUD, service calls with the WCF fault page reduced to one line, RunProcess with result parameters, SQL through clio as JSON rows - and ten command lines - record.py (which table holds an Id, a record with its lookups named and its details), data.py (a lookup's rows, sample records with lookups named, a synthetic DSL insert block for a case), roles.py (role members, a user's roles and a diff - nested roles included), setting.py (a setting across environments and bindings), sql.py (rows as JSON or CSV, statements split, [ERR] is exit 1), call.py (status + JSON), proc-run.py (the result parameters and the run's SysProcessLog row), proc-runs.py (the runs of a process or around a record's changes, one run's error without stack frames), unit.py (the in-Creatio tests of a project, the integration tier) and api.py (members and overloads of a platform type by reflection over a local bin folder).
+description: Creatio environment tools - one Python client (Environment) for a site - login with cookies and BPMCSRF, OData 4 CRUD, service calls with the WCF fault page reduced to one line, RunProcess with result parameters, SQL through clio as JSON rows - and eleven command lines - site.py (restart, a process off or on), record.py (which table holds an Id, a record with its lookups named and its details), data.py (a lookup's rows, sample records with lookups named, a synthetic DSL insert block for a case), roles.py (role members, a user's roles and a diff - nested roles included), setting.py (a setting across environments and bindings), sql.py (rows as JSON or CSV, statements split, [ERR] is exit 1), call.py (status + JSON), proc-run.py (the result parameters and the run's SysProcessLog row), proc-runs.py (the runs of a process or around a record's changes, one run's error without stack frames), unit.py (the in-Creatio tests of a project, the integration tier) and api.py (members and overloads of a platform type by reflection over a local bin folder).
 ---
 
 # Environment tools: SQL, service calls, processes, in-Creatio tests, platform API signatures
@@ -11,6 +11,7 @@ them. Pure Python standard library (`api.py` also needs Windows PowerShell).
 | --- | --- |
 | `sql.py` | SQL through clio: rows as JSON (default) or `--csv`, one statement per clio call; a statement that is not select / with / show / explain needs `--write` and prints `affected: N` |
 | `call.py` | `GET`/`POST`/`PATCH`/`PUT`/`DELETE` a site path with login and CSRF: status, then JSON or the fault; `--upload <file>` sends a file (multipart, or base64 in `--field`) |
+| `site.py` | `restart` the site (clio restart-web-app, then waits until it answers); `process-off` / `process-on` a process by name through the Process Library's service, read back from `SysProcessDisabled` |
 | `file.py` | `get <FileSchema> <Id> --out <path>`: a file record's bytes from the site through SQL; prints `path: N bytes, type` |
 | `proc-run.py` | start a process, print its result parameters and its `SysProcessLog` row; exit 1 unless completed |
 | `proc-runs.py` | `runs` of a process (`--steps`: the elements of each run), or around the changes of a record; `timers` pending; `fire` one early (dev only); `error` of one run without stack frames |
@@ -60,6 +61,14 @@ python call.py -e <env> POST rest/UsrOrderService/Recalc --file body.json
 python call.py -e <env> GET odata/Contact?$top=1
 python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf
 python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf --field content '{"kind": "invoice"}'
+```
+
+### env site
+
+```
+python site.py -e <env> restart [--wait 120]         prints "restarted in <n> s" or "not up after <wait> s" (exit 1); a restart is site-wide
+python site.py -e <env> process-off <ProcessName>    DisableProcess; prints "<Process> off (SysProcessDisabled rows: n)"
+python site.py -e <env> process-on <ProcessName>     EnableProcess
 ```
 
 ### env proc-run
@@ -114,7 +123,7 @@ python file.py get <FileSchema> <Id> -e <env> --out <path>
 ```
 python data.py lookup-values -e <env> <Lookup> [--limit 50] [--offset 0]
 python data.py sample  -e <env> <Entity> [--filter "\"UsrAmount\" > 10"] [--n 3] [--columns "CreatedOn,ModifiedBy"]
-python data.py fixture -e <env> <Entity> [--alias A] [--columns "UsrNotes,UsrStatus"]
+python data.py fixture -e <env> <Entity> [--alias A] [--columns "UsrNotes,UsrStatus"] [--workspace <path>]
 ```
 
 | command | what it does |
@@ -192,15 +201,14 @@ timeline component's quick-filter initialisation.
   lookup as `Name (<id>)` or `<id> (no row)`; system columns only when `--columns` names them; the filter is one `where`
   fragment, no `;`, no writing word. The values are for looking: a case takes its record from `fixture`.
 - `fixture`: `insert <Entity> as <alias> set ...` with made-up values - the required columns (NOT NULL without a
-  default) and `--columns`; with nothing required, the caption (`Name`, else the first own text column); text
+  default, plus with `--workspace` the ones the object's metadata marks required: Creatio keeps those nullable) and `--columns`; with nothing required, the caption (`Name`, else the first own text column); text
   `<Column> <alias>`, numbers `1`, dates today, booleans `false`; a lookup takes its first row by Name (the Name in a `#`
   line above); a reference to another object gets its own `insert` above, bound as `$<Column>`, one level deep; then the
   `delete` lines for the case's end, newest first (a `# writes` case must delete what it inserts). Ends with
-  `columns: K required, L lookups resolved, M references inserted`.
+  `columns: K required (workspace|database), L lookups resolved, M references inserted`; a lookup with no rows is a `# <Col>: no rows - insert one first` line.
 
-A column the site requires beyond the database - a schema requirement, a server-side validator (the insert fails with
-"<column> field must be filled in") - is named in `--columns`: neither is readable from the site (most `SysSchema`
-layers are not JSON, OData `$metadata` does not flag a required lookup). `--columns` applies to the object itself, not
+Without `--workspace` a column the site requires beyond the database (a schema requirement, a server-side validator: the
+insert fails with "<column> field must be filled in") is named in `--columns`; the site's `SysSchema` is not readable for it. `--columns` applies to the object itself, not
 to a referenced object inserted above; run `fixture` for that one.
 
 ## A site's manifest and its features (MCP only: `env_diff`, `set_feature`)

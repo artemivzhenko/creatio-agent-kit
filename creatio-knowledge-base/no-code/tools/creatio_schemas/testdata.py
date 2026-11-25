@@ -183,29 +183,48 @@ def _value(column: dict, alias: str) -> str | None:
     return None
 
 
-def make_fixture(env, entity: str, alias: str = "A", columns: str = "") -> str:
+def _workspace_required(workspace, entity: str) -> set[str] | None:
+    """The table columns the workspace's metadata of the object marks required (the describe layer's `[required]` flag; a lookup
+    column is `<Name>Id` in the table); None when no workspace is given or it holds no such object."""
+    if not workspace:
+        return None
+    from .describe.index import packages_of
+    from .entity.catalog import column_flags
+    from .entity.schema import EntitySchema
+
+    held = [p for p in packages_of(workspace) if (p / "Schemas" / entity / "descriptor.json").is_file()]
+    if not held:
+        return None
+    schemas = sorted((EntitySchema(p, entity) for p in held), key=lambda s: s.replacing)  # the owning package first
+    return {c["A2"] + ("Id" if c.get("S4") else "") for c in schemas[0].columns() if "required" in column_flags(c)}
+
+
+def make_fixture(env, entity: str, alias: str = "A", columns: str = "", workspace: str | None = None) -> str:
     """A DSL block that inserts a synthetic record of the object: its required columns (NOT NULL without a default) and the
     ones `columns` names; a lookup takes the first row by Name; a reference to another object gets its own `insert` above,
-    one level deep; then the `delete` lines for the case's end, newest first. Nothing is written to the site."""
+    one level deep; then the `delete` lines for the case's end, newest first. With `workspace` (a package or a clio workspace)
+    the columns the object's metadata marks required count too - Creatio keeps them nullable in the table. Nothing is written."""
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", alias or ""):
         raise ValueError(f"alias {alias!r} must be a name (letters, digits, underscore)")
-    stats = {"required": 0, "lookups": 0, "refs": 0, "inserted": []}
+    stats = {"required": 0, "source": "database", "lookups": 0, "refs": 0, "inserted": []}
     above: list[str] = []
-    main = _insert(env, entity, alias, _wanted(columns), None, above, stats)
+    main = _insert(env, entity, alias, _wanted(columns), None, above, stats, workspace)
     # a `# writes` case must delete what it inserts (the validator refuses an insert without `delete` or `keep`): newest first
     ends = [f"delete {e} ${a}" for e, a in reversed(stats["inserted"])]
     return "\n".join(above + main + (["# the end of the case: delete what the block inserted, newest first"] + ends if ends else [])
-                     + [f"columns: {stats['required']} required, {stats['lookups']} lookups resolved, {stats['refs']} references inserted"])
+                     + [f"columns: {stats['required']} required ({stats['source']}), {stats['lookups']} lookups resolved, {stats['refs']} references inserted"])
 
 
-def _insert(env, entity: str, alias: str, wanted: set[str], parent: str | None, above: list[str], stats: dict) -> list[str]:
+def _insert(env, entity: str, alias: str, wanted: set[str], parent: str | None, above: list[str], stats: dict, workspace=None) -> list[str]:
     cols = _columns_or_hint(env, entity)
     refs = {f["column"]: f["ref_table"] for f in foreign_keys(env, entity)}
-    # shortcut: required = NOT NULL without a default in the database; the schema's RequirementType is not read (most SysSchema
-    # layers keep MetaData in the old text form, not JSON), so a column the object marks required is named in `columns`
-    required = [c for c in cols if c["column"] != "Id" and c["column"] not in SYSTEM and c["nullable"].upper() == "NO" and c.get("default") is None]
+    # required = NOT NULL without a default in the database, plus what the workspace's metadata marks required (the table keeps those nullable)
+    marked = _workspace_required(workspace, entity)
+    required = [c for c in cols if c["column"] != "Id" and c["column"] not in SYSTEM
+                and ((c["nullable"].upper() == "NO" and c.get("default") is None) or c["column"] in (marked or ()))]
     if parent is None:
         stats["required"] = len(required)
+        stats["source"] = "workspace" if marked is not None else "database"
     chosen = list(required)
     if not required:  # nothing required: the caption still makes the record readable - Name, else the first own text column
         texts = [c for c in cols if c["column"] not in SYSTEM and c["column"] not in refs and c["type"] in ("character varying", "text")]
@@ -221,7 +240,7 @@ def _insert(env, entity: str, alias: str, wanted: set[str], parent: str | None, 
             if ref in lookups:
                 first = env.sql(f'select "Id", "Name" from "{ident(ref)}" order by "Name", "Id" limit 1')
                 if not first:
-                    notes.append(f"# {short}: {ref} has no row - add one or set by hand")
+                    notes.append(f"# {short}: no rows - insert one first ({ref} is empty)")
                     continue
                 pairs.append(f"{short}={first[0]['Id']}")
                 notes.append(f"# {short} = {first[0]['Name']} (the first {ref} by Name)")

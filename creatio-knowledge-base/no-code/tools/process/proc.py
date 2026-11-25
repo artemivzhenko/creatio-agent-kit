@@ -16,6 +16,7 @@ Inspect and change business processes stored in a package (library: ../creatio_s
     python proc.py element   <package> <Process> values <Name> Column=value .. [--expr]     Add / Modify data: the columns it writes
     python proc.py element   <package> <Process> map <Name> Param=value .. [--expr]        sub-process: the called process's parameters
     python proc.py element   <package> <Process> filter <Name> "<Column> = {Parameter:X}; <Column> is not null"   Read / Modify / Delete data
+    python proc.py element   <package> <Process> count <Name> [--into <IntegerParam>]   Read data: count the records, ResultCount into a parameter (a formula task)
     python proc.py flow      <package> <Process> add <Src> <Dst> [--condition "{Parameter:X} > 0"] [--name ..] [--caption ..]
     python proc.py flow      <package> <Process> remove <Name> | condition <Name> "<expr>"
     python proc.py script    <package> <Process> get <Element> [--out file] | set <Element> --file body.cs
@@ -125,6 +126,25 @@ def element_set(proc, a):
         proc.set_value(el, k, v, a.expr)
 
 
+def element_count(proc, a):
+    el = proc.element(a.name)
+    names = {p["A2"] for p in proc.element_params(el)}
+    if not {"ResultType", "FunctionType", "ResultCount"} <= names:
+        raise ValueError(f"{a.name} is not a Read data task: count needs ResultType, FunctionType and ResultCount")
+    proc.set_value(el, "ResultType", 1)
+    proc.set_value(el, "FunctionType", 0)
+    line = f"{a.name}: ResultType=1 (Function), FunctionType=0 (Count)"
+    if a.into:  # an element's output is not mapped in L8 (run: the parameter stayed 0); a formula task carries it over
+        if not any(p["A2"] == a.into for p in proc.params):
+            proc.add_param(a.into, "Integer")
+        out = [f for f in proc.flows() if f.get("CI1") == el["UId"]]
+        nxt = next((e["A2"] for e in proc.elements if len(out) == 1 and e["UId"] == out[0]["CI2"]), None)
+        proc.add_element("formula", a.name + "Into", "", a.name, nxt)
+        proc.set_formula(a.name + "Into", "{Element:" + a.name + ".Parameter:ResultCount}", a.into)
+        line += f", formula {a.name}Into: ResultCount -> {a.into}"
+    print(line)
+
+
 def script_get(proc, a):
     body = proc.get_script(a.element)
     if a.out:
@@ -200,6 +220,9 @@ def build() -> CommandLine:
     p.add_argument("name")
     p.add_argument("values", nargs="+", metavar="Param=value")
     p.add_argument("--expr", action="store_true")
+    p = c("count", element_count, "Read data: count the records (ResultType 1, FunctionType 0); --into copies ResultCount to a process parameter by a formula task", True, g)
+    p.add_argument("name")
+    p.add_argument("--into", help="the Integer process parameter that receives ResultCount (created when missing)")
     p = c("values", lambda proc, a: proc.set_record_values(proc.element(a.name), parse_assignments(a.values), a.expr),
           "Add / Modify data: column values (constants typed by the column, or {Parameter:X} expressions)", True, g)
     p.add_argument("name")

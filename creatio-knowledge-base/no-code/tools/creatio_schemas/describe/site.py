@@ -143,6 +143,8 @@ def site_pass(db: Path, env, env_name: str, objects: dict[str, tuple[str, set[st
         con.executemany("insert into site_columns (env, at, package_of_object, object, name, type, package, caption, missing) "
                         "values (?, ?, ?, ?, ?, ?, ?, ?, ?)", out_rows)
         con.executemany("insert into site_schemas (env, at, name, uid, kind, package, caption) values (?, ?, ?, ?, ?, ?, ?)", site_only)
+        if not out_rows and not site_only:  # the pass is the row with its date: an empty pass keeps one (no object, matches no query)
+            con.execute("insert into site_columns (env, at, missing) values (?, ?, 0)", (env_name, at))
         con.commit()
     finally:
         con.close()
@@ -214,8 +216,10 @@ def schema_hits(query, name: str) -> list[str]:
 NO_PASS = "no site pass yet - run index --env <name>"
 
 
-def _has_pass(db: Path) -> bool:
-    return bool(_query(db, "select 1 from site_columns union all select 1 from site_schemas limit 1"))
+def pass_date(db: Path) -> str | None:
+    """The date of the newest stored pass, None when there is none."""
+    day = _query(db, "select max(at) from (select at from site_columns union all select at from site_schemas)")
+    return day[0][0][:10] if day and day[0][0] else None
 
 
 def column_clash(package: Path, obj: str, name: str) -> tuple[str, str] | None:
@@ -223,7 +227,8 @@ def column_clash(package: Path, obj: str, name: str) -> tuple[str, str] | None:
     from .index import index_path
 
     db = index_path(Path(package))
-    if not _has_pass(db):
+    day = pass_date(db)
+    if day is None:
         return "note", NO_PASS
     for env, at, n, typ, pkg, caption, missing in columns_of(db, obj):
         if missing or n is None or n.lower() != name.lower():
@@ -253,7 +258,8 @@ def schema_clash(package: Path, name: str) -> tuple[str, str] | None:
     from .index import index_path
 
     db = index_path(Path(package))
-    if not _has_pass(db):
+    day = pass_date(db)
+    if day is None:
         return "note", NO_PASS
     hit = _query(db, "select env, at, kind, package from site_schemas where name = :n collate nocase limit 1", n=name)
     if hit:

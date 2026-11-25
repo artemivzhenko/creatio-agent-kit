@@ -88,7 +88,7 @@ def test_add_grid_and_remove():
     # the fixture's grid was written by hand (S11-T01); the tool must reproduce it
     hand = json.loads(json.dumps(page.element("UsrOrderList")))
     page.remove("UsrOrderList")
-    op = page.add_grid("UsrOrderList", "UsrOrder", ["UsrName", "UsrQuantity"])
+    op = page.add_grid("UsrOrderList", "UsrOrder", ["UsrName", "UsrQuantity"], literal_captions=True)
     for item in (hand, op):
         for c in item["values"]["columns"]:
             c.pop("id")
@@ -250,9 +250,23 @@ def test_page_file_labels_types_and_template_elements():
     data, notes = page.page_file()
     shown = {e["code"]: e for e in data["elements"]}
     assert shown["UsrAccount"]["conditional"] is True and not any("UsrAccount" in n for n in notes)
-    page.descriptor.set("Parent", {"UId": "00000000-0000-0000-0000-000000000001", "Name": "BaseMiniPageTemplate"})
+    page.descriptor.set("Parent", {"UId": "00000000-0000-0000-0000-000000000001", "Name": "UsrUnknownTemplate"})
     data, notes = page.page_file()
-    assert "CloseButton" not in {e["code"] for e in data["elements"]} and any("BaseMiniPageTemplate" in n for n in notes)
+    assert "CloseButton" not in {e["code"] for e in data["elements"]} and any("UsrUnknownTemplate" in n for n in notes)
+    page.descriptor.set("Parent", {"UId": "ecdcc8ff-272c-4957-9381-7d74ce17e140", "Name": "BaseMiniPageTemplate"})  # S45-T09: a pre-configured page
+    data, notes = page.page_file()
+    assert {"SaveButton", "CancelButton"} <= {e["code"] for e in data["elements"]} and not any("not known" in n for n in notes)
+
+
+def test_from_schema_lists_the_form_templates_save_and_cancel_buttons():
+    from creatio_schemas.page import compare_page_files
+    data, _ = PageSchema(FIXTURES, "UsrOrder_FormPage").page_file()
+    got = {e["code"]: e for e in data["elements"]}
+    assert got["SaveButton"] == {"code": "SaveButton", "label": "Save", "type": "Button", "pinned": True, "isSave": True}
+    assert got["CancelButton"]["label"] == "Cancel" and got["CancelButton"]["pinned"] is True
+    with_buttons = {"elements": [got["SaveButton"], got["CancelButton"]]}
+    assert [l for l in compare_page_files(with_buttons, data) if "Button" in l and "only in the file" in l] == []
+    assert any("only in the file: SaveButton" in l for l in compare_page_files(with_buttons, {"elements": []}))
 
 
 def test_from_schema_command():
@@ -326,14 +340,72 @@ def test_audit_prints_the_findings_over_a_threshold_and_exits_1():
         rc, lines = _audit(pkg, "UsrOrder_FormPage")
         assert rc == 1
         assert "elements 91 on tab UsrBigTab" in lines
-        assert "grid UsrLines (UsrLine): no master filter" in lines
+        assert "grid UsrLines (UsrLine): no master filter" in " ".join(lines) and "dependencies" in " ".join(lines)
         assert "attribute UsrDeep: path PDS.Account.Owner.Contact.Name (3 joins)" in lines
         assert "attributes through 2+ joins: 1" in lines
         assert lines[-1] == "UsrOrder_FormPage: 4 finding(s)"
         page = PageSchema(pkg, "UsrOrder_FormPage")  # a filter on the collection attribute clears the grid line
         page.attributes_w()["UsrLines"]["modelConfig"]["filterAttributes"] = [{"loadOnChange": True, "name": "UsrLinesDS_Filter"}]
         page.save()
-        assert "grid UsrLines (UsrLine): no master filter" not in _audit(pkg, "UsrOrder_FormPage")[1]
+        assert "no master filter" not in " ".join(_audit(pkg, "UsrOrder_FormPage")[1])
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_add_grid_master_filter_button_and_resource_captions():
+    pkg = copy()
+    try:
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        page.add_grid("UsrLines", "UsrOrder", ["UsrName", "UsrQuantity"], master="UsrManager", add_button=True)
+        page.save()
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        assert page.dependencies == {"UsrLinesDS": [{"attributePath": "UsrManager", "relationPath": "PDS.Id"}]}
+        assert "no master filter" not in " ".join(_audit(pkg, "UsrOrder_FormPage")[1])
+        btn, grid = page.element("UsrLinesAddButton")["values"], page.element("UsrLines")
+        assert btn["clicked"] == {"request": "crt.CreateRecordRequest", "params": {
+            "entityName": "UsrOrder", "entityPageName": "UsrOrder_FormPage",
+            "defaultValues": [{"attributeName": "UsrManager", "value": "$Id"}]}}
+        assert btn["icon"] == "add-button-icon" and btn["clickMode"] == "default"
+        assert btn["layoutConfig"]["row"] + 1 == grid["values"]["layoutConfig"]["row"]
+        ops = page.view_config_diff
+        assert ops.index(page.element("UsrLinesAddButton")) < ops.index(grid)
+        cols = grid["values"]["columns"]
+        assert cols[0]["caption"] == "#ResourceString(UsrLinesDS_UsrName)#"
+        assert page.resources.get("LocalizableStrings.UsrLinesDS_UsrName.Value", "en-US") == "Name"
+        assert "UsrLinesDS_UsrName" in page.own_string_keys() and "UsrLinesAddButton_Caption" in page.own_string_keys()
+        assert not page.validate() or not [p for p in page.validate() if "ResourceString" in p]
+        lit = PageSchema(pkg, "UsrTests_FormPage")
+        lit.add_grid("UsrLit", "UsrOrder", ["UsrName"], literal_captions=True)
+        assert lit.element("UsrLit")["values"]["columns"][0]["caption"] == "Name" and not lit.dependencies
+        try:
+            page.add_grid("UsrBad", "UsrOrder", ["UsrName"], master="UsrNope")
+            raise AssertionError("an unknown master column must be refused")
+        except KeyError as e:
+            assert "UsrNope" in str(e)
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_add_grid_command_warns_without_master_and_set_value_writes_json_types():
+    import contextlib
+    import io
+    pkg = copy()
+    try:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["add-grid", str(pkg), "UsrOrder_FormPage", "UsrLines", "--entity", "UsrOrder", "--columns", "UsrName"]) == 0
+        assert "warning: no --master: the grid lists every row of UsrOrder" in out.getvalue()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["add-grid", str(pkg), "UsrOrder_FormPage", "UsrLines2", "--entity", "UsrOrder", "--columns", "UsrName",
+                         "--master", "UsrManager", "--add-button", "--page", "UsrOther_FormPage"]) == 0
+        assert "warning" not in out.getvalue()
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        assert page.element("UsrLines2AddButton")["values"]["clicked"]["params"]["entityPageName"] == "UsrOther_FormPage"
+        for value, expected in (("true", True), ("false", False), ("42", 42), ("Caption", "Caption")):
+            page.set_value("UsrLines", "probe", value)
+            got = page.element("UsrLines")["values"]["probe"]
+            assert got == expected and type(got) is type(expected), value
     finally:
         shutil.rmtree(pkg.parent, ignore_errors=True)
 
@@ -382,6 +454,35 @@ def test_a_resource_string_value_gets_its_metadata_entry_and_its_string():
         res._metadata = res._metadata.replace("UsrLinkCaption", "UsrOnlyEntry")  # an entry without its string
         res.body += " #ResourceString(UsrOnlyEntry)#"
         assert any("UsrOnlyEntry" in p and "no LocalizableStrings" in p for p in res.validate())
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_new_makes_a_page_for_an_existing_object_and_refuses_an_existing_one():
+    import contextlib
+    import io
+    pkg = copy()
+    try:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["new", str(pkg), "UsrOrderNew_FormPage", "--entity", "UsrOrder", "--fields", "UsrName,UsrAmount", "--dry-run"]) == 0
+        assert "(dry run" in out.getvalue() and not (pkg / "Schemas" / "UsrOrderNew_FormPage").exists()
+        with contextlib.redirect_stdout(out):
+            assert main(["new", str(pkg), "UsrOrderNew_FormPage", "--entity", "UsrOrder", "--fields", "UsrName,UsrAmount"]) == 0
+            assert main(["validate", str(pkg), "UsrOrderNew_FormPage"]) == 0
+        page = PageSchema(pkg, "UsrOrderNew_FormPage")
+        assert page.validate() == [] and page.entity == "UsrOrder"
+        assert [n for n in ("UsrName", "UsrAmount") if page.has(n)] == ["UsrName", "UsrAmount"]
+        assert {"UsrName", "UsrAmount"} <= {a.get("modelConfig", {}).get("path", "").split(".")[-1] for a in page.attributes.values()}
+        assert page.resources.get("Caption") == "Order form"  # the object's caption + " form"
+        before = read(pkg / "Schemas" / "UsrOrderNew_FormPage" / "UsrOrderNew_FormPage.js")
+        with contextlib.redirect_stderr(err):
+            assert main(["new", str(pkg), "UsrOrderNew_FormPage", "--entity", "UsrOrder"]) == 2
+        assert "error: UsrOrderNew_FormPage exists" in err.getvalue()
+        assert read(pkg / "Schemas" / "UsrOrderNew_FormPage" / "UsrOrderNew_FormPage.js") == before
+        with contextlib.redirect_stdout(out):  # no --fields: every own column
+            assert main(["new", str(pkg), "UsrOrderAll_FormPage", "--entity", "UsrOrder"]) == 0
+        assert PageSchema(pkg, "UsrOrderAll_FormPage").has("UsrWeight")
     finally:
         shutil.rmtree(pkg.parent, ignore_errors=True)
 

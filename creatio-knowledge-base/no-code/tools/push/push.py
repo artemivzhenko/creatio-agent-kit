@@ -6,8 +6,10 @@ Push a package to an environment: clear IsChanged, push-pkg, check compilation, 
     python push.py <package> -e <environment> --probe  also run probes
     python push.py <package> -e <environment> --dry-run print commands only
     python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
+    python push.py <package> -e <environment> --build [--project <project.json>]  first build Files/Bin/<Pkg>.dll against the site version's bin
     python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
     python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
+    python push.py deps <package> -e <environment> [--add <Package>[,<Package>]] [--dry-run]  fill DependsOn UId/version from the site's SysPackage
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas import Clio  # noqa: E402
 from creatio_schemas.cli import resolve_package  # noqa: E402
-from creatio_schemas.push import push, resolve_task  # noqa: E402
+from creatio_schemas.push import details_path, fill_dependencies, push, resolve_task  # noqa: E402
 
 
 def verify_main(argv: list[str]) -> int:
@@ -42,6 +44,26 @@ def verify_main(argv: list[str]) -> int:
         return 2
     print(render(results))
     return 1 if any(not s.startswith("same") for _, s in results) else 0
+
+
+def deps_main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="push.py deps", description="Fill the package descriptor's DependsOn from the site: an entry with "
+                                "an empty UId or PackageVersion, and every --add package not listed yet, get UId and version from "
+                                "SysPackage. One line per entry; exit 1 when a name is not on the site.")
+    p.add_argument("package")
+    p.add_argument("-e", "--env", required=True, help="clio environment name")
+    p.add_argument("--add", default="", help="package name(s) to add to DependsOn, comma separated")
+    p.add_argument("--project", type=Path)
+    p.add_argument("--dry-run", action="store_true", help="print the entries, write nothing")
+    args = p.parse_args(argv)
+    try:
+        lines, found = fill_dependencies(resolve_package(args.package, args.project), Clio(args.env).execute_sql_rows,
+                                         [n.strip() for n in args.add.split(",") if n.strip()], args.dry_run)
+    except (FileNotFoundError, KeyError, ValueError, RuntimeError, OSError) as e:
+        print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+        return 2
+    print("\n".join(lines))
+    return 0 if found else 1
 
 
 def page_main(argv: list[str]) -> int:
@@ -75,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["verify"]:
         return verify_main(argv[1:])
+    if argv[:1] == ["deps"]:
+        return deps_main(argv[1:])
     if argv[:1] == ["page"]:
         return page_main(argv[1:])
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -98,14 +122,20 @@ def main(argv: list[str] | None = None) -> int:
                         "row references them")
     p.add_argument("--bin", type=Path, help="Creatio assemblies for the script compile check; default $CREATIO_BIN, then the "
                                             "TestCoreLibPath of the workspace's tests/Directory.Build.props")
+    p.add_argument("--build", action="store_true", help="before the stale-bin step build Files/Bin/<Pkg>.dll (dotnet build, Release, "
+                   "net472) against the site version's binaries: --bin, else paths.platformBin of --project; the bin's "
+                   "Terrasoft.Core.dll version must match the project's environment.platformVersion")
     args = p.parse_args(argv)
 
     try:
-        return push(resolve_package(args.package, args.project), args.env, Clio(args.env), args.probe, args.dry_run,
-                    project=args.project, tasks=args.tasks, task=resolve_task(args.task, args.tasks, args.project), force=args.force, baseline=args.baseline,
+        package, task = resolve_package(args.package, args.project), resolve_task(args.task, args.tasks, args.project)
+        # the whole log (a cut clio failure in full) goes to a file; the screen keeps the summary and `details: <file>`
+        details = {} if args.dry_run else {"details": details_path(package, task)}
+        return push(package, args.env, Clio(args.env), args.probe, args.dry_run, **details,
+                    project=args.project, tasks=args.tasks, task=task, force=args.force, baseline=args.baseline,
                     skip_drift=args.skip_drift, skip_foreign_files=args.skip_foreign_files,
                     skip_sql_dates=args.skip_sql_dates, skip_compile_package=args.skip_compile_package, bin_dir=args.bin,
-                    allow_removed=args.allow_removed.split(","), skip_stale_bin=args.skip_stale_bin)
+                    allow_removed=args.allow_removed.split(","), skip_stale_bin=args.skip_stale_bin, build=args.build)
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2

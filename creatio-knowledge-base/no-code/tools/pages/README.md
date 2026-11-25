@@ -19,6 +19,10 @@ and the UI test utility's `analyse` found all 18 controls with the expected elem
 (Text, Integer, Decimal, Boolean, Date, Time, DateTime, Lookup, RichText, Phone, Email, Link,
 DataGrid). Two pages read from the package render back byte-for-byte.
 
+## A page for an object that exists
+
+`pages.py new <package> <Page> --entity <Object> [--fields A,B] [--caption ..] [--template form|list]` writes the template page and one field per column (default: every own column of the object), validated in a scratch copy first; an existing page is refused, `--dry-run` lists the files.
+
 ## A resource string as an element value
 
 `pages.py set-value <package> <Page> <Element> <Property> <Value> [--text "..."] [--culture en-US]` sets one property of an
@@ -31,6 +35,15 @@ cultures get no key, so `resources.py missing` lists them. A new key without `--
 key), and one with a `B2` entry but no string. A reference with neither is left alone: grid-column captions and the parent page's
 strings use the same syntax and need no entry of the page's own.
 
+## A detail grid as the designer writes it
+
+`add-grid ... --master <Column>` adds the designer's detail filter to `modelConfigDiff` (`dependencies: {<Grid>DS: [{attributePath: <Column>,
+relationPath: PDS.Id}]}`); without it the command warns `no --master: the grid lists every row of <Entity>`. `--add-button` inserts a
+`<Grid>AddButton` (`crt.Button`, caption a resource string) above the grid whose click is `crt.CreateRecordRequest` for `<Entity>_FormPage`
+(or `--page`), with the master column preset to `$Id`. Column captions are resource strings `#ResourceString(<Grid>DS_<Column>)#` with their
+B2 entries (clio `validate-page` refuses literal captions); `--literal-captions` keeps plain text for a probe. `set-value` turns `true` / `false`
+into JSON booleans and digits into numbers.
+
 ## Audit
 
 `pages.py audit <package> <Page> [--all]` (MCP `page_audit`) prints one line per finding and ends with
@@ -40,7 +53,7 @@ strings use the same syntax and need no entry of the page's own.
 | Line | Printed when |
 | --- | --- |
 | `elements <n> on tab <Tab>` | over 80 elements under one `crt.TabContainer` (nearest tab ancestor) |
-| `grid <Name> (<Entity>): no master filter` | a detail grid (data source not the page's own) whose attribute or data source has no `filter` / `PredefinedFilter` / `filterAttributes` |
+| `grid <Name> (<Entity>): no master filter` | a detail grid (data source not the page's own) whose attribute or data source has no `filter` / `PredefinedFilter` / `filterAttributes`, and its data source is not under `dependencies` of a `modelConfigDiff` merge |
 | `attribute <Name>: path <P> (<k> joins)` | 3 joins or more (segments between the data source and the column); `attributes through 2+ joins: <n>` follows |
 | `comboboxes <n>` | over 25 |
 | `page rules <n> (<d> disabled)` | over 20, or any disabled (the page's `*BusinessRule` addon in the workspace) |
@@ -54,9 +67,12 @@ strings use the same syntax and need no entry of the page's own.
 
 <!-- commands:start -->
 ```
+python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list]
+                          [--cultures en-US,ru-RU] [--dry-run]
 python pages.py inspect   <package> <Page>
 python pages.py add-field <package> <Page> <Column> [--parent SideAreaProfileContainer] [--row N] [--col N] [--span N]
 python pages.py add-grid  <package> <Page> <Name> --entity UsrOrder --columns UsrName,UsrAmount [--parent GeneralInfoTabContainer] [--rows 6] [--editable]
+                          [--master UsrOrder] [--add-button] [--page UsrOrderItem_FormPage] [--literal-captions]
 python pages.py set-value <package> <Page> <Element> <Property> <Value> [--text "Caption"] [--culture en-US]
 python pages.py remove    <package> <Page> <Element>
 python pages.py validate  <package> <Page>
@@ -66,6 +82,7 @@ python pages.py from-schema <package> <Page> [--name UsrOrderForm] [--out Config
 
 | command | what it does |
 | --- | --- |
+| `new` | a form or list page for an object that exists |
 | `inspect` | elements, attributes, data sources and problems |
 | `validate` | problems; exit code 1 on errors |
 | `add-field` | a field bound to a column of the page's object |

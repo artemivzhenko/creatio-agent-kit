@@ -29,8 +29,9 @@ change.
    lookup, seed rows and pages starts with `tools/scaffold` (`scaffold.py entity <pkg> <Object> --caption ...
    --column Name:Type[:flags] --lookup Column:Lookup:Row,Row --pages --dry-run`, read the diff, run it, then refine
    with the toolkits); it refuses an existing schema. C# goes into
-   `Files/cs` per `get_code_style("architecture")` 3.7 and gets a unit test per 3.8
-   (`clio new-test-project` once per package, `dotnet test` green before you say done; `run_tests` runs them inside Creatio).
+   `Files/cs` per `get_code_style("3.7")` and gets a unit test per `get_code_style("3.8")`
+   (`project.py tests-init <project.json>` once per package, then project.json's `commands.unitTests` green before you say
+   done - it rebuilds the dll against the test binaries, so push with `push.py --build`; `run_tests` runs them inside Creatio).
    Client code (a Classic schema, a Freedom UI page, a remote module) follows
    `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push. For a
    Freedom UI page, clio's MCP gives the component and request catalogue of the site's exact platform version:
@@ -58,7 +59,7 @@ change.
 3. **Push.** `python no-code/tools/push/push.py <package> -e <clioName> --probe` does the whole sequence: clears
    the modified flag, `push-pkg`, reads the compilation log, runs `compile-configuration` when a process has a
    script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects
-   and SQL scripts. `--dry-run` prints the commands. Then `probe` of anything else the plan lists (rules with values).
+   and SQL scripts (a package with processes may need `env/site.py restart`). `--dry-run` prints the commands; an empty `DependsOn` UId is filled by `push/push.py deps <pkg> -e <env> [--add <Package>]`. Then `probe` of anything else the plan lists (rules with values).
    `page_audit` over a page before its push and `precommit_check` over the package before every push find what the push would only report later.
 4. **Done.** Report to the author: what was built (the artifacts table with what was really built by which tool, or by
    hand with the `report_gap` line), the push's step lines, the `verify_pushed` line, the unit tests' line, every gap,

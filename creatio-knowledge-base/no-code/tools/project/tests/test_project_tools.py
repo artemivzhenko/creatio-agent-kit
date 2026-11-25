@@ -142,6 +142,81 @@ def test_tasks_from_csv_missing_column_exits_2_with_the_columns():
         assert not (root / "tasks").exists()
 
 
+def test_tests_init_bootstraps_a_bare_package_and_a_second_run_says_what_exists():
+    """S46-T09: clio mocked - the workspace, the package project from add-package in a scratch workspace, new-test-project,
+    the binaries copied into .application, app.config from the assembly identities, the paths and the command in project.json."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "ws" / "packages" / "UsrPkg" / "Files" / "cs").mkdir(parents=True)
+        web = root / "platform" / "Terrasoft.WebApp"
+        (web / "bin").mkdir(parents=True)
+        (web / "bin" / "Terrasoft.Core.dll").write_bytes(b"MZ")
+        (web / "conf" / "bin" / "1").mkdir(parents=True)
+        (web / "conf" / "bin" / "1" / "Terrasoft.Configuration.dll").write_bytes(b"MZ")
+        source = root / "project.json"
+        source.write_text(json.dumps({"environment": {"platformVersion": "8.2.3"},
+                                      "package": {"name": "UsrPkg", "workspace": "ws"},
+                                      "paths": {"unitTestBin": str(web / "bin")}}), encoding="utf-8")
+        calls = []
+
+        def run(cmd, cwd=None, **kwargs):
+            calls.append(cmd[:2])
+            if cmd[:2] == ["clio", "create-workspace"]:
+                ws = Path(cmd[cmd.index("--directory") + 1]) / cmd[2]
+                (ws / ".clio").mkdir(parents=True, exist_ok=True)
+                (ws / ".clio" / "workspaceSettings.json").write_text('{"Packages": [], "ApplicationVersion": "8.3.0"}', encoding="utf-8")
+            elif cmd[:2] == ["clio", "add-package"]:
+                files = Path(cwd) / "packages" / cmd[2] / "Files"
+                files.mkdir(parents=True)
+                for n in (f"{cmd[2]}.csproj", "Directory.Build.targets", "Libs.dll"):
+                    (files / n).write_text("<Project />", encoding="utf-8")
+            elif cmd[:2] == ["clio", "new-test-project"]:
+                tests = Path(cwd) / "tests"
+                (tests / cmd[3]).mkdir(parents=True)
+                (tests / cmd[3] / f"{cmd[3]}.Tests.csproj").write_text("<Project />", encoding="utf-8")
+                (tests / "UnitTests.slnx").write_text("<Solution />", encoding="utf-8")
+            elif cmd[0] == "powershell":
+                return subprocess.CompletedProcess(cmd, 0, "Terrasoft.Core 8.3.2.4199 edaadfbc3b0bb879\nCreatio.FeatureToggling 1.0.5.0 edaadfbc3b0bb879\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "Done", "")
+        lines, ok = project.tests_init(source, run)
+        ws = root / "ws"
+        assert ok and [c[1] for c in calls] == ["create-workspace", "create-workspace", "add-package", "new-test-project", "-NoProfile"], calls
+        assert json.loads((ws / ".clio" / "workspaceSettings.json").read_text(encoding="utf-8")) == {"Packages": ["UsrPkg"], "ApplicationVersion": "8.2.3"}
+        files = ws / "packages" / "UsrPkg" / "Files"
+        assert (files / "UsrPkg.csproj").is_file() and (files / "Directory.Build.targets").is_file() and not (files / "Libs.dll").exists()
+        assert (ws / ".application" / "net-framework" / "core-bin" / "Terrasoft.Core.dll").is_file()
+        assert (ws / ".application" / "net-framework" / "bin" / "Terrasoft.Configuration.dll").is_file()
+        config = (ws / "tests" / "UsrPkg" / "app.config").read_text(encoding="utf-8")
+        assert config.count("<bindingRedirect") == 2 and 'name="Terrasoft.Core" publicKeyToken="edaadfbc3b0bb879"' in config and 'newVersion="1.0.5.0"' in config
+        data = json.loads(source.read_text(encoding="utf-8"))
+        assert data["paths"]["unitTests"] == str(ws / "tests" / "UsrPkg") and data["paths"]["solution"] == str(ws / "tests" / "UnitTests.slnx")
+        assert data["commands"]["unitTests"] == f'dotnet test "{ws / "tests" / "UnitTests.slnx"}" -c dev-nf' and data["paths"]["unitTestBin"]
+        assert lines[-1].startswith("run the unit tests: dotnet test ") and "push.py --build" in lines[-1]
+        calls.clear()
+        lines, ok = project.tests_init(source, run)
+        assert ok and calls == [] and lines[:-1] == ["workspace: exists", "workspace settings: exist", "package project: exists",
+                                                     "test project: exists", "test binaries: exist", "app.config: exists",
+                                                     "project.json: up to date"], lines
+
+
+def test_tests_init_without_test_binaries_says_so_and_exits_1():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "ws" / "packages" / "UsrPkg" / "Files").mkdir(parents=True)
+        (root / "ws" / ".clio").mkdir(parents=True)
+        (root / "ws" / ".clio" / "workspaceSettings.json").write_text('{"Packages": ["UsrPkg"]}', encoding="utf-8")
+        for n in ("UsrPkg.csproj", "Directory.Build.targets"):
+            (root / "ws" / "packages" / "UsrPkg" / "Files" / n).write_text("<Project />", encoding="utf-8")
+        (root / "ws" / "tests" / "UsrPkg").mkdir(parents=True)
+        (root / "ws" / "tests" / "UsrPkg" / "UsrPkg.Tests.csproj").write_text("<Project />", encoding="utf-8")
+        source = root / "project.json"
+        source.write_text(json.dumps({"package": {"name": "UsrPkg", "workspace": str(root / "ws")}}), encoding="utf-8")
+        out = io.StringIO()
+        with patch.object(project.subprocess, "run", side_effect=AssertionError("nothing to run")), contextlib.redirect_stdout(out):
+            assert project.main(["tests-init", str(source)]) == 1
+        assert "test binaries: missing - set paths.unitTestBin" in out.getvalue(), out.getvalue()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -66,6 +66,7 @@ that a Classic page lists with `classicui.py add-mixin`. Both refuse a name the 
 | `--lookup` (repeatable) | `Column:LookupObject[:Row,Row,..]` | the lookup object (BaseLookup) when the workspace lacks it, `Data/<LookupObject>` with one row per name (new Ids, `Name` in every culture) when rows are given, and the lookup column |
 | `--pages` | - | `<Object>_FormPage` (PageWithTabsFreedomTemplate, every column a field in the profile container) and `<Object>_ListPage` (ListPageV2Template) |
 | `--cultures` | `en-US,ru-RU` | the cultures of the captions and the binding; default the package's |
+| `--pages` warning | - | when the descriptor's `DependsOn` lacks `CrtUIPlatform` (the templates' package) one line names `push.py deps <pkg> -e <env> --add CrtUIPlatform`; no site call |
 | `--dry-run` | - | the unified diff of every file, nothing written |
 
 Captions are the names without the `Usr` (or a lower-case) prefix, split at capitals:

@@ -56,7 +56,7 @@ nothing in `SysSchema`, and refreshes the engine at once: the signal no longer s
 process is not active"). A row inserted by SQL turns `Enabled` false but both starts go on until `clio restart-web-app`; after
 the restart both stop (S40-T06's "a row does not stop a process" was the unrestarted half). `EnableProcess`
 deletes the row. A process with only a signal start refuses `Execute` / `RunProcess` ("only contains automatic
-start events"). 8.2.3, run (S45-T04). used by: `code/Backend/SQL/HowToDisableAProcessFromAPackage_PostgreSQL.sql`.
+start events"). 8.2.3, run (S45-T04). used by: `code/Backend/SQL/HowToDisableAProcessFromAPackage_PostgreSQL.sql`. The kit: `env/site.py -e <env> process-off|process-on <Process>` (the service, read back from the table) and `restart`.
 
 **P-1.1 The runtime reads element parameter values from the schema mappings, not from the element.** The value is
 stored twice: `BK4[].BP2[].L8` in the element and `BK15[]` in the mappings (`GT2 = [Element:{uid}].[Parameter:{uid}]`,
@@ -103,7 +103,7 @@ unchanged descriptor date (P-2.4); not proved. N-10 deleted.
 **P-1.12 A process whose only task is Add data runs straight after `push-pkg`, with no `compile-configuration`.**
 A new process pushed with a bare `clio push-pkg`, started through `ProcessEngineService.svc/<Process>/Execute`:
 `SysProcessLog` Completed, the row written. Only a script task needs the publish (P-A4). 8.2.3, run (S40-T05).
-used by: `tools/process/README.md` (Testing a process). `push` still publishes for any user task (wider than needed).
+used by: `tools/process/README.md` (Testing a process). `push` still publishes for any user task (wider than needed). A second process with only Read data, Modify data and an exclusive gateway also ran right after the push, and that push ran its publish step too; the whole push of a package with processes took 800 s - plan a long push. 8.2.3, run (S46-T11, the pilot).
 
 **P-1.13 A "record modified" signal with a filter starts on every modification after which the record meets the
 filter - the NEW values; the old ones do not matter - and never on an insert.** The signal element of the test process
@@ -124,6 +124,16 @@ count a timer's runs by start, not as a sequence.
 `now() at time zone 'UTC'` of the database to the second (the server clock is UTC+2), like `CreatedOn` of records
 (P-3.9). clio's "can be the user's local time marked Z" was not seen. 8.2.3, sql (S40-T06; N-18 deleted). used by:
 `process_runs` `time_zone`.
+
+**P-1.16 A Read data task counts rows with `ResultType` 1 (Function) and `FunctionType` 0 (Count); the count lands in
+`ResultCount`.** The enum values by reflection on the 8.3.2 binaries: `ProcessReadDataResultType` Entity=0, Function=1,
+EntityCollection=2; `AggregationTypeStrict` Count=0, Sum=1, Avg=2, Min=3, Max=4, TopOne=5. A wrong `FunctionType`
+silently computes a sum or a minimum. Run on 8.2.3: a gateway on `ResultCount == 0` closed the parent only after the last
+child row changed. 8.2.3 run + 8.3.2 source (S46-T11, the pilot). used by: `tools/process/README.md` (Read data).
+
+**P-1.17 Two record-signal start events in one process, each with its own changed column and filter** (`modified`, column
+`UsrStatus`, filter `UsrStatus = <row Id>`), each start only their own branch: one process holds several status
+transitions with no gateway after the start. 8.2.3, run (S46-T11, three process cases). used by: -.
 
 ## Schemas, packages, layers
 
@@ -265,6 +275,18 @@ ordinary user. source + run (S42-T01 N-27 settled). used by: `HowToControlAdminR
 **P-3.9 `ModifiedOn` of records and `SysProcessLog.StartDate` share one zone and agree to the second;** the user
 sees their own zone, so a search window must be converted or the log looks empty. 8.3, sql. used by:
 `records.local_time`, `process_runs` `time_zone`.
+
+**P-3.14 A lookup column's constant default (a row Id written by the object toolkit) is applied on an OData insert that
+omits the column:** "new records get status X" needs no code. 8.2.3, run on PostgreSQL (S46-T11, the pilot). used by:
+`objects.py column ... default`.
+
+**P-3.15 `StoringObjectState` (`entity.StoringState == StoringObjectState.New`) is in `Terrasoft.Core.Configuration`.**
+With only `using Terrasoft.Core` and `using Terrasoft.Common` the compile gives CS0103; adding the using fixed it. 8.3.2
+binaries, build (S46-T11, the pilot). used by: CS code style (Platform facts), `HowToUseEntityEventListener`.
+
+**P-3.16 A listener's `OnSaving` can number a new row from a `Select` with `Func.IsNull(Func.Max(col), Column.Const(0))`
+over the same table (filtered by the parent), and a number the client sent is overwritten.** A second child sent with
+number 99 and a typed label was saved as 2 and `<parent label>/2`. 8.2.3, run (S46-T11, the pilot). used by: -.
 
 **P-B1 An ESQ on a column that does not exist on this site fails the whole query**
 (`ItemNotFoundException: column at path X not found in schema Y`), including every message built from it. The
@@ -441,6 +463,48 @@ used by: `HowToOpenASelectionWindowAndLinkRecords`.
 `SaveRecordRequest` for save-time logic. `crt.DataGridActivateRowBusinessRulesRequest` fires twice per grid on page load
 (`request.dataGridViewElementName` names the grid). 8.2.3, run (S42-T02). used by: `HowToReactToDetailRowChanges`.
 
+**P-8.11 A Freedom UI detail is filtered by the parent through a `dependencies` merge in `modelConfigDiff`:**
+`{"operation":"merge","path":[],"values":{"dependencies":{"<Grid>DS":[{"attributePath":"<child lookup column>",
+"relationPath":"PDS.Id"}]}}}`. Without it a `viewElement` data source lists every row of the object; with it the grid listed
+only the open parent's rows while another parent's row existed. 8.2.3, run (S46-T11, the pilot). used by: `pages.py
+add-grid --master` (S46-T02).
+
+**P-8.12 `crt.CreateRecordRequest` with `entityName`, `entityPageName` and `defaultValues: [{attributeName: "<lookup>",
+value: "$Id"}]` opens the child's page with the parent prefilled, even when the child object has no section.** Without
+`entityPageName` the platform looks for a registered section page and finds none (clio `get-request-info
+crt.CreateRecordRequest` says so). Opening an existing child row from the grid of a child with no section was not tried. 8.2.3,
+run (S46-T11, the pilot). used by: `pages.py add-grid --add-button` (S46-T02).
+
+**P-8.13 A page business rule with the action "required" makes the save fail with `Field: "<Caption>". Error: Enter a
+value`; the record is not written.** A UI case that clicks Save must expect a refusal: `click SaveButton` throws, keep that
+output as the evidence and check the record in the database. 8.2.3, run (a UI case plus a database check; S46-T11, the
+pilot). used by: the DSL `expect error` (S46-T06).
+
+**P-8.14 The page templates `PageWithTabsFreedomTemplate` and `ListPageV2Template` live in the package `CrtUIPlatform`.** A
+package that depends only on a core base package needs that dependency before it ships pages; whether the push fails
+without it is `N-30`. 8.2.3, sql (`SysSchema` join `SysPackage`; S46-T11, the pilot). used by: `push.py deps` (S46-T04).
+
+**P-8.15 A process's pre-configured page has no address; it opens from the running element's id.** The waiting element of a
+run has one id in `SysProcessElementLog.Id`, `SysProcessElementData.Id` and `SysProcessElementToDo.Id` (the
+communication panel's task list row, with `Title`, `ContactId`, `SysProcessDataId` = the run). The shell's task list sends
+`crt.OpenProcessPageRequest {processElementUId: <that id>}`; its handler posts `ProcessEngineService.svc/GetExecutionData
+{elementUIds: [id]}` and pushes the page (`ProcessCardModuleV2` state, no URL of its own) over the current one. The same
+request through `require(['@creatio-devkit/common'])` and `sdk.HandlerChainService.instance.process(...)` from any Shell
+page opens it, and a click on the element's button completes the task. 8.2.3, sql + run (S45-T09, five runs); the handler
+read in the 8.3.2 shell bundle. used by: the framework's `open process-task`.
+
+**P-8.16 A Freedom UI pre-configured page is a page whose parent is `BaseMiniPageTemplate` (`CrtUIPlatform`,
+`Group: MiniPage`); the process element (`PreconfiguredPageUserTask`, `ClientUnitSchemaUId` = the page UId) lists the
+page's buttons in its own `Buttons` parameter** (`{ItemUId, Caption{isLczValue}, Name, Id, Tag: "<Name>_clicked", Event:
+"clicked", PerformClosePage}`, the caption text in the process resources as
+`BaseElements.<Element>.Parameters.Buttons.Value.<ItemUId>.Caption`), and a flow out of the element per button carries
+`GV2 = {"$type": ..., "<element UId>": {"$type": ..., "$values": [<button ItemUIds>]}}`. The install reads such a flow
+through the element's result parameter (`PressedButtonCode` with `L13` `IsResult: true`); without that flag the install
+fails with a `NullReferenceException` in `ProcessSchemaConditionalFlow.SpecifyConditionalSequenceFlow`. The element's
+`OwnerId` is `[#SysVariable.CurrentUserContact#]` (a `{SysVariable...}` text fails at run time with "Expression
+expected"). 8.2.3, build + run (S45-T09); the flow method read in the 8.3.2 `Terrasoft.Core.dll`. used by: the process
+toolkit's user task catalog (`result`), `pages.py from-schema` (the template's buttons).
+
 **P-C1 `Model.create('<Entity>')` then `model.load({attributes: [...]})` from an Angular element** returns rows as
 plain objects keyed by attribute; only text columns and the no-filter call were exercised (N-3). 8.3, run.
 
@@ -507,7 +571,12 @@ or `MSYS_NO_PATHCONV=1`. run. used by: `docs/dsl.md`.
 garbled. run. used by: S33-T09.
 
 **P-D4 `clio restart` may be blocked by the agent's permission policy;** plan for a person to restart. used by:
-the author skill.
+the author skill. clio's MCP server has no restart tool; `clio restart-web-app -e <env>` on the command line does it (S46-T11, run; the kit's `site.py restart` is S46-T10).
+
+**P-9.11 clio `validate-page` rejects literal captions on `crt.DataGrid` columns** (`"caption": "Number"`, 6 errors on one
+page). The accepted form is `#ResourceString(<Grid>DS_<Col>)#`, plus the page string and its B2 metadata entry
+(`PageSchema.ensure_resource_string`). The kit's own validator accepted the literal form. 8.2.3 target, run (S46-T11, the
+pilot). used by: `pages.py add-grid` (S46-T02).
 
 ## Windows and Git Bash
 
@@ -547,3 +616,6 @@ and a 60 s window. source. used by: `HowToDrainQueueTableWithAttemptLimit`, the 
 | N-19 | a foreign-key rejection can come from an entity event handler, not the mapping (clio core-rules-details, docs; the `Edm.Stream` half is P-5.5) | middle | a backend case on a listener that writes a bad lookup |
 | N-20 | an Interface Designer save keeps only the code inside the five markers of a Freedom UI page; helpers above `return` disappear (clio routing, docs) | middle | a page with a helper, one Designer save on the test site, `schema_diff`; S40-T06: needs a save in the Interface Designer (a browser session the test utility does not drive) |
 | N-28 | the first `push-pkg` sent right after a site restart (a `deploy`'s closing restart) failed once with no reason in clio's output and passed a minute later (S27-T09, the test site 8.2.3) | senior | not reproduced (S44): `push-pkg` at 0 / 30 / 60 s after `restart-web-app`, and again after `restart-web-app --wait-ready` + `clear-redis-db` - all six installed, the first right after the bare restart waited out the warm-up inside clio (48 s); the cause of the one failure is unknown, not a warm-up shown; kept until it happens again with clio's whole output |
+| N-29 | a new `Files/cs` entity listener answers before a web app restart on 8.2.3 (the pilot restarted after the push and never checked) | senior | insert a row before restarting and read the listener's output (the label); S46-T11 |
+| N-30 | a push of pages without the `CrtUIPlatform` dependency fails (on 8.2.3), or only fails later in the designer | senior | push a copy of the package without the dependency on a throw-away site; S46-T11 |
+| N-31 | an after-data SQL script updates existing rows (the pilot's site had no parent rows) | senior | insert a row with an empty status, reinstall the package (change the descriptor `ModifiedOnUtc`), read the column; S46-T11 |

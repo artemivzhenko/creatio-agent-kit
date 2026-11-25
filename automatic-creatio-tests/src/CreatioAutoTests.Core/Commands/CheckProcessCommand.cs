@@ -41,8 +41,13 @@ public sealed class CheckProcessCommand : ICommand
     private static async Task OnceAsync(CommandContext context, ProcessCheck check, DateTime since, CancellationToken cancellationToken)
     {
         var literal = since.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+        // The run this case started itself counts whenever it began (S45-T09: a page task completes long after its 'start').
+        var own = context.Session.LastProcess is { Success: true } last && string.Equals(last.Process, check.Process, StringComparison.OrdinalIgnoreCase) &&
+                  Guid.TryParse(last.ProcessId, out _)
+            ? " or Id eq " + last.ProcessId
+            : string.Empty;
         var runs = await context.Session.QueryRecordsAsync("SysProcessLog", new[] { "Id", "CompleteDate", "ErrorDescription" },
-            "SysSchema/Name eq '" + check.Process + "' and StartDate ge " + literal, 50, cancellationToken).ConfigureAwait(false);
+            "SysSchema/Name eq '" + check.Process + "' and (StartDate ge " + literal + own + ")", 50, cancellationToken).ConfigureAwait(false);
         context.Logger.LogDebug("{Process}: {Count} run(s) since {Since}: {Ids}", check.Process, runs.Count, literal, string.Join(",", runs.Select(r => r["Id"])));
         if (runs.Count == 0)
         {

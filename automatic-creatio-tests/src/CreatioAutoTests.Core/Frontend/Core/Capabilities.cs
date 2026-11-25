@@ -49,6 +49,16 @@ public interface IClickable : IUiElement
     Task ClickAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>A button whose click may be refused: <c>click X expect error "text"</c> (S46-T06).</summary>
+public interface IRefusable : IClickable
+{
+    /// <summary>
+    /// Clicks without the save wait, then reads what the page shows (validation messages, error toast, dialogs) until it
+    /// contains <paramref name="expected"/> (case-blind) or the budget ends. Returns everything it showed, joined; empty when nothing.
+    /// </summary>
+    Task<string> ClickReadingRefusalAsync(string expected, CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// A value element whose <c>set</c> may answer a confirmation by itself (Classic's stage bar). <c>set X "v" no-answer</c> calls
 /// the second method, which changes the value and leaves the dialog open for 'check dialog' and 'answer'.

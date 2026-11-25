@@ -138,27 +138,37 @@ class Workspace:
     _GUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b")
 
     def lookup_rows(self) -> dict[str, dict[str, str]]:
-        """{schema name: {row Id (lower case): Name}} from the data bindings of every package in the workspace (read once per Workspace)."""
+        """{schema name: {row Id (lower case): Name}} from the data bindings of every package in the workspace (read once per Workspace).
+        A Name kept only in `Data/<B>/Localization/data.<culture>.json` is read too (`en-US` first, then the other cultures in name order);
+        a row with an Id and no Name anywhere is listed with an empty Name, so its Id stays usable."""
         if getattr(self, "_rows", None) is None:
             rows_by_schema: dict[str, dict[str, str]] = {}
             for ddir in sorted(self.root.glob("*/Data/*")):
                 try:
                     desc = json.loads(read_text(ddir / "descriptor.json")[0])["Descriptor"]
                     by_uid = {str(c.get("ColumnUId", "")).lower(): c.get("ColumnName") for c in desc.get("Columns", [])}
-                    rows = json.loads(read_text(ddir / "data.json")[0])["PackageData"]
+                    files = [ddir / "data.json"] + sorted((ddir / "Localization").glob("data.*.json"), key=lambda f: (f.name != "data.en-US.json", f.name))
+                    target = rows_by_schema.setdefault((desc.get("Schema") or {}).get("Name", ddir.name), {})
                 except (OSError, ValueError, KeyError):
                     continue
-                target = rows_by_schema.setdefault((desc.get("Schema") or {}).get("Name", ddir.name), {})
-                for row in rows:
-                    cells = {(c.get("ColumnName") or by_uid.get(str(c.get("SchemaColumnUId", "")).lower())): c.get("Value") for c in row.get("Row", [])}
-                    if cells.get("Name") and self._GUID_RE.fullmatch(str(cells.get("Id", ""))):
-                        target[str(cells["Id"]).lower()] = str(cells["Name"])
+                for i, f in enumerate(files):
+                    try:
+                        rows = json.loads(read_text(f)[0])["PackageData"]
+                    except (OSError, ValueError, KeyError):
+                        continue
+                    for row in rows:
+                        cells = {(c.get("ColumnName") or by_uid.get(str(c.get("SchemaColumnUId", "")).lower())): c.get("Value") for c in row.get("Row", [])}
+                        rid = str(cells.get("Id", "")).lower()
+                        if self._GUID_RE.fullmatch(rid) and (cells.get("Name") or (i == 0 and rid not in target)):
+                            if cells.get("Name") and target.get(rid):
+                                continue  # first culture wins
+                            target[rid] = str(cells.get("Name") or "")
             self._rows = rows_by_schema
         return self._rows
 
     def lookup_captions(self) -> dict[str, str]:
         """{row Id (lower case): Name} over every lookup the bindings hold."""
-        return {i: n for rows in self.lookup_rows().values() for i, n in rows.items()}
+        return {i: n for rows in self.lookup_rows().values() for i, n in rows.items() if n}
 
     def lookup_value(self, schema: str | None, text: str) -> tuple[str, str] | None:
         """(row Id, Name) of a lookup row given by its Id or its Name (case-blind) in the bindings of `schema` (any lookup when None), else None."""

@@ -12,7 +12,7 @@ acceptance criteria and judges what comes back; the **dev** builds the package a
 folder. The author runs them as its subagents (since 2026-11-24: one session, the author spawns the dev and the
 tester in turn and reads their reports) - or, when the human prefers three sessions, the human carries the task
 between them. With subagents the MCP server runs with its `all` profile and the role split is the brief; with three
-sessions the dev's starts with `CREATIO_KB_ROLE=author` (the build tools) and the tester's with
+sessions the dev's starts with `CREATIO_KB_ROLE=dev` (the build tools) and the tester's with
 `CREATIO_KB_ROLE=tester`. This file is the contract every role reads first; [creatio-author](../creatio-author/SKILL.md),
 [creatio-dev](../creatio-dev/SKILL.md) and [creatio-tester](../creatio-tester/SKILL.md) say what each role does with it.
 

@@ -53,6 +53,12 @@ public interface IExecutionSession
     /// <summary>Opens a blank tab of the same browser context (cookies and session shared) and makes it the active one.</summary>
     Task NewTabAsync(string? name, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Opens the page of the newest running pre-configured page task of the process (a run started since the case began) over the page
+    /// open in the tab, or over the Shell when none is, and binds it to the configured page (S45-T09).
+    /// </summary>
+    Task OpenProcessTaskAsync(string process, string pageName, CancellationToken cancellationToken = default);
+
     /// <summary>Moves the current tab to a configured page through the Shell address, without loading the application again.</summary>
     Task NavigatePageAsync(string pageName, string? recordId, CancellationToken cancellationToken = default);
 

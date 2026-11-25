@@ -256,6 +256,42 @@ def _depends_on(text: str) -> set[str]:
     return {"package:" + d["Name"] for d in json.loads(text.lstrip("\ufeff"))["Descriptor"].get("DependsOn") or []}
 
 
+def fill_dependencies(package: Path, rows_of, add=(), dry_run: bool = False) -> tuple[list[str], bool]:
+    """`push.py deps`: the DependsOn entries with an empty UId or PackageVersion, and the `add` names not listed yet, get
+    `{UId, PackageVersion, Name}` from SysPackage of the site (`rows_of(sql)` runs a select). (answer lines, all found)."""
+    path = package / "descriptor.json"
+    text, bom = read_text(path)
+    desc = Descriptor(path, text)
+    entries = list(desc.data.get("DependsOn") or [])
+    listed = {e["Name"] for e in entries}
+    todo = [e["Name"] for e in entries if not (e.get("UId") and e.get("PackageVersion"))]
+    names = todo + [n for n in add if n not in listed]
+    site = {}
+    if names:
+        quoted = ", ".join("'" + n.replace("'", "''") + "'" for n in dict.fromkeys(names))
+        site = {str(r["Name"]): r for r in rows_of(f'select "Name", "UId", "Version" from "SysPackage" where "Name" in ({quoted})')}
+    lines, found = [], True
+    for n in dict.fromkeys([e["Name"] for e in entries] + list(add)):
+        row = site.get(n)
+        entry = next((e for e in entries if e["Name"] == n), None)
+        if n not in names:
+            lines.append(f"unchanged {n}")
+        elif row is None:
+            lines.append(f"not on the site {n}")
+            found = False
+        else:
+            new = {"UId": str(row["UId"]), "PackageVersion": str(row["Version"]), "Name": n}
+            if entry is None:
+                entries.append(new)
+            else:
+                entries[entries.index(entry)] = new
+            lines.append(f"{'filled' if entry else 'added'} {n}: UId {new['UId']} PackageVersion {new['PackageVersion']}")
+    if not dry_run and any(l.startswith(("filled", "added")) for l in lines):
+        desc.set("DependsOn", entries)
+        write_text(path, desc.text, bom)
+    return lines, found
+
+
 def dependency_changes(package: Path) -> tuple[list[str], list[str]] | str:
     """(dropped, added) against git HEAD: `package:<Name>` of descriptor.json DependsOn and `Files/<x>.csproj:<Reference>`
     of the project files; a reason string when there is nothing to compare with."""
@@ -300,6 +336,59 @@ def creatio_bin(package: Path, given=None) -> Path | None:
             m = re.search(r"<TestCoreLibPath>([^<]+)</TestCoreLibPath>", props.read_text(encoding="utf-8-sig"))
             return Path(m.group(1).strip()) if m else None
     return None
+
+
+def site_bin(given=None, project=None) -> tuple[Path, str]:
+    """The binaries to build the package's dll against and their version (S46-T09): `--bin`, else `paths.platformBin` of
+    project.json; the version is the bin's Terrasoft.Core.dll FileVersion and must start with the project's
+    `environment.platformVersion` (the site's) when the project names one."""
+    from .describe.platform import _VERSION_RE
+    data = json.loads(Path(project).read_text(encoding="utf-8-sig")) if project else {}
+    want = str((data.get("environment") or {}).get("platformVersion") or "")
+    path = given or (data.get("paths") or {}).get("platformBin")
+    if not path:
+        raise RuntimeError(f"no binaries for the site's version {want or '(unknown)'}: pass --bin <Terrasoft.WebApp/bin> "
+                           "or set paths.platformBin in project.json (--project)")
+    path = Path(path) if Path(path).is_absolute() or not project else Path(project).resolve().parent / path
+    core = path / "Terrasoft.Core.dll"
+    m = _VERSION_RE.search(core.read_bytes()) if core.is_file() else None
+    if m is None:
+        raise RuntimeError(f"{path}: no Terrasoft.Core.dll with a FileVersion (--bin or paths.platformBin of project.json)")
+    have = m.group(1).decode("utf-16-le")
+    if want and have != want and not have.startswith(want + "."):
+        raise RuntimeError(f"{path} is {have}, the site is {want} (environment.platformVersion): point --bin or "
+                           "paths.platformBin at that version's Terrasoft.WebApp/bin")
+    return path, have
+
+
+def build_dll(package: Path, name: str, bin_dir: Path, version: str, dry_run: bool = False, log=print, detail=print,
+              run=subprocess.run) -> str:
+    """`dotnet build Files/<name>.csproj` in Release for net472 against `bin_dir` (the site's version): Files/Bin/<name>.dll
+    for push-pkg. obj goes to temp and no pdb is written, so the package folder gets the dll only. One line."""
+    project = Path(package) / "Files" / f"{name}.csproj"
+    if not project.is_file():
+        raise RuntimeError(f"Files/{name}.csproj is missing: `project.py tests-init <project.json>` writes it")
+    obj = Path(tempfile.gettempdir()) / "creatio-build" / name / "obj"
+    args = ["dotnet", "build", str(project), "-c", "Release", "-nologo", "-p:CoreTargetFramework=net472",
+            f"-p:CoreLibPath={bin_dir}", f"-p:BaseIntermediateOutputPath={obj.as_posix()}/", "-p:DebugType=none",
+            # obj moved out, the default globs would compile the unit tests' Files/obj/*/*.cs (CS0579 duplicate attributes)
+            "-p:DefaultItemExcludes=obj/**"]
+    if dry_run:
+        log("  " + subprocess.list2cmdline(args))
+        return "dry run"
+    if shutil.which("dotnet") is None:
+        raise RuntimeError("dotnet is not on PATH: install the .NET SDK")
+    done = run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    out = (done.stdout or "") + (done.stderr or "")
+    for line in out.splitlines():
+        detail(f"  {line}")
+    if done.returncode:
+        errors = list(dict.fromkeys(l.strip() for l in out.splitlines() if re.search(r"\berror [A-Z]+\d+", l)))
+        raise RuntimeError(f"dotnet build exit {done.returncode}: " + (errors[0] + (f" (+{len(errors) - 1} more)" if len(errors) > 1 else "")
+                                                                        if errors else out.strip()[-300:]))
+    unresolved = sorted(set(re.findall(r'warning MSB3245: .*?"([^"]+)"', out)))
+    return f"built against {version} ({bin_dir})" + (
+        f"; {len(unresolved)} MSB3245 (unresolved: {', '.join(unresolved)})" if unresolved else "")
 
 
 def _csc() -> Path | None:
@@ -426,7 +515,7 @@ def resolve_task(task: Path | str | None, tasks: Path | str | None = None, proje
     if task is None:
         return None
     task = Path(task)
-    if task.is_absolute() or task.is_dir():
+    if task.is_absolute():
         return task
     base = Path(tasks) if tasks else None
     if base is None and project:
@@ -437,7 +526,9 @@ def resolve_task(task: Path | str | None, tasks: Path | str | None = None, proje
             value = None
         if value:
             base = Path(value) if Path(value).is_absolute() else project_path.parent / value
-    return (base / task.name) if base is not None else task
+    if base is not None and (len(task.parts) == 1 or not task.is_dir()):  # a bare name is a task, even when the cwd holds a folder of that name
+        return base / task.name
+    return task
 
 
 def details_path(package: Path, task: Path | None = None) -> Path:
@@ -474,7 +565,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
           force: bool = False, baseline: Path | None = None, skip_drift: bool = False,
           skip_foreign_files: bool = False, skip_sql_dates: bool = False,
           skip_compile_package: bool = False, bin_dir: Path | None = None, allow_removed: list[str] | None = None,
-          skip_stale_bin: bool = False) -> int:
+          skip_stale_bin: bool = False, build: bool = False) -> int:
     package = Path(package).resolve()
     allowed = sorted({s.strip() for s in allow_removed or [] if s.strip()})
     try:
@@ -489,6 +580,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
     log(f"clio: {version}")
     statements = [f'update "{table}" set "IsChanged"=false' for table in ISCHANGED_TABLES]
     commit, changed, compilation_log = None, None, ""
+    built_bin = None  # the site version's binaries --build used: the script compile check takes them too
 
     def command(args, cwd=None):
         if dry_run:
@@ -600,9 +692,13 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
     def dependencies():
         if dry_run:
             return "dry run"
+        empty = [d["Name"] for d in json.loads(read_text(package / "descriptor.json")[0])["Descriptor"].get("DependsOn") or []
+                 if not (d.get("UId") and "PackageVersion" in d)]  # an empty version filled by `deps` is the site's own (a package with no version)
+        if empty:
+            raise RuntimeError(f"{empty[0]} has no UId/version - run push.py deps {package.name} -e {env}")
         changes = dependency_changes(package)
         if isinstance(changes, str):
-            return changes
+            return "ok (no git: not compared)" if changes == "skipped (no git)" else changes
         dropped = changes[0]
         if dropped and not force:
             raise RuntimeError("dropped " + ", ".join(sorted(d.split(":", 1)[1] for d in dropped)))
@@ -621,14 +717,15 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
                 folder = project_path.parent / folder
         if folder is None:
             return "skipped (no tasks folder)"
+        if not dry_run:  # without git there is nothing to own, with or without --task (a --project given for --build)
+            git_context()
+            if commit is None:
+                return "skipped (no git; schema_impact is the lock between tasks)"
         if task is None:
             raise RuntimeError("--task is required when a tasks folder is configured")
         if dry_run:
             log(f"  git status --porcelain -- {package}")
             return "dry run"
-        git_context()
-        if commit is None:
-            raise RuntimeError("cannot check uncommitted task files without git")
         conflicts = _task_conflicts(folder, resolve_task(task, tasks, project), changed)
         if conflicts:
             raise RuntimeError("; ".join(conflicts))
@@ -789,7 +886,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
             if str(row.get("fresh")).lower() not in ("true", "1"):  # a changed process is regenerated by the install, after its row
                 bad.append(f"process {name}: generated source older than its schema (not regenerated by the install)")
                 continue
-            status, errors = compile_script(_source_text(row.get("Source")), name, creatio_bin(package, bin_dir), extra)
+            status, errors = compile_script(_source_text(row.get("Source")), name, creatio_bin(package, bin_dir or built_bin), extra)
             if status == "failed":
                 bad += [f"process {name}: script does not compile: {e}" for e in errors]
             elif status != "ok":
@@ -801,8 +898,17 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         checked = len(names) - len(unchecked)
         return f"ok ({checked} compiled, {len(unchecked)} not checked)" if unchecked else f"ok ({checked} compiled)"
 
+    def build_step():
+        nonlocal built_bin
+        if not assembly:
+            return "n/a (not an assembly package)"
+        built_bin, version = site_bin(bin_dir, project)
+        return build_dll(package, pkg_name, built_bin, version, dry_run, log, detail)
+
     def bin_age():
         if not assembly:
+            if any((package / "Files" / "cs").rglob("*.cs")):
+                return "WARN Files/cs is never compiled - not an assembly package (Type 1, ProjectPath)"
             return "n/a (not an assembly package)"
         why = stale_bin(package, pkg_name)
         if why is None:
@@ -811,7 +917,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
             return f"skipped (--skip-stale-bin): {why}"
         raise RuntimeError(f"{why}: build the package (dotnet build, or the pipeline's build) and push again; --skip-stale-bin passes")
 
-    steps = (("drift", drift), ("package schemas", package_schemas), ("stale bin", bin_age), ("bindings", bindings), ("dependencies", dependencies),
+    steps = (("drift", drift), ("package schemas", package_schemas), *((("build", build_step),) if build else ()), ("stale bin", bin_age), ("bindings", bindings), ("dependencies", dependencies),
              ("foreign files", foreign_files), ("sql dates", sql_dates), ("process dates", process_dates),
              ("clear IsChanged", clear), ("push-pkg", install), ("script compile", scripts), ("compilation log", compilation),
              ("compile-package", compile_package), ("baseline", check_baseline), ("publish", publish))

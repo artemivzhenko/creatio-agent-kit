@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Synchronize the test framework's environment configuration from project.json."""
+"""Synchronize the test framework's environment configuration from project.json; bootstrap the unit-test project."""
 
 import argparse
 import csv
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -128,6 +131,128 @@ def tasks_from_csv(csv_file: Path, tasks: Path, key: str, title: str, text: str,
     return lines + [", ".join(f"{k} {v}" for k, v in counts.items())]
 
 
+REDIRECTS_PS = ("Get-ChildItem -LiteralPath '{bin}' -Filter *.dll | Where-Object {{ $_.Name -like 'Terrasoft.*' -or $_.Name -like "
+                "'Creatio.*' }} | ForEach-Object {{ try {{ $n = [Reflection.AssemblyName]::GetAssemblyName($_.FullName); "
+                "$t = ($n.GetPublicKeyToken() | ForEach-Object {{ $_.ToString('x2') }}) -join ''; "
+                "if ($t) {{ \"$($n.Name) $($n.Version) $t\" }} }} catch {{ }} }}")
+
+
+def _app_config(identities: str) -> str:
+    """app.config redirecting every listed assembly (`name version token` lines) to that version: the clio test kit is
+    built on other platform builds than the local binaries the tests run against (gap 13: FileLoadException in SetUp)."""
+    entries = "".join(
+        f'\t\t\t<dependentAssembly>\n\t\t\t\t<assemblyIdentity name="{n}" publicKeyToken="{t}" culture="neutral" />\n'
+        f'\t\t\t\t<bindingRedirect oldVersion="0.0.0.0-99.0.0.0" newVersion="{v}" />\n\t\t\t</dependentAssembly>\n'
+        for n, v, t in sorted(tuple(line.split()) for line in identities.splitlines() if len(line.split()) == 3))
+    return ('<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n\t<runtime>\n'
+            '\t\t<assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">\n' + entries +
+            '\t\t</assemblyBinding>\n\t</runtime>\n</configuration>\n')
+
+
+def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
+    """Make the package's workspace run `dotnet test` (S46-T09, gaps 12/13): a clio workspace, the package project
+    Files/<Pkg>.csproj, `clio new-test-project`, the binaries under .application/net-framework, an app.config of binding
+    redirects; then paths.unitTests, paths.solution and commands.unitTests into project.json. Each step that finds its
+    result says `exists`. (lines, ok): not ok when the test binaries are missing."""
+    run = run or subprocess.run
+    project = read_json(project_file)
+    base = project_file.resolve().parent
+    pkg = (project.get("package") or {}).get("name")
+    ws = (project.get("package") or {}).get("workspace")
+    if not pkg or not ws:
+        raise ValueError("project.json must contain package.name and package.workspace")
+    ws = Path(ws) if Path(ws).is_absolute() else base / ws
+    if not (ws / "packages" / pkg).is_dir():
+        raise ValueError(f"no package folder {ws / 'packages' / pkg}")
+    paths = project.get("paths") or {}
+    lines = []
+
+    def clio(args, cwd):
+        done = run(["clio", *args], cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if done.returncode:
+            raise RuntimeError(f"clio {args[0]} exit {done.returncode}: {((done.stdout or '') + (done.stderr or '')).strip()[-300:]}")
+
+    settings = ws / ".clio" / "workspaceSettings.json"
+    if settings.is_file():
+        lines.append("workspace: exists")
+    else:
+        clio(["create-workspace", ws.name, "--empty", "--directory", str(ws.parent), "--force"], ws.parent)
+        lines.append("workspace: created (clio create-workspace --empty)")
+    data = read_json(settings)
+    wanted = {"Packages": list(dict.fromkeys([*(data.get("Packages") or []), pkg])),
+              "ApplicationVersion": (project.get("environment") or {}).get("platformVersion") or data.get("ApplicationVersion")}
+    changed = [k for k, v in wanted.items() if data.get(k) != v]
+    if changed:
+        data.update(wanted)
+        settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    lines.append("workspace settings: " + (f"set {', '.join(changed)}" if changed else "exist"))
+
+    files = ws / "packages" / pkg / "Files"
+    names = (f"{pkg}.csproj", "Directory.Build.targets")
+    missing = [n for n in names if not (files / n).is_file()]
+    if missing:
+        with tempfile.TemporaryDirectory() as tmp:  # clio's own template: add-package in a scratch workspace
+            clio(["create-workspace", "tmpws", "--empty", "--directory", tmp], tmp)
+            clio(["add-package", pkg], Path(tmp) / "tmpws")
+            files.mkdir(parents=True, exist_ok=True)
+            for n in missing:  # not Libs/*.dll: binaries do not belong in the package (two MSB3245 warnings at build)
+                shutil.copyfile(Path(tmp) / "tmpws" / "packages" / pkg / "Files" / n, files / n)
+    lines.append("package project: " + (f"wrote {', '.join('Files/' + n for n in missing)}" if missing else "exists"))
+
+    tests = ws / "tests" / pkg
+    if (tests / f"{pkg}.Tests.csproj").is_file():
+        lines.append("test project: exists")
+    else:
+        clio(["new-test-project", "--package", pkg], ws)
+        if not (tests / f"{pkg}.Tests.csproj").is_file():
+            raise RuntimeError(f"clio new-test-project wrote no {tests / (pkg + '.Tests.csproj')}")
+        lines.append(f"test project: created tests/{pkg}")
+    solution = next(iter(sorted((ws / "tests").glob("*.sln*"))), tests / f"{pkg}.Tests.csproj")
+
+    # the test csproj and .build-props/env.dev-nf.props read the binaries from clio's layout; a copy, not a link: a clio
+    # command that refreshes .application must never delete inside a platform install
+    app = ws / ".application" / "net-framework"
+    ok = True
+    if (app / "core-bin" / "Terrasoft.Core.dll").is_file():
+        lines.append("test binaries: exist")
+    elif paths.get("unitTestBin"):
+        source = Path(paths["unitTestBin"]) if Path(paths["unitTestBin"]).is_absolute() else base / paths["unitTestBin"]
+        confs = sorted(source.parent.glob("conf/bin/*/Terrasoft.Configuration.dll"), key=lambda p: p.stat().st_mtime)
+        if not (source / "Terrasoft.Core.dll").is_file() or not confs:
+            raise ValueError(f"{source}: no Terrasoft.Core.dll, or no conf/bin/*/Terrasoft.Configuration.dll beside it (paths.unitTestBin)")
+        shutil.copytree(source, app / "core-bin", dirs_exist_ok=True)
+        (app / "bin").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(confs[-1], app / "bin" / "Terrasoft.Configuration.dll")
+        lines.append(f"test binaries: copied from {source}")
+    else:
+        ok = False
+        lines.append("test binaries: missing - set paths.unitTestBin in project.json (a local Terrasoft.WebApp/bin the "
+                     "clio test kit accepts: 8.3.2 or newer) and run again")
+    config = tests / "app.config"
+    if config.is_file():
+        lines.append("app.config: exists")
+    elif ok:
+        done = run(["powershell", "-NoProfile", "-Command", REDIRECTS_PS.format(bin=str(app / "core-bin").replace("'", "''"))],
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if done.returncode or not done.stdout.strip():
+            raise RuntimeError(f"no assembly identities read from {app / 'core-bin'}: {(done.stderr or '').strip()[-300:]}")
+        config.write_text(_app_config(done.stdout), encoding="utf-8")
+        lines.append(f"app.config: wrote {config.read_text(encoding='utf-8').count('<bindingRedirect')} binding redirects")
+
+    command = f'dotnet test "{solution}" -c dev-nf'
+    raw = json.loads(project_file.read_text(encoding="utf-8-sig"))  # the file as it is, not read_json's comment-free copy
+    updates = {("paths", "unitTests"): str(tests), ("paths", "solution"): str(solution), ("commands", "unitTests"): command}
+    changed = [f"{a}.{b}" for (a, b), v in updates.items() if (raw.get(a) or {}).get(b) != v]
+    if changed:
+        for (a, b), v in updates.items():
+            raw.setdefault(a, {})[b] = v
+        project_file.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    lines.append("project.json: " + (f"set {', '.join(changed)}" if changed else "up to date"))
+    lines.append(f"run the unit tests: {command}  (it rebuilds Files/Bin/{pkg}.dll against these binaries: "
+                 "push with `push.py --build`)")
+    return lines, ok
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -143,7 +268,17 @@ def main(argv=None) -> int:
     cmd.add_argument("--status", default="Status")
     cmd.add_argument("--done", default="", help="comma-separated statuses to skip")
     cmd.add_argument("--dry-run", action="store_true")
+    cmd = sub.add_parser("tests-init", help="make the workspace run the package's unit tests; write the run command into project.json")
+    cmd.add_argument("project", type=Path)
     args = parser.parse_args(argv)
+    if args.command == "tests-init":
+        try:
+            lines, ok = tests_init(args.project)
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"tests-init failed: {exc}", file=sys.stderr)
+            return 1
+        print("\n".join(lines))
+        return 0 if ok else 1
     if args.command == "tasks-from-csv":
         try:
             done = {d.strip() for d in args.done.split(",") if d.strip()}

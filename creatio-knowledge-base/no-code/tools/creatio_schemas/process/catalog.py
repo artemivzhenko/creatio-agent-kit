@@ -142,6 +142,8 @@ class UserTaskKind(ElementKind):
                 p["L16"] = tp["refSchemaName"]
             if tp.get("direction") is not None:
                 p["L12"] = tp["direction"]
+            if tp.get("result"):
+                p["L13"] = True  # the result parameter: a button flow out of a page task is read through it (else the install fails)
             el["BP2"].append(p)
             proc.own_list("BK15").append({"BL1": NS + "ProcessSchemaMapping", "UId": new_uid(), "A2": el["A2"], "A3": proc.uid, "A4": proc.uid,
                                   "GT2": f"[Element:{{{el['UId']}}}].[Parameter:{{{p['UId']}}}]", "GT3": p["UId"],

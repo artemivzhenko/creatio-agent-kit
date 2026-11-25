@@ -21,13 +21,13 @@ try:
 except ImportError:  # pragma: no cover - older SDK
     from mcp.server.fastmcp import FastMCP as _Server  # mcp 1.x
 
-# Role profiles (S41-T02): CREATIO_KB_ROLE=author|tester registers only that role's tools, `all` (the default) every tool.
+# Role profiles (S41-T02): CREATIO_KB_ROLE=dev|tester registers only that role's tools, `all` (the default) every tool.
 # The sets are the tools the creatio-kb, creatio-loop and role skills name (S41-T01 census, 2026-11-23), report_gap and
 # tool_stats in both; the role contract takes out what the role never does: the tester never pushes (push_package), the
 # author never fires a timer (fire_timer). A tool a session needs and its profile lacks is a gap to record, not a reason
 # to switch to `all`.
 PROFILES: dict[str, set[str]] = {
-    "author": {
+    "dev": {
     "describe_item", "describe_package", "describe_schema", "describe_table", "env_call", "env_odata", "env_sql",
     "find_api", "find_schema", "find_text", "get_code_style", "get_recipe", "index_workspace", "kb_overview",
     "list_lookups", "lookup_values", "page_audit", "precommit_check", "process_error", "process_runs", "push_package",
@@ -1023,16 +1023,16 @@ def sample_records(env: str, entity: str, filter: str = "", n: int = 3, columns:
 
 
 @mcp.tool()
-def make_fixture(env: str, entity: str, alias: str = "A", columns: str = "") -> str:
+def make_fixture(env: str, entity: str, alias: str = "A", columns: str = "", workspace: str = "") -> str:
     """A synthetic record of the object's shape as a DSL block for a backend case (`insert <Entity> as <alias> set ...`):
-    the required columns (NOT NULL without a default; name the others in `columns`), text `<Column> <alias>`, numbers 1,
+    the required columns (NOT NULL without a default, and with `workspace` - the clio workspace or package path, `package.workspace` of project.json - the ones the object's metadata marks required; name the others in `columns`), text `<Column> <alias>`, numbers 1,
     dates today, booleans false; a lookup takes its first row by Name (the Id, its Name in a `#` line above); a reference
     to another object gets its own `insert` above, bound as `$<Column>`, one level deep (deeper: a `# set by hand` line);
-    then the `delete` lines for the case's end, newest first. Ends with `columns: K required, L lookups resolved, M references
-    inserted`. A column the site requires beyond the database (an insert failing with "<column> field must be filled in")
-    goes into `columns`. Writes nothing: paste the inserts at the top of the case, the deletes at its end. Read-only."""
+    then the `delete` lines for the case's end, newest first. Ends with `columns: K required (workspace|database), L lookups resolved, M references
+    inserted`; a lookup with no rows is a `no rows - insert one first` line. A column the site requires beyond that (an insert failing with
+    "<column> field must be filled in") goes into `columns`. Writes nothing: paste the inserts at the top of the case, the deletes at its end. Read-only."""
     from creatio_schemas.testdata import make_fixture as _fixture
-    return _answer(env, lambda e: _fixture(e, entity.strip(), alias.strip() or "A", columns), 0)
+    return _answer(env, lambda e: _fixture(e, entity.strip(), alias.strip() or "A", columns, workspace.strip() or None), 0)
 
 
 @mcp.tool()
@@ -1205,10 +1205,12 @@ def precommit_check(workspace: str) -> str:
     `index_workspace(env=)` pass found on the site in another package (reuse it). Lines that do not stop (`no site pass yet`, a
     physical column) follow as `note:` lines. Read-only (git is only read)."""
     _tools_path()
-    from creatio_schemas.describe.review import precommit
+    from creatio_schemas.describe.review import NotGitTree, precommit
     try:
         notes: list[str] = []
         problems = precommit(workspace, notes)
+    except NotGitTree as e:
+        return str(e)
     except (FileNotFoundError, RuntimeError) as e:
         return f"error: {e}"
     return "\n".join(problems + [f"note: {n}" for n in notes] + ["exit code 1"]) if problems else "\n".join([f"note: {n}" for n in notes] + ["ok"])

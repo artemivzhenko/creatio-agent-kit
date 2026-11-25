@@ -139,6 +139,19 @@ def test_toolkit_refusal_stops_the_write():
     assert scaffold.EntitySchema.errors is original
 
 
+def test_pages_warn_when_the_templates_package_is_not_a_dependency():
+    flags = ["--caption", "Shipment", "--pages", "--dry-run"]
+    with package() as pkg:
+        code, out = run("entity", str(pkg), "UsrShipment", *flags)
+        assert code == 0 and "warning: the page templates live in CrtUIPlatform" in out and "deps UsrPkg -e <env> --add CrtUIPlatform" in out, out
+        code, out = run("entity", str(pkg), "UsrShipment", "--caption", "Shipment", "--dry-run")
+        assert "warning:" not in out  # no pages, no warning
+        text = (pkg / "descriptor.json").read_bytes().decode("utf-8")
+        (pkg / "descriptor.json").write_bytes(text.replace('"Name": "CrtBase"', '"Name": "CrtUIPlatform"', 1).encode("utf-8"))
+        code, out = run("entity", str(pkg), "UsrShipment", *flags)
+        assert code == 0 and "warning:" not in out, out
+
+
 def test_source_and_module():
     with package() as pkg:
         code, out = run("source", str(pkg), "UsrOrderRecalc", "--caption", "Order recalculation")

@@ -14,6 +14,7 @@
 --     signal and by Execute; after `clio restart-web-app` both are refused ("The process is not active").
 --     Whether the package install alone restarts the engine was not checked: restart the site after the install,
 --     or call DisableProcess once.
+--     From the kit: `python no-code/tools/env/site.py -e <env> restart` or `process-off <ProcessName>`.
 --
 -- Customize:
 --   - '5d2a1c3e-0000-4000-8000-000000000001' -> the process schema's UId (descriptor.json of the process).

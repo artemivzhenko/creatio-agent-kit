@@ -24,9 +24,22 @@
       "type": "Button"
     },
     {
+      "code": "CancelButton",
+      "label": "Cancel",
+      "type": "Button",
+      "pinned": true
+    },
+    {
       "code": "CloseButton",
       "label": "Close",
       "type": "Button"
+    },
+    {
+      "code": "SaveButton",
+      "label": "Save",
+      "type": "Button",
+      "pinned": true,
+      "isSave": true
     },
     {
       "code": "SetRecordRightsButton",

@@ -32,7 +32,15 @@ TEMPLATE_ELEMENTS: dict[str, list[dict]] = {
         {"code": "BackButton", "label": "", "type": "Button"},
         {"code": "CloseButton", "label": "Close", "type": "Button"},
         {"code": "SetRecordRightsButton", "label": "", "type": "Button"},
+        {"code": "SaveButton", "label": "Save", "type": "Button", "pinned": True, "isSave": True},  # as the tester's page files have them
+        {"code": "CancelButton", "label": "Cancel", "type": "Button", "pinned": True},
         {"code": "GeneralInfoTab", "label": "General information", "type": "Tab"},
         {"code": "CardButtonToggleGroup", "label": "", "type": "ToggleTab", "tabs": ["Feed", "Attachments"]},
+    ],
+    # a process's pre-configured page (S45-T09): the buttons a page task element completes on; a page with no data source saves nothing
+    "BaseMiniPageTemplate": [
+        {"code": "CancelButton", "label": "Cancel", "type": "Button"},
+        {"code": "CloseButton", "label": "Close", "type": "Button"},
+        {"code": "SaveButton", "label": "Save", "type": "Button"},
     ],
 }

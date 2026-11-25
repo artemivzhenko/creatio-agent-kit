@@ -89,6 +89,8 @@ def test_code_style_whole_and_section():
     assert KB.code_style().startswith("# Creatio C# Code Style")
     assert KB.code_style("5").startswith("## 5. Logging")
     assert KB.code_style("review checklist").startswith("## 9.")
+    assert KB.code_style("3.8").startswith("### 3.8 ") and "\n## " not in KB.code_style("3.8")  # gap line 11: one sub-section
+    assert KB.code_style("3").startswith("## 3. ")
     assert KB.code_style("nonsense") == ""
     if (Path(KB.root) / "CREATIO_FRONTEND_CODE_STYLE.md").is_file():
         assert KB.code_style(guide="frontend").startswith("# Creatio Front-End Code Style")

@@ -11,7 +11,7 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | Command | Syntax | Target | Example |
 | --- | --- | --- | --- |
 | use | `use <user>` (a browser opens at the first page, never for a backend case) | none | `use testUser` |
-| open | `open <page> [for <record>]` | none | `open ContactForm for ContactRecord` |
+| open | `open <page> [for <record>]` \| `open process-task <process> on <page>` | none | `open ContactForm for ContactRecord` |
 | check | `check <code> [not] exists` \| `check <code> is [not] required\|readonly\|editable\|shown` \| `check <code> columns` \| `check console\|network no errors [except "<regex>"]` \| `check dialog [not] shown\|contains "<text>"\|matches "<regex>"\|count <op> <n>` | `IExistable`; `required`/`readonly` need `IStateAware`, `editable` needs `IEditableAware`, `shown` needs `IVisibilityAware`, `columns` needs `IColumned`; `console` none | `check Input_Text is required` |
 | check-value | `check-value <code> eq|ne|gt|ge|lt|le|contains|startswith|endswith <value>` | `IValueElement` | `check-value Input_Text eq "Sample Name 123"` |
 | set | `set <code> "value" | set <code> <sourceCodeOrStaticValue>` | `IValueElement` | `set Input_Text DefInput` |
@@ -88,7 +88,7 @@ check-process UsrOrder_Process running            # waits on a timer, not finish
 `started` needs a run of the process, `running` a run with no `CompleteDate`, `step "<caption>" completed|running` an element of such a run with that caption (case-blind) that has,
 or has not, completed (`SysProcessElementLog`). The runs counted are those that started after the line before the last action began: the platform links a run to a record only in
 binary process data, so the start time is the link, and `for $record` is accepted to say which record the check is about but does not narrow the query. Consecutive `check-process` lines
-look back from the same moment. `within` polls like `wait-record`; without it the check reads once. A site whose process log is empty fails with `process logging is off for <process>`,
+look back from the same moment; the run the case's last `start` of the same process began is counted too, whenever it began (S45-T09). `within` polls like `wait-record`; without it the check reads once. A site whose process log is empty fails with `process logging is off for <process>`,
 never with "step not found"; a missing step lists the steps the runs did have.
 
 ### Waiting for a process
@@ -109,6 +109,26 @@ how many reads it took and what the last read showed (`gave up after 3 s (4 read
 which is not eq "Done".`). Only a false condition is read again: an error of the read itself (a wrong column, the service down) fails at once.
 The budget is not the case's step timeout: a wait of a minute is a minute of the run. Validation reports a missing or malformed `within`
 and every error of the check line, naming `wait-record` / `wait-count`.
+
+### A process's pre-configured page: `open process-task`
+
+A pre-configured page (a Freedom UI page a running process task shows, a mini page over the current one) has no address of
+its own: the application opens it from the task's element id. `open process-task <process> on <page>` does the same: it takes
+the newest waiting element of the newest running run of the process that started since the case began (`SysProcessLog`,
+`SysProcessElementLog` over OData; it waits up to `pageCheckTimeoutMs` for one), asks the application to open it
+(`crt.OpenProcessPageRequest`, the request the communication panel's task list sends), over the page open in the tab or over
+the Shell when none is, and binds the configured `<page>` (as `on` does), so `set` / `click` / `check` work on it. The page
+file is written from the page schema (`pages.py from-schema <package> <Page>`; the template's `SaveButton` and `CancelButton`
+are the buttons the process element completes on; `analyse` cannot reach the page, it takes an address). No run waiting fails
+with `no running task of <process> ...`. The run the case started itself is counted by `check-process` whenever it began, so the
+check after the button sees it.
+
+```
+start UsrS45T09_Process
+open process-task UsrS45T09_Process on UsrS45T09Page
+click SaveButton
+check-process UsrS45T09_Process step "Add order" completed within 20 second
+```
 
 ### Navigating inside the application: `navigate`
 
@@ -169,6 +189,8 @@ dialogs count, and one nested in another counts once.
 `set <stage bar> "<stage>" no-answer` (Classic) clicks the stage and leaves the confirmation open, without waiting for the save
 and without reading the stage column; without `no-answer` the stage bar answers its confirmation itself, as before. `click <code>
 no-answer` is accepted for the same reading of the line: a click never answers a dialog, so the word changes nothing at run time.
+
+`click <Button> expect error "<text>"` (Freedom UI buttons) is the UI twin of `insert ... expect error`: the click runs without the `isSave` wait and the pass is a refusal that shows the text (case-blind) in a message under a control, the error toast or a dialog; a save that went through or another text fails the line with `expected the refusal "<text>", the page showed: <what it showed>`. The text is required.
 `no-answer` on any other element of `set` is a validation error.
 
 ### List pages (Freedom UI sections)

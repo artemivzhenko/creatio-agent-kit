@@ -57,6 +57,7 @@ python proc.py element   <package> <Process> formula <Name> "<expression>" --res
 python proc.py element   <package> <Process> values <Name> Column=value .. [--expr]     Add / Modify data: the columns it writes
 python proc.py element   <package> <Process> map <Name> Param=value .. [--expr]        sub-process: the called process's parameters
 python proc.py element   <package> <Process> filter <Name> "<Column> = {Parameter:X}; <Column> is not null"   Read / Modify / Delete data
+python proc.py element   <package> <Process> count <Name> [--into <IntegerParam>]   Read data: count the records, ResultCount into a parameter (a formula task)
 python proc.py flow      <package> <Process> add <Src> <Dst> [--condition "{Parameter:X} > 0"] [--name ..] [--caption ..]
 python proc.py flow      <package> <Process> remove <Name> | condition <Name> "<expr>"
 python proc.py script    <package> <Process> get <Element> [--out file] | set <Element> --file body.cs
@@ -248,6 +249,11 @@ conditions over the element's object (`--entity` first); a right side that is on
 value `{"value": "<meta path without [# #]>", "displayValue": "X"}` (runtime form: `{"value": ...}` only), as 1200 of
 1200 designer-written filters of the local workspaces hold it. Modify data also gets `IsMatchConditions` true (318 of
 318 designer ones have it). `inspect` prints `filter: UsrOrder where Id = OrderId and UsrAmount > 100`.
+
+**Read data counts rows** with `ResultType` 1 (Function) and `FunctionType` 0 (Count); the count lands in `ResultCount` (platform fact P-1.16).
+
+`element count <Name> [--into <Param>]` sets the two values on a Read data element; with `--into` it adds a formula task `<Name>Into` after it that copies `ResultCount` into that process parameter
+(created as Integer when missing; the element's own `ResultCount` mapping is not an output mapping - a run left the parameter 0); a gateway reads the count as `{Parameter:<Param>}` or `{Element:<Name>.Parameter:ResultCount}`.
 
 ```bash
 python proc.py element UsrPkg UsrOrder_Process filter ReadOrder "Id = {Parameter:OrderId}; UsrStatus is not null"
