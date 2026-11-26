@@ -134,24 +134,31 @@ class UserTaskKind(ElementKind):
         el["J6"] = self.manager
         spec = USER_TASKS[self.task]
         for tp in spec["parameters"]:
-            p = {"BL1": NS + "ProcessSchemaParameter", "UId": new_uid(), "A2": tp["name"], "A3": spec["uid"], "A4": spec["uid"],
-                 "IL2": el["UId"], "L1": tp["type"], "L8": dict(tp["default"])}
-            if tp.get("refSchemaUId"):
-                p["L9"] = tp["refSchemaUId"]
-            if tp.get("refSchemaName"):
-                p["L16"] = tp["refSchemaName"]
-            if tp.get("direction") is not None:
-                p["L12"] = tp["direction"]
-            if tp.get("result"):
-                p["L13"] = True  # the result parameter: a button flow out of a page task is read through it (else the install fails)
-            el["BP2"].append(p)
-            proc.own_list("BK15").append({"BL1": NS + "ProcessSchemaMapping", "UId": new_uid(), "A2": el["A2"], "A3": proc.uid, "A4": proc.uid,
+            add_task_param(proc, el, spec, tp)
+
+
+def add_task_param(proc, el: dict, spec: dict, tp: dict) -> dict:
+    """One parameter of the user task `spec` ({uid, captions}) on the element, with its mapping row and captions; `tp` is a
+    parameter of assets/user_tasks.json ({name, uid, type, default, refSchemaUId, refSchemaName, direction, result})."""
+    p = {"BL1": NS + "ProcessSchemaParameter", "UId": new_uid(), "A2": tp["name"], "A3": spec["uid"], "A4": spec["uid"],
+         "IL2": el["UId"], "L1": tp["type"], "L8": dict(tp.get("default") or {})}
+    if tp.get("refSchemaUId"):
+        p["L9"] = tp["refSchemaUId"]
+    if tp.get("refSchemaName"):
+        p["L16"] = tp["refSchemaName"]
+    if tp.get("direction") is not None:
+        p["L12"] = tp["direction"]
+    if tp.get("result"):
+        p["L13"] = True  # the result parameter: a button flow out of a page task is read through it (else the install fails)
+    el["BP2"].append(p)
+    proc.own_list("BK15").append({"BL1": NS + "ProcessSchemaMapping", "UId": new_uid(), "A2": el["A2"], "A3": proc.uid, "A4": proc.uid,
                                   "GT2": f"[Element:{{{el['UId']}}}].[Parameter:{{{p['UId']}}}]", "GT3": p["UId"],
-                                  "GT5": tp["uid"], "GT4": spec["uid"], "GT1": dict(tp["default"])})
-            captions = spec["captions"].get(f"Parameters.{tp['name']}.Caption", {})
-            for culture in proc.resources.cultures:
-                if culture in captions:
-                    proc.resources.set(f"BaseElements.{el['A2']}.Parameters.{tp['name']}.Caption", captions[culture], [culture])
+                                  "GT5": tp["uid"], "GT4": spec["uid"], "GT1": dict(tp.get("default") or {})})
+    captions = spec.get("captions", {}).get(f"Parameters.{tp['name']}.Caption", {})
+    for culture in proc.resources.cultures:
+        if culture in captions:
+            proc.resources.set(f"BaseElements.{el['A2']}.Parameters.{tp['name']}.Caption", captions[culture], [culture])
+    return p
 
 
 ELEMENT_KINDS: dict[str, ElementKind] = {

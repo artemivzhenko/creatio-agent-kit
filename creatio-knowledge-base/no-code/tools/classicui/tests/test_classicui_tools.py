@@ -485,14 +485,235 @@ def test_a_method_in_every_layer_its_callers_and_the_outline():
                     return [{"package": "UsrA", "level": "1"}, {"package": "UsrB", "level": "2"}, {"package": "Custom", "level": "9"}]
                 rows = [("UsrA", "false", (top.parent / "UsrA" / "Schemas" / "UsrOrderPage" / "UsrOrderPage.js").read_text(encoding="utf-8"), "2"),
                         ("UsrB", "true", "define('UsrOrderPage', [], function() { return {}; });", "1"), ("Custom", "true", site_custom, "0")]
-                return [{"package": p, "extendParent": e, "modifiedOn": "", "modifiedBy": "", "isChanged": "false", "manager": "ClientUnitSchemaManager",
-                         "size": "1", "md5": "x", "body": b, "sl": "0", "pl": l} for p, e, b, l in rows]
+                if "generate_series" in text:  # the layers query has no body column (S48-T04): each body is read by its Id
+                    import base64
+                    import hashlib
+                    data = next(b for p, _, b, _ in rows if f"'id-{p}'" in text).encode()
+                    return [{"i": "0", "b64": base64.b64encode(data).decode(), "md5": hashlib.md5(data).hexdigest()}]
+                return [{"id": f"id-{p}", "package": p, "extendParent": e, "modifiedOn": "", "modifiedBy": "", "isChanged": "false",
+                         "manager": "ClientUnitSchemaManager", "size": "1", "md5": "x", "sl": "0", "pl": l} for p, e, b, l in rows]
 
         text = method_lines(ClassicSchema(top, "UsrOrderPage"), "init", Site(), "dev").split("\n")
         assert text[:4] == ["UsrOrderPage.init on dev: 3 of 4 layers define it, applied first to last (the last one runs first)",
                             "  UsrA  (site): line 4, 3 lines, callParent", "  UsrB  (site): -", "  Custom  (site only): line 4, 3 lines, callParent",
                             ], text[:4]
         assert text[4] == "  UsrC  (not on the site): line 10, 3 lines, no callParent: the layers below do not run", text
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+class FakeEnv:
+    """env.sql answers from a function of the query text; the queries are kept."""
+
+    def __init__(self, answer):
+        self.answer, self.queries = answer, []
+
+    def sql(self, text):
+        self.queries.append(text)
+        return self.answer(text)
+
+
+def test_new_schema_with_a_parent():
+    with workspace() as ws:
+        d = ClassicSchema.create_new(ws / "UsrPkg2", "UsrItemDetail", "BaseGridDetailV2", entity="UsrItem", caption="Items", cultures=["en-US"])
+        meta = d.metadata_text.split("\r\n")
+        assert [" ".join(ln.split(" ")[:2]) for ln in meta] == ["= MetaData.Schema." + k for k in ("UId", "A2", "A5", "B6", "B8")] + \
+            ["- MetaData.Schema.B7", "+ MetaData.Schema.B7", "= MetaData.Schema.HD1"], meta
+        assert meta[-1] == '= MetaData.Schema.HD1 "01eb38ee-668a-42f0-999d-c2534f979089"' and meta[-2] == "+ MetaData.Schema.B7 false"
+        assert d.parent == "BaseGridDetailV2" and not d.replacing and "ExtendParent" not in d.descriptor.text and d.kind == "detail"
+        assert d.schema_type == "GridDetailViewModelSchema" and d.entity == "UsrItem" and d.module_name == "UsrItemDetail"
+        assert d.resources.get("Caption") == "Items" and on_disk(d) and d.validate() == [] and d.diff_operations() == []
+        # a workspace parent: its UId and its SchemaType
+        p = ClassicSchema.create_new(ws / "UsrPkg2", "UsrOrderSubPage", "UsrOrderPage")
+        assert p.descriptor.data["Parent"]["UId"] == "6938833f-2dad-4181-ad5e-b6a12ac1267d" and p.schema_type == "EditViewModelSchema"
+        # neither: the site's row with --env, else refused with the query
+        env = FakeEnv(lambda q: [{"uid": "abcabcab-0000-4000-8000-000000000001"}])
+        s = ClassicSchema.create_new(ws / "UsrPkg2", "UsrAbcSection", "AbcSectionV2", env=env)
+        assert s.descriptor.data["Parent"]["UId"] == "abcabcab-0000-4000-8000-000000000001" and "'AbcSectionV2'" in env.queries[0]
+        assert s.schema_type == "ModuleViewModelSchema"
+        refused(lambda: ClassicSchema.create_new(ws / "UsrPkg2", "UsrX", "AbcPageV2"), ValueError, "SysSchema")
+        refused(lambda: ClassicSchema.create_new(ws / "UsrPkg2", "UsrX", "AbcPageV2", env=FakeEnv(lambda q: [])), ValueError, "on the site")
+        refused(lambda: ClassicSchema.create_new(ws / "UsrPkg2", "UsrOrderPage", "BasePageV2"), FileExistsError)
+
+
+def test_diff_add_appends_one_operation():
+    with workspace() as ws:
+        s = ClassicSchema(ws / "UsrPkg", "UsrOrderPage")
+        before, ops = s.body, s.diff_operations()
+        text = s.add_diff("insert", "UsrTerms", "Header", index=3, values={"bindTo": "UsrTerms", "layout": {"colSpan": 8, "rowSpan": 1, "column": 0, "row": 18}})
+        assert text.startswith('{\n\t"operation": "insert",\n\t"name": "UsrTerms",\n\t"values": {\n\t\t"bindTo": "UsrTerms",')
+        s.add_diff("remove", "UsrOldField")
+        s.add_diff("move", "UsrStatus", "LeftContainer", index=0)
+        s.save()
+        s = ClassicSchema(ws / "UsrPkg", "UsrOrderPage")
+        assert on_disk(s) and "\n" not in s.body.replace("\r\n", "")  # CRLF kept
+        new = s.diff_operations()[len(ops):]
+        assert [(o["operation"], o["name"], o["parentName"], o["index"]) for o in new] == [
+            ("insert", "UsrTerms", "Header", "3"), ("remove", "UsrOldField", None, None), ("move", "UsrStatus", "LeftContainer", "0")]
+        assert '"layoutName": "Header"' in new[0]["source"] and new[0]["values"] == ["bindTo", "layout"]
+        cut = ops[-1]["at"] + len(ops[-1]["source"])
+        assert s.body[:cut] == before[:cut] and s.body.endswith(before[cut:])  # only the new items between
+        assert '\r\n\t\t\t\t{\r\n\t\t\t\t\t"operation": "remove",\r\n\t\t\t\t\t"name": "UsrOldField"\r\n\t\t\t\t}' in s.body
+        refused(lambda: s.add_diff("insert", "UsrTerms", "Header"), ValueError, "already")
+        refused(lambda: s.add_diff("insert", "UsrX"), ValueError, "parent")
+        refused(lambda: s.add_diff("remove", "UsrX", "Header"), ValueError, "only the name")
+        refused(lambda: s.add_diff("delete", "UsrX"), ValueError, "op is one of")
+        # an empty diff (the new schema's) gets its first item inside the markers
+        d = ClassicSchema.create_new(ws / "UsrPkg2", "UsrItemDetail", "BaseGridDetailV2")
+        d.add_diff("merge", "DataGrid", "Detail", values={"type": 1})
+        assert "diff: /**SCHEMA_DIFF*/[\n\t\t\t{\n\t\t\t\t\"operation\": \"merge\"," in d.body and d.body.count("/**SCHEMA_DIFF*/") == 2
+        assert d.diff_operations()[0]["name"] == "DataGrid"
+
+
+def test_add_string_overrides_a_string_of_the_parent_chain():
+    with workspace() as ws:
+        page = ClassicSchema(ws / "UsrPkg", "UsrOrderPage")
+        page.add_string("UsrHint", {"en-US": "Hint"})
+        page.save()
+        hint = item_uid(page, "UsrHint")
+        child = ClassicSchema.create_new(ws / "UsrPkg2", "UsrOrderSubPage", "UsrOrderPage", cultures=["en-US"])
+        said = child.add_string("UsrHint", {"en-US": "Other hint"})
+        assert said.startswith(f"UsrHint: overrides the string {hint} of UsrPkg/UsrOrderPage"), said
+        uid, a5 = child.descriptor.data["UId"], child._diff().value("MetaData.Schema.A5")
+        assert f'= MetaData.Schema.B2.["{hint}"].A4 "{uid}"\r\n= MetaData.Schema.B2.["{hint}"].A5 "{a5}"\r\n= MetaData.Schema.B6' in child.metadata_text
+        assert "+ MetaData.Schema.B2" not in child.metadata_text and child.resources.get("LocalizableStrings.UsrHint.Value") == "Other hint"
+        child.add_string("UsrHint", {"en-US": "Again"})  # the override is written once
+        assert child.metadata_text.count(hint) == 2
+        assert child.add_string("UsrOwn", {"en-US": "Own"}).startswith("UsrOwn: a new string of UsrOrderSubPage")  # the parent lacks it
+        assert child.add_string("UsrOwn", {"en-US": "Own 2"}) == "UsrOwn: a string of UsrOrderSubPage already"
+        # a parent only the site holds: its MetaData by --env
+        d = ClassicSchema.create_new(ws / "UsrPkg2", "UsrItemDetail", "BaseGridDetailV2")
+        env = FakeEnv(lambda q: [{"name": "BaseGridDetailV2", "uid": None}, {"name": "BaseDetailV2", "uid": "9d45150e-4614-4ebc-bd6a-72c206c111e9"}])
+        assert "of BaseDetailV2 on the site" in d.add_string("Caption", {"en-US": "Items"}, env)
+        assert '"A2"\\s*:\\s*"Caption"' in env.queries[0] and "'01eb38ee-668a-42f0-999d-c2534f979089'" in env.queries[0]
+        assert '= MetaData.Schema.B2.["9d45150e-4614-4ebc-bd6a-72c206c111e9"].A4' in d.metadata_text
+        assert d.add_string("UsrNone", {"en-US": "x"}, FakeEnv(lambda q: [])).startswith("UsrNone: a new string")
+
+
+def test_new_and_diff_add_cli():
+    with workspace() as ws:
+        pkg = str(ws / "UsrPkg2")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            assert main(["new", pkg, "UsrItemDetail", "--parent", "BaseGridDetailV2", "--entity", "UsrItem", "--cultures", "en-US"]) == 0
+            assert main(["new", pkg, "UsrNope", "--parent", "AbcPageV2"]) == 2
+            body = ws / "UsrPkg2" / "Schemas" / "UsrItemDetail" / "UsrItemDetail.js"
+            before = read(body)
+            assert main(["diff", "add", pkg, "UsrItemDetail", "--op", "insert", "--name", "UsrTerms", "--parent", "Header", "--bind-to", "UsrTerms",
+                         "--row", "18", "--col", "0", "--col-span", "8", "--dry-run"]) == 0
+            assert read(body) == before
+            assert main(["diff", "add", pkg, "UsrItemDetail", "--op", "insert", "--name", "UsrTerms", "--parent", "Header", "--bind-to", "UsrTerms",
+                         "--row", "18", "--col", "0", "--col-span", "8", "--values", "enabled=false", "caption=Terms"]) == 0
+            assert main(["diff", "add", pkg, "UsrItemDetail", "--op", "remove", "--name", "UsrTerms", "--parent", "Header"]) == 2
+            assert main(["add-string", pkg, "UsrItemDetail", "UsrHint", "en-US=Hint"]) == 0
+        text = out.getvalue()
+        assert "created UsrItemDetail (detail) with parent BaseGridDetailV2 (01eb38ee-668a-42f0-999d-c2534f979089)" in text
+        assert '"layout": {' in text and '"colSpan": 8' in text and "UsrHint: a new string of UsrItemDetail" in text
+        op = ClassicSchema(ws / "UsrPkg2", "UsrItemDetail").element("UsrTerms")[0]
+        assert op["values"] == ["enabled", "caption", "bindTo", "layout"] and '"enabled": false' in op["source"] and '"caption": "Terms"' in op["source"]
+
+
+def _classic_layers(root: Path, bodies: dict) -> Path:
+    """packages/<pkg>/Schemas/UsrOrderPage per body (the first one the own copy, each next one depending on the one before)."""
+    names = list(bodies)
+    for n, (pkg, body) in enumerate(bodies.items()):
+        d = root / "packages" / pkg / "Schemas" / "UsrOrderPage"
+        d.mkdir(parents=True)
+        (d.parent.parent / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": pkg, "UId": f"00000000-0000-0000-0000-00000000000{n}",
+                                                                                 "DependsOn": [{"Name": names[n - 1]}] if n else []}}), encoding="utf-8")
+        (d / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": f"10000000-0000-0000-0000-00000000000{n}", "Name": "UsrOrderPage",
+                                                                     "ManagerName": "ClientUnitSchemaManager", "ExtendParent": n > 0}}), encoding="utf-8")
+        (d / "UsrOrderPage.js").write_text(body, encoding="utf-8")
+    return root / "packages" / names[-1]
+
+
+def _cell(name, row, col, span, op="insert", parent="Header"):
+    where = f'"parentName": "{parent}", "propertyName": "items", ' if op != "merge" else ""
+    return (f'{{"operation": "{op}", "name": "{name}", {where}"values": {{"layout": {{"colSpan": {span}, "rowSpan": 1, "column": {col}, '
+            f'"row": {row}}}}}}}')
+
+
+def _classic_body(rules: str, ops: list[str]) -> str:
+    return ('define("UsrOrderPage", ["BusinessRuleModule"], function(BusinessRuleModule) {\n\treturn {\n' + rules
+            + '\t\tdiff: /**SCHEMA_DIFF*/[\n\t\t\t' + ",\n\t\t\t".join(ops) + '\n\t\t]/**SCHEMA_DIFF*/\n\t};\n});\n')
+
+
+def test_layout_and_rules_over_the_workspace_and_the_site_layers():
+    import base64
+    import hashlib
+    from creatio_schemas.classicui.layout import grid_lines, layout_lines, rule_lines
+
+    rule = "86cb5577-7d80-4105-bf73-9210af082df0"
+    base = _classic_body(
+        '\t\tbusinessRules: /**SCHEMA_BUSINESS_RULES*/{\n'
+        f'\t\t\t"UsrContract": {{"{rule}": {{"uId": "{rule}", "enabled": true, "removed": false, "ruleType": 1, "baseAttributePatch": "Account",\n'
+        '\t\t\t\t"comparisonType": 3, "autoClean": true, "autocomplete": false, "type": 1, "attribute": "UsrAccount"}}\n\t\t}/**SCHEMA_BUSINESS_RULES*/,\n'
+        '\t\trules: {"UsrStatus": {"UsrStatusRequired": {"ruleType": BusinessRuleModule.enums.RuleType.BINDPARAMETER,\n'
+        '\t\t\t"property": BusinessRuleModule.enums.Property.REQUIRED, "conditions": [{"leftExpression": {"type": 1, "attribute": "UsrType",\n'
+        '\t\t\t"attributePath": "Code"}, "comparisonType": Terrasoft.ComparisonType.EQUAL, "rightExpression": {"type": 0, "value": "A"}}]}}},\n',
+        [_cell("UsrName", 0, 0, 12), _cell("UsrAmount", 0, 12, 12), _cell("UsrDate", 1, 0, 12)])
+    upper = _classic_body(
+        f'\t\tbusinessRules: /**SCHEMA_BUSINESS_RULES*/{{\n\t\t\t"UsrContract": {{"{rule}": {{"uId": "{rule}", "enabled": false}}}}\n'
+        '\t\t}/**SCHEMA_BUSINESS_RULES*/,\n',
+        [_cell("UsrAmount", 2, 12, 12, "merge"), '{"operation": "remove", "name": "UsrDate"}', _cell("UsrNote", 1, 0, 12)])
+    custom = _classic_body(
+        f'\t\tbusinessRules: /**SCHEMA_BUSINESS_RULES*/{{\n\t\t\t"UsrContract": {{"{rule}": {{"uId": "{rule}", "removed": true}}}}\n'
+        '\t\t}/**SCHEMA_BUSINESS_RULES*/,\n',
+        [_cell("UsrCode", 2, 0, 12), _cell("UsrFlag", 0, 6, 2), _cell("UsrName", 5, 0, 4, "move", "Footer"), _cell("UsrName", 0, 0, 12, "move")])
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        top = _classic_layers(tmp, {"UsrA": base, "UsrB": upper})
+        parent = tmp / "packages" / "UsrBase" / "Schemas" / "UsrBasePage"  # the parent page fills Header first (a Classic Header comes from it)
+        parent.mkdir(parents=True)
+        (parent.parent.parent / "descriptor.json").write_text(json.dumps({"Descriptor": {"Name": "UsrBase", "UId": "00000000-0000-0000-0000-0000000000b0"}}),
+                                                              encoding="utf-8")
+        (parent / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": "10000000-0000-0000-0000-0000000000b0", "Name": "UsrBasePage",
+                                                                          "ManagerName": "ClientUnitSchemaManager"}}), encoding="utf-8")
+        (parent / "UsrBasePage.js").write_text(_classic_body("", [_cell("UsrTop", 3, 0, 24)]), encoding="utf-8")
+        own = tmp / "packages" / "UsrA" / "Schemas" / "UsrOrderPage" / "descriptor.json"
+        own.write_text(own.read_text(encoding="utf-8").replace('"ExtendParent": false', '"ExtendParent": false, "Parent": {"Name": "UsrBasePage"}'),
+                       encoding="utf-8")
+        site = {"UsrA": ("false", "81"), "UsrB": ("true", "107"), "Custom": ("true", "400")}
+
+        def answer(q):
+            if '"ParentId"' in q:
+                return []  # the site names no parent
+            if "generate_series" in q:  # body.read of the one copy only on the site
+                data = custom.encode()
+                return [{"i": "0", "b64": base64.b64encode(data).decode(), "md5": hashlib.md5(data).hexdigest()}]
+            if '"SysPackage" where "Name" in' in q:
+                return [{"package": p, "level": hl} for p, (_, hl) in site.items()]
+            rows = [{"id": f"id-{p}", "package": p, "extendParent": e, "manager": "ClientUnitSchemaManager", "modifiedOn": "", "size": "1", "md5": "x",
+                     "sl": "0", "pl": "0", "hl": hl} for p, (e, hl) in site.items()]
+            return rows[::-1]  # the base after the replacing copies, as the design-time function levels it on 8.3.2
+        env = FakeEnv(answer)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["layout", str(top), "UsrOrderPage"]) == 0  # the workspace only; the package names the workspace
+        assert out.getvalue().splitlines() == [
+            "UsrOrderPage.Header over 3 layers (UsrBasePage:UsrBase > UsrA > UsrB), 24 columns, the last layer wins",
+            "  row 0: 0-11 UsrName | 12-23 free", "  row 1: 0-11 UsrNote | 12-23 free", "  row 2: 0-11 free | 12-23 UsrAmount", "  row 3: 0-23 UsrTop",
+            "  UsrName  row 0 col 0 span 12x1  (placed last in UsrA)", "  UsrNote  row 1 col 0 span 12x1  (placed last in UsrB)",
+            "  UsrAmount  row 2 col 12 span 12x1  (placed last in UsrB)", "  UsrTop  row 3 col 0 span 24x1  (placed last in UsrBasePage:UsrBase)"], out.getvalue()
+        lines = layout_lines(top, "UsrOrderPage", "Header", env)
+        assert lines[:4] == ["UsrOrderPage.Header over 3 layers (UsrA > UsrB > Custom (site)), 24 columns, the last layer wins",
+                             "  row 0: 0-5 UsrName | 6-7 UsrName+UsrFlag (overlap) | 8-11 UsrName | 12-23 free",
+                             "  row 1: 0-11 UsrNote | 12-23 free", "  row 2: 0-11 UsrCode | 12-23 UsrAmount"], lines
+        assert "  UsrFlag  row 0 col 6 span 2x1  (placed last in Custom)" in lines and "  UsrName  row 0 col 0 span 12x1  (placed last in Custom)" in lines
+        assert sum("generate_series" in q for q in env.queries) == 1  # only the copy the workspace lacks is read from the site
+        refused(lambda: layout_lines(top, "UsrOrderPage", "Footer"), KeyError, "nothing is placed in Footer")
+        assert grid_lines([("UsrX", 1, 1, 1, 1)], 2, 1) == ["  row 1: 1 UsrX | 2 free"]  # Freedom counts from 1
+        rules = rule_lines(top, "UsrOrderPage", env)
+        assert rules == [
+            "UsrOrderPage: 2 rule(s) over 3 layers (UsrA > UsrB > Custom (site)); column, UId, kind, state, conditions, filter, layers",
+            f"  UsrContract  {rule}  FILTRATION  removed  filter UsrContract.Account = UsrAccount, autoClean  layers: UsrA enabled > UsrB disabled > Custom removed",
+            "  UsrStatus  UsrStatusRequired  BINDPARAMETER REQUIRED  enabled  (rules section)  when UsrType.Code = 'A'  layers: UsrA enabled"], rules
+        assert rule_lines(top, "UsrOrderPage", None, rule.upper())[1].endswith("layers: UsrA enabled > UsrB disabled")
+        refused(lambda: rule_lines(top, "UsrOrderPage", None, "UsrNope"), KeyError, "no rule UsrNope in the layers of UsrOrderPage (UsrA, UsrB)")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["rules", str(top), "UsrOrderPage", "--rule", "UsrStatusRequired"]) == 0
+        assert "BINDPARAMETER REQUIRED" in out.getvalue()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

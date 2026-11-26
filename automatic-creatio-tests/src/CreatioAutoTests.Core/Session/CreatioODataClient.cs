@@ -248,16 +248,19 @@ public sealed class CreatioODataClient : IDisposable
             : throw new InvalidOperationException("insert into '" + entity + "' answered without an Id: " + body[..Math.Min(body.Length, 400)]);
     }
 
-    /// <summary>Changes columns of one record (<c>PATCH</c>).</summary>
+    /// <summary>Changes columns of one record (<c>PATCH</c>); a PATCH of an id nobody has yet creates the record (an upsert).</summary>
     /// <param name="entity">Entity set.</param>
     /// <param name="id">The record.</param>
     /// <param name="values">Column values keyed by the OData column name.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    public async Task UpdateAsync(string entity, Guid id, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
+    /// <returns><see langword="true"/> when the record did not exist before, so the PATCH created it.</returns>
+    public async Task<bool> UpdateAsync(string entity, Guid id, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
         await AuthenticateAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        var existed = (await QueryAsync(entity, new[] { "Id" }, "Id eq " + id, 1, cancellationToken).ConfigureAwait(false)).Count > 0;
         await SendAsync(HttpMethod.Patch, EntityPath(entity) + "(" + id + ")", JsonSerializer.Serialize(values), "update of '" + entity + "' " + id, cancellationToken)
             .ConfigureAwait(false);
+        return !existed;
     }
 
     /// <summary>Deletes one record.</summary>

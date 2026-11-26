@@ -20,7 +20,9 @@ from creatio_schemas import push as push_module  # noqa: E402
 from creatio_schemas.push import NO_RESULT, compile_script, creatio_bin, push  # noqa: E402
 
 TABLES = ("SysSchema", "SysPackageSchemaData", "SysPackageSqlScript")
-CLEARS = [f'update "{table}" set "IsChanged"=false' for table in TABLES]
+CLEARS = [f'update "{table}" set "IsChanged"=false' for table in TABLES] + [
+    'update "SysLocalizableValue" set "IsChanged"=false where "SysSchemaId" in (select s."Id" from "SysSchema" s '
+    "join \"SysPackage\" p on p.\"Id\" = s.\"SysPackageId\" where p.\"UId\" = '00000000-0000-0000-0000-000000000001')"]
 SQL = CLEARS[0]
 SUMMARY = "Finished building project: Succeeded: True. Errors: 0. Warnings: 0."
 # a generated process source as the site writes it (S29-T02): namespace Terrasoft.Core.Process, a ProcessModel wrapper
@@ -97,12 +99,12 @@ def test_sequence_and_publish():
             (["sql-rows", fake.calls[0][0][1]], None),
             *[(["execute-sql-script", sql, "-e", "dev"], None) for sql in CLEARS],
             (["push-pkg", "UsrPkg", "-e", "dev"], pkg.parent),
-            (["sql-rows", fake.calls[5][0][1]], None),
+            (["sql-rows", fake.calls[6][0][1]], None),
             (["last-compilation-log", "-e", "dev"], None),
             (["compile-configuration", "-e", "dev"], None),
         ]
         assert "publish: started" in logs
-        assert '"SysSchemaSource"' in fake.calls[5][0][1] and "'UsrProcess.cs'" in fake.calls[5][0][1]
+        assert '"SysSchemaSource"' in fake.calls[6][0][1] and "'UsrProcess.cs'" in fake.calls[6][0][1]
         assert "  process UsrProcess: script compile not checked (no binaries)" in logs
         assert "script compile: ok (0 compiled, 1 not checked)" in logs
 
@@ -125,7 +127,7 @@ def test_compilation_failure_stops():
         add_process(pkg)
         fake, logs = FakeClio(summary="Finished building project: Succeeded: False. Errors: 2. Warnings: 0."), []
         assert push(pkg, "dev", fake, log=logs.append) == 1
-        assert [args[0] for args, _ in fake.calls] == ["sql-rows"] + ["execute-sql-script"] * 3 + ["push-pkg", "sql-rows", "last-compilation-log"]
+        assert [args[0] for args, _ in fake.calls] == ["sql-rows"] + ["execute-sql-script"] * 4 + ["push-pkg", "sql-rows", "last-compilation-log"]
         assert any("FAILED" in line and "Errors: 2" in line for line in logs)
 
 
@@ -134,7 +136,7 @@ def test_missing_summary_and_no_publish():
         pkg = package(Path(tmp))
         fake, logs = FakeClio(), []
         assert push(pkg, "dev", fake, log=logs.append) == 0
-        assert len(fake.calls) == 6 and "publish: not needed" in logs
+        assert len(fake.calls) == 7 and "publish: not needed" in logs
         fake, logs = FakeClio(summary="unexpected"), []
         assert push(pkg, "dev", fake, log=logs.append) == 1
         assert any("summary not found" in line for line in logs)
@@ -384,7 +386,9 @@ def test_dropped_dependencies_stop_the_push_unless_forced():
         root = Path(tmp)
         pkg = package(root)
         (pkg / "descriptor.json").write_bytes(b"\xef\xbb\xbf" + json.dumps({"Descriptor": {
-            "Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001", "DependsOn": [{"UId": "00000000-0000-4000-8000-0000000000b1", "PackageVersion": "7.8.0", "Name": "Base"}]}}).encode())
+            "Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001", "ModifiedOnUtc": "/Date(1)/",
+            "DependsOn": [{"UId": "00000000-0000-4000-8000-0000000000b1", "PackageVersion": "7.8.0", "Name": "Base"}]}}).replace(
+            "/Date(1)/", "\\/Date(1)\\/").encode())  # the form clio writes
         (pkg / "Files").mkdir()
         (pkg / "Files" / "UsrPkg.csproj").write_text(csproj("Terrasoft.Core"), encoding="utf-8")
         head = {"descriptor.json": "\ufeff" + descriptor("Base", "Custom"),
@@ -397,6 +401,10 @@ def test_dropped_dependencies_stop_the_push_unless_forced():
         with patch("creatio_schemas.push._git", side_effect=fake_git(root, head=head)):
             assert push(pkg, "dev", fake, log=logs.append, force=True) == 0
         assert "dependencies: forced (dropped 2)" in logs
+        # D88: a changed DependsOn advances the package descriptor's date, or push-pkg skips the change
+        assert "process dates: package (descriptor.json, DependsOn changed)" in logs, logs
+        assert "Date(1)" not in (pkg / "descriptor.json").read_text(encoding="utf-8-sig")
+        assert (pkg / "descriptor.json").read_bytes().startswith(b"\xef\xbb\xbf")
         logs.clear()
         with patch("creatio_schemas.push._git", side_effect=fake_git(root)):  # not committed: nothing to compare with
             assert push(pkg, "dev", FakeClio(), log=logs.append) == 0
@@ -423,6 +431,11 @@ def test_a_package_is_found_by_name_or_refused_with_the_hint():
                 assert False, "expected FileNotFoundError"
             except FileNotFoundError as e:
                 assert str(e) == "no package folder named UsrMissing; give its path (packages/UsrMissing)"
+            (root / "ws" / "packages" / "UsrWs").mkdir(parents=True)
+            (root / "project.json").write_text(json.dumps({"package": {"workspace": "ws"}}))
+            assert resolve_package("UsrWs", root / "project.json") == root / "ws" / "packages" / "UsrWs"  # relative workspace
+            (root / "project.json").write_text(json.dumps({"package": {"workspace": str(root / "ws")}}))
+            assert resolve_package("UsrWs", root / "project.json") == root / "ws" / "packages" / "UsrWs"  # absolute workspace
         finally:
             os.chdir(before)
 
@@ -780,6 +793,33 @@ def test_a_renamed_schema_is_a_note_and_a_real_deletion_still_stops():
         assert "package schemas: FAILED package install deletes schemas absent from the package: UsrOldName" in logs, logs
         assert missing_schemas(pkg, {"UsrOldName"}, None) == (["UsrOldName"], [])  # no site answer: HEAD names decide
         assert missing_schemas(pkg, None, {"UsrNewName": "5d2a1c3e-0000-4000-8000-000000000001", "UsrGone": ""}) == (["UsrGone"], [])
+        # D11: the site renamed first - the old name is in HEAD only; its committed UId is the folder's
+        head = {"Schemas/UsrOldName/descriptor.json": json.dumps({"Descriptor": {"UId": "5d2a1c3e-0000-4000-8000-000000000001"}})}
+        fake, logs = FakeClio(), []
+        fake.site_schemas = [{"Schema": "UsrNewName", "UId": "5d2a1c3e-0000-4000-8000-000000000001"}]
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root, head=head)):
+            assert push(pkg, "dev", fake, log=logs.append, skip_sql_dates=True) == 0, logs
+        assert "package schemas: ok; renamed UsrOldName -> UsrNewName" in logs, logs
+
+
+def test_a_changed_client_schema_gets_a_new_date_and_its_strings_are_cleared():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pkg = package(root)
+        page = pkg / "Schemas" / "UsrOrderPage"
+        page.mkdir(parents=True)
+        (page / "descriptor.json").write_bytes(b'\xef\xbb\xbf{\r\n  "Descriptor": {"ManagerName": "ClientUnitSchemaManager", '
+                                               b'"ModifiedOnUtc": "\\/Date(1)\\/"}\r\n}')
+        (page / "UsrOrderPage.js").write_text("define('UsrOrderPage', [], function() {});", encoding="utf-8")
+        status = " M UsrPkg/Schemas/UsrOrderPage/UsrOrderPage.js\0"
+        fake, logs = FakeClio(), []
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root, status)):
+            assert push(pkg, "dev", fake, log=logs.append) == 0, logs
+        after = (page / "descriptor.json").read_bytes()  # D68: the install regenerates conf/content only for a moved date
+        assert "process dates: client UsrOrderPage" in logs and b"Date(1)" not in after and after.startswith(b"\xef\xbb\xbf") and b"\r\n" in after
+        assert ("clear IsChanged: ok (SysSchema, SysPackageSchemaData, SysPackageSqlScript, SysLocalizableValue of the package's "
+                "schemas)") in logs, logs  # D82
+        assert [a for a, _ in fake.calls if a[0] == "execute-sql-script"][-1][1] == CLEARS[-1]
 
 
 def test_an_empty_select_is_an_empty_answer_and_a_silent_clio_is_no_result():
@@ -801,13 +841,47 @@ def test_an_empty_select_is_an_empty_answer_and_a_silent_clio_is_no_result():
         assert clio.version() == "unknown"
 
 
+def test_both_sql_clients_read_an_empty_file_as_zero_rows_and_a_missing_one_as_a_lost_answer():
+    """8.3.2 test site, clio 8.1.0.158: `select 1 where false` writes `[]` and prints `Results saved to ...`; an update writes
+    its count. No file after `Results saved to`, or no file and no `Done`, is a lost answer (S48-T03, T04's finding)."""
+    from creatio_schemas.environment import Environment
+    saved = "select 1 where false\n[INF] - Results saved to: out.json\n[]\n[INF] - Done\n"
+
+    def clio_writing(text):
+        def run(args, **kwargs):
+            if text is not None:
+                Path(args[args.index("-d") + 1]).write_text(text, encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0, saved, "")
+        return run
+    clio = Clio("dev")
+    with patch("creatio_schemas.clio.subprocess.run", side_effect=clio_writing("[]")):
+        assert clio.sql("select 1 where false") == []
+    with patch("creatio_schemas.clio.subprocess.run", side_effect=clio_writing("0")):
+        assert clio.sql("update x") == []
+    with patch("creatio_schemas.clio.subprocess.run", side_effect=clio_writing(None)):
+        try:
+            clio.sql("select 1")
+            raise AssertionError("a lost answer read as zero rows")
+        except RuntimeError as e:
+            assert NO_RESULT in str(e) and "'dev'" in str(e)
+    env = Environment("https://dev.example.com", "Supervisor", "", clio_name="dev",
+                      clio_run=lambda args: (0, "[INF] - Results saved to: out.json\n[INF] - Done"))
+    try:  # D12/D72: Environment.sql read a missing file as "no rows" and a lost answer became "no SysSchema copy"
+        env.sql("select 1")
+        raise AssertionError("a lost answer read as zero rows")
+    except RuntimeError as e:
+        assert NO_RESULT in str(e) and "'dev'" in str(e)
+    assert Environment("https://dev.example.com", "Supervisor", "", clio_name="dev", clio_run=lambda args: (0, "Done")).sql("select 1 where false") == []
+
+
 def test_compile_package_without_wait_polls_the_compile_history():
     class OldClio(FakeClio):
         """A clio that refuses --wait; the package's CompilationHistory row changes on the third poll."""
 
-        def __init__(self, result=True, polls=2):
+        def __init__(self, result=True, polls=2, project="UsrPkg.csproj"):
             super().__init__()
-            self.answers = [[{"at": "2026-11-01 10:00:00", "ok": True}]] * (polls + 1) + [[{"at": "2026-11-24 10:00:00", "ok": result}]]
+            self.answers = [[{"at": "2026-11-01 10:00:00"}]] + [[]] * polls + [
+                [{"project": project, "at": "2026-11-24 10:00:00", "ok": result}]]
 
         def version(self):
             return "8.0.1.20"
@@ -837,10 +911,13 @@ def test_compile_package_without_wait_polls_the_compile_history():
             assert logs[0] == "clio: 8.0.1.20"
             assert any(line.startswith("compile-package: ok (clio 8.0.1.20: no --wait, polled ") for line in logs), logs
             assert ["compile-package", "UsrPkg", "-e", "dev"] in [a for a, _ in fake.calls] and sleep.call_count == 2
-            assert "\"ProjectName\" = 'UsrPkg.csproj'" in next(a[1] for a, _ in fake.calls if a[0] == "sql-rows" and "CompilationHistory" in a[1])
+            assert "\"CreatedOn\" > '2026-11-01 10:00:00'" in [a[1] for a, _ in fake.calls if a[0] == "sql-rows" and "CompilationHistory" in a[1]][1]
             fake, logs = OldClio(result=False, polls=0), []
             assert push(pkg, "dev", fake, log=logs.append, **quiet) == 1
             assert logs[-2].startswith("compile-package: FAILED CompilationHistory: UsrPkg.csproj failed") and logs[-1] == "push FAILED at compile-package"
+            fake, logs = OldClio(polls=0, project="Terrasoft.Configuration.ODataEntities.csproj"), []  # D55: no <Pkg>.csproj row
+            assert push(pkg, "dev", fake, log=logs.append, **quiet) == 0, logs
+            assert any(l.endswith("; no UsrPkg.csproj row, Terrasoft.Configuration.ODataEntities.csproj ok)") for l in logs), logs
 
             class Refusing(FakeClio):  # another failure of compile-package is not the fallback
                 def run(self, args, cwd=None):
@@ -851,12 +928,167 @@ def test_compile_package_without_wait_polls_the_compile_history():
             assert push(pkg, "dev", Refusing(), log=logs.append, **quiet) == 1 and "compile-package: FAILED clio exited 1: build failed" in logs
 
 
+def _assembly(root):
+    pkg = package(root)
+    data = json.loads((pkg / "descriptor.json").read_text())
+    data["Descriptor"]["Type"] = 1
+    (pkg / "descriptor.json").write_text(json.dumps(data))
+    return pkg
+
+
+def test_compile_package_retries_a_busy_compiler_and_reads_build_result_0_as_success():
+    class Busy(FakeClio):
+        def __init__(self, answers):
+            super().__init__()
+            self.answers = answers  # one per compile-package call: an exception text, or None for "done"
+
+        def run(self, args, cwd=None):
+            if args[0] == "compile-package":
+                self.calls.append((args, cwd))
+                text = self.answers.pop(0)
+                if text:
+                    raise RuntimeError(f"clio exited 1: {text}")
+                return "done"
+            return super().run(args, cwd)
+
+    busy = "InvalidOperationException: Cannot run compilation because another compilation is in progress"
+    zero = "Package compilation failed for 'UsrPkg' (build result 0). The new code was not loaded"
+    quiet = dict(skip_drift=True, skip_sql_dates=True)
+    with tempfile.TemporaryDirectory() as tmp, patch("creatio_schemas.push._git", return_value=None), \
+            patch("creatio_schemas.push.time.sleep") as sleep:
+        pkg = _assembly(Path(tmp))
+        fake, logs = Busy([busy, busy, None]), []  # K37: busy twice, then the build
+        assert push(pkg, "dev", fake, log=logs.append, **quiet) == 0, logs
+        assert sleep.call_count == 2 and logs.count("  ... another compilation is in progress: retry in 15 s (0 s waited)") == 2, logs
+        assert "compile-package: ok" in logs
+        logs = []  # E9: clio says failed, the build result is BuildResultType.Success, no error line
+        assert push(pkg, "dev", Busy([zero]), log=logs.append, **quiet) == 0, logs
+        assert any(l.startswith("compile-package: ok (clio said failed, but the build result is BuildResultType") for l in logs), logs
+        logs = []  # build result 1 or a compiler error is a failure
+        assert push(pkg, "dev", Busy([zero.replace("result 0", "result 1")]), log=logs.append, **quiet) == 1
+        logs = []
+        assert push(pkg, "dev", Busy([zero + "\n(CS0103) in UsrClass.cs at (3,1): no UsrHelper"]), log=logs.append, **quiet) == 1
+        assert logs[-1] == "push FAILED at compile-package"
+
+
+def test_compilation_log_of_an_assembly_package_fails_on_its_own_error_only():
+    own = ("Pkg/UsrPkg/Files/cs/UsrClass.cs(3,1): error CS0103: The name 'UsrHelper' does not exist\n"
+           "Finished building project: Succeeded: False. Errors: 1. Warnings: 0.")
+    foreign = own.replace("Pkg/UsrPkg/", "Pkg/UsrOther/")
+    quiet = dict(skip_drift=True, skip_sql_dates=True)
+    with tempfile.TemporaryDirectory() as tmp, patch("creatio_schemas.push._git", return_value=None):
+        pkg = _assembly(Path(tmp))
+        logs = []  # D55: the log said Succeeded: False and the step said ok
+        assert push(pkg, "dev", FakeClio(summary=own), log=logs.append, **quiet) == 1
+        assert ("compilation log: FAILED compile FAILED: Pkg/UsrPkg/Files/cs/UsrClass.cs(3,1): error CS0103: The name "
+                "'UsrHelper' does not exist") in logs, logs
+        logs = []
+        assert push(pkg, "dev", FakeClio(summary=foreign), log=logs.append, **quiet) == 0
+        assert ("compilation log: ok (Finished building project: Succeeded: False. Errors: 1. Warnings: 0. none in UsrPkg; "
+                "compile-package decides)") in logs, logs
+        logs = []  # Succeeded: False with no error count is a failure of a plain package
+        (Path(tmp) / "plain").mkdir()
+        plain = package(Path(tmp) / "plain")
+        assert push(plain, "dev", FakeClio(summary="Finished building project: Succeeded: False. Errors: 0."), log=logs.append, **quiet) == 1
+
+
+def test_a_long_clio_call_prints_a_heartbeat_on_the_summary():
+    class Slow(FakeClio):
+        def run(self, args, cwd=None):
+            if args[0] == "push-pkg":
+                time.sleep(0.25)
+            return super().run(args, cwd)
+
+    with tempfile.TemporaryDirectory() as tmp, patch("creatio_schemas.push._git", return_value=None), \
+            patch.object(push_module, "HEARTBEAT_S", 0.1):
+        pkg, logs = package(Path(tmp)), []
+        assert push(pkg, "dev", Slow(), log=logs.append, details=Path(tmp) / "d.log", skip_drift=True) == 0
+        assert any(re.fullmatch(r"  \.\.\. still running \(0 s\)", l) for l in logs), logs
+
+
+def test_drift_lets_a_site_schema_equal_to_the_working_copy_pass_and_names_a_real_change():
+    import hashlib
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pkg = package(root)
+        page = pkg / "Schemas" / "UsrOrderPage"
+        page.mkdir(parents=True)
+        (page / "metadata.json").write_bytes(b'{"MetaData": {}}\r\n')
+        (page / "UsrOrderPage.js").write_bytes(b"define('UsrOrderPage', [], function() {});\r\n")
+        md5 = lambda b: hashlib.md5(b).hexdigest()  # noqa: E731
+        ours = {"Name": "UsrOrderPage", "modifiedOn": "2026-11-26 10:12:33.1", "modifiedBy": "Supervisor", "isChanged": "false",
+                "meta": md5(b'{"MetaData": {}}\n'), "content": md5((page / "UsrOrderPage.js").read_bytes())}  # metadata with LF
+        fake, logs = FakeClio(), []
+        fake.rows = [ours]
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
+            assert push(pkg, "dev", fake, log=logs.append) == 0, logs
+        assert "drift: ok (1 newer than the commit, same as the working copy)" in logs, logs
+        assert 'md5(s."MetaData")' in fake.calls[0][0][1] and '"IsChanged"' in fake.calls[0][0][1]
+        fake.rows, logs = [dict(ours, isChanged="true")], []  # the same body, but a designer save since: not ours
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
+            assert push(pkg, "dev", fake, log=logs.append) == 1, logs
+        fake.rows, logs = [dict(ours, content=md5(b"changed on the site"), isChanged="true")], []
+        with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
+            assert push(pkg, "dev", fake, log=logs.append) == 1
+        assert "drift: FAILED UsrOrderPage (changed on the site 2026-11-26 10:12 by Supervisor, IsChanged)" in logs, logs
+
+
+def test_stale_bin_tolerates_one_checkout_and_a_clean_git_and_build_names_foreign_errors():
+    from creatio_schemas.push import build_dll, stale_bin
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = _assembly(Path(tmp))
+        cs, dll = pkg / "Files" / "cs", pkg / "Files" / "Bin" / "UsrPkg.dll"
+        cs.mkdir(parents=True)
+        dll.parent.mkdir(parents=True)
+        (cs / "UsrOrderHelper.cs").write_text("class UsrOrderHelper { }", encoding="utf-8")
+        dll.write_bytes(b"MZ")
+        now = time.time()
+        os.utime(dll, (now - 600, now - 600))
+        for f in (cs, cs / "UsrOrderHelper.cs"):
+            os.utime(f, (now - 599.96, now - 599.96))  # D61: one checkout, 40 ms apart
+        assert stale_bin(pkg, "UsrPkg") is None
+        os.utime(cs / "UsrOrderHelper.cs", (now, now))
+        assert stale_bin(pkg, "UsrPkg") is not None
+        logs = []  # git says Files/cs is as committed: the committed dll is current
+        with patch("creatio_schemas.push._git", side_effect=lambda p, a, allow_not_repo=False: "" if a[0] == "status" else None):
+            assert push(pkg, "dev", FakeClio(), log=logs.append, skip_drift=True, skip_sql_dates=True, skip_compile_package=True) == 0
+        assert "stale bin: ok (Files/cs as committed: the committed dll is its build)" in logs, logs
+        (pkg / "Files" / "UsrPkg.csproj").write_text("<Project />", encoding="utf-8")
+        foreign = subprocess.CompletedProcess([], 1, r"C:\ws\packages\UsrOther\Files\cs\UsrX.cs(3,1): error CS0246: no UsrY" "\n", "")
+        with patch("creatio_schemas.push.shutil.which", return_value="dotnet"):
+            try:  # D97: the local build fails on another package's file
+                build_dll(pkg, "UsrPkg", Path(tmp), "8.3.2.4199", detail=lambda l: None, run=lambda *a, **k: foreign)
+                raise AssertionError("a failed build passed")
+            except RuntimeError as exc:
+                assert str(exc).endswith("all 1 foreign (not in UsrPkg's own files): --skip-stale-bin is right then, the server build decides"), exc
+            own = subprocess.CompletedProcess([], 1, f"{cs / 'UsrOrderHelper.cs'}(3,1): error CS0246: no UsrY\n", "")
+            try:
+                build_dll(pkg, "UsrPkg", Path(tmp), "8.3.2.4199", detail=lambda l: None, run=lambda *a, **k: own)
+                raise AssertionError("a failed build passed")
+            except RuntimeError as exc:
+                assert "foreign" not in str(exc), exc
+
+
+def test_a_wrong_task_name_lists_the_task_folders():
+    from creatio_schemas.push import _task_conflicts
+    with tempfile.TemporaryDirectory() as tmp:
+        tasks = Path(tmp) / "tasks"
+        (tasks / "001-usr-order").mkdir(parents=True)
+        (tasks / "002-usr-shipment").mkdir()
+        try:
+            _task_conflicts(tasks, tasks / "001", [])
+            raise AssertionError("a wrong name passed")
+        except RuntimeError as exc:  # E13: a bare name that is no folder there
+            assert str(exc).endswith("no '001' there; pass one of: 001-usr-order, 002-usr-shipment"), exc
+        assert _task_conflicts(tasks, tasks / "001-usr-order", []) == []
+
+
 class SiteWithLayer(FakeClio):
     """The package's site rows hold `UsrGone` (an object layer a merge removed); `refs` is the count one key holds."""
 
-    def __init__(self, refs=0, **kw):
+    def __init__(self, refs=0, ref="SysEntitySchemaReference.SysSchemaId", **kw):
         super().__init__(**kw)
-        self.refs = refs
+        self.refs, self.ref = refs, ref
         self.site_schemas = [{"Schema": "UsrProcess"}, {"Schema": "UsrGone"}]
 
     def execute_sql_rows(self, sql):
@@ -868,7 +1100,7 @@ class SiteWithLayer(FakeClio):
         if "information_schema" in sql:
             return [{"table": "SysEntitySchemaReference", "column": "SysSchemaId"}]
         if "union all" in sql or '"ref"' in sql:
-            return [{"ref": "SysEntitySchemaReference.SysSchemaId", "id": "5d2a1c3e-0000-4000-8000-000000000001", "n": str(self.refs)}]
+            return [{"ref": self.ref, "id": "5d2a1c3e-0000-4000-8000-000000000001", "n": str(self.refs)}]
         return super().execute_sql_rows(sql)
 
 
@@ -895,6 +1127,9 @@ def test_allow_removed_lets_a_merged_away_schema_go_only_when_absent_and_unrefer
             fake = SiteWithLayer(refs=0)
             assert push(pkg, "dev", fake, log=logs.append, allow_removed=[" UsrGone", ""], **quiet) == 0
             assert "package schemas: ok; removal allowed: UsrGone" in logs, logs
+            logs = []  # D100: the schema's own strings are not a reference to it
+            assert push(pkg, "dev", SiteWithLayer(refs=31, ref="SysLocalizableValue.SysSchemaId"), log=logs.append,
+                        allow_removed=["UsrGone"], **quiet) == 0, logs
             assert any(a[0] == "push-pkg" for a, _ in fake.calls)
 
 
@@ -1167,6 +1402,47 @@ def test_served_goes_through_environment_fetch():
     env = Environment("https://site.example/", "u", "p", opener=Opener())
     assert served(env, "UsrPage") == "define(1)" and served(env, "UsrMissing") is None
     assert seen[1] == ("https://site.example/0/conf/content/UsrPage.js", "*/*"), seen
+
+
+def test_served_checks_the_layers_own_members_in_a_composed_body():
+    """S48-T05: a composed body never holds a middle layer's whole text - its members (Freedom: operations, handler requests; Classic:
+    diff inserts, methods, rule UIds) are looked for; a missing one is named; the `served` command saves and greps."""
+    import hashlib
+    import io
+    import contextlib
+    from creatio_schemas import verify as verify_module
+    from creatio_schemas.verify import _served_status, members
+
+    freedom = ('define("UsrP", [], function() { return { viewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[{"operation": "insert", "name": "UsrField", '
+               '"values": {"type": "x"}, "parentName": "Main", "propertyName": "items", "index": 0}, {"operation": "remove", "name": "OldField"}]'
+               '/**SCHEMA_VIEW_CONFIG_DIFF*/, handlers: /**SCHEMA_HANDLERS*/[{ request: "usr.Open", handler: async (r, next) => next?.handle(r) }]'
+               '/**SCHEMA_HANDLERS*/ }; });')
+    assert members(freedom, "UsrP") == ["UsrField", "usr.Open"]
+    classic = ("define('UsrC', [], function() { return { diff: /**SCHEMA_DIFF*/[{operation: 'insert', name: 'UsrTerms', parentName: 'Header', "
+               "propertyName: 'items', values: {}}]/**SCHEMA_DIFF*/, methods: { onUsrClick: function() { return 1; } }, "
+               "rules: {UsrA: {UsrRule1: {uId: 'u-1', ruleType: 1}}} }; });")
+    assert members(classic, "UsrC") == ["UsrTerms", "onUsrClick", "u-1"], members(classic, "UsrC")
+    composed = "other layers...\n" + "".join(f'"{n}"\n' for n in ("UsrTerms", "onUsrClick", "u-1")) + "...more"
+    assert _served_status("same", classic, "UsrC", composed) == "same, served (3 of 3 members)"
+    assert _served_status("same", classic, "UsrC", composed.replace("onUsrClick", "x").replace("u-1", "y")) == \
+        "not served: 2 of 3 members missing (onUsrClick, u-1)"
+    assert _served_status("same", classic, "UsrC", None) == "not served: conf/content has no such file"
+    bare = "define('UsrM', [], function() { return {}; });"  # no members: the whole text, as before
+    assert _served_status("same", bare, "UsrM", 'define("UsrM", [], function() { return {}; });') == "same"
+    assert _served_status("same", bare, "UsrM", "other").startswith("not served: conf/content holds another body")
+    # the command: size, md5, saved text, matching lines; a missing file is exit 1
+    sys.path.insert(0, str(HERE.parent))
+    import push as cli
+    text = "a\nb HandlerChain\nc\n"
+    with tempfile.TemporaryDirectory() as tmp, patch("creatio_schemas.environment.open_environment", lambda name, project=None: object()), \
+            patch.object(verify_module, "served", lambda env, name: None if name == "UsrGone" else text):
+        out, saved = io.StringIO(), Path(tmp) / "s.js"
+        with contextlib.redirect_stdout(out):
+            code = cli.main(["served", "UsrP", "-e", "dev", "--out", str(saved), "--grep", "handlerchain"])
+        assert code == 0 and "2: b HandlerChain" in out.getvalue() and hashlib.md5(text.encode()).hexdigest() in out.getvalue()
+        assert saved.read_text(encoding="utf-8") == text
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert cli.main(["served", "UsrGone", "-e", "dev"]) == 1
 
 
 def test_resolve_task_meets_the_projects_tasks_folder():

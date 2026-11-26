@@ -8,6 +8,7 @@ Push a package to an environment: clear IsChanged, push-pkg, check compilation, 
     python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
     python push.py <package> -e <environment> --build [--project <project.json>]  first build Files/Bin/<Pkg>.dll against the site version's bin
     python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
+    python push.py served <Schema> -e <environment> [--out <file>] [--grep <text>]  the served conf/content text: size, md5, matching lines
     python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
     python push.py deps <package> -e <environment> [--add <Package>[,<Package>]] [--dry-run]  fill DependsOn UId/version from the site's SysPackage
 """
@@ -44,6 +45,38 @@ def verify_main(argv: list[str]) -> int:
         return 2
     print(render(results))
     return 1 if any(not s.startswith("same") for _, s in results) else 0
+
+
+def served_main(argv: list[str]) -> int:
+    import hashlib
+
+    from creatio_schemas.environment import open_environment
+    from creatio_schemas.verify import served
+
+    p = argparse.ArgumentParser(prog="push.py served", description="The text the site serves at conf/content/<Schema>.js (the composed "
+                                "body of every layer): its size and md5, saved with --out, the lines holding --grep. Read-only; exit 1 when the site serves no such file.")
+    p.add_argument("schema")
+    p.add_argument("-e", "--env", required=True, help="clio environment name")
+    p.add_argument("--project", type=Path)
+    p.add_argument("--out", type=Path, help="save the served text here")
+    p.add_argument("--grep", help="print the lines holding this text (case-insensitive), with their numbers")
+    args = p.parse_args(argv)
+    try:
+        text = served(open_environment(args.env, args.project), args.schema)
+    except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
+        print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+        return 2
+    if text is None:
+        print(f"{args.schema}: not served: conf/content has no such file (a schema's `<Schema>Resources` module is not a file of its own: check SysLocalizableValue)")
+        return 1
+    print(f"{args.schema}: {len(text.encode('utf-8'))} bytes, md5 {hashlib.md5(text.encode('utf-8')).hexdigest()}")
+    if args.out:
+        args.out.write_text(text, encoding="utf-8", newline="")
+        print(f"saved to {args.out}")
+    for n, line in enumerate(text.splitlines(), 1):
+        if args.grep and args.grep.lower() in line.lower():
+            print(f"{n}: {line.strip()[:240]}")
+    return 0
 
 
 def deps_main(argv: list[str]) -> int:
@@ -97,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["verify"]:
         return verify_main(argv[1:])
+    if argv[:1] == ["served"]:
+        return served_main(argv[1:])
     if argv[:1] == ["deps"]:
         return deps_main(argv[1:])
     if argv[:1] == ["page"]:

@@ -309,7 +309,7 @@ public sealed class PageRuntimeTests
             Assert.That(PageRuntimes.For(UiGeneration.ClassicUI).BuildUrl("/0/Shell/#CardModuleV2/UsrOrder1Page", "abc"),
                 Is.EqualTo("/0/Shell/#CardModuleV2/UsrOrder1Page/edit/abc"));
             Assert.That(PageRuntimes.For(UiGeneration.FreedomUI).BuildUrl("0/Shell/#Card/Contacts_FormPage", null),
-                Is.EqualTo("/0/Shell/#Card/Contacts_FormPage"));
+                Is.EqualTo("/0/Shell/#Card/Contacts_FormPage/add"));
         });
     }
 }

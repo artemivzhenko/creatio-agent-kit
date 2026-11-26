@@ -172,7 +172,9 @@ class Workspace:
 
     def lookup_value(self, schema: str | None, text: str) -> tuple[str, str] | None:
         """(row Id, Name) of a lookup row given by its Id or its Name (case-blind) in the bindings of `schema` (any lookup when None), else None."""
-        for name, rows in self.lookup_rows().items():
+        bound = self.lookup_rows()
+        schema = schema if schema in bound else None  # no binding of that lookup here (a platform one): any lookup, as before
+        for name, rows in bound.items():
             if schema and name != schema:
                 continue
             if text.lower() in rows:
@@ -218,8 +220,15 @@ class Workspace:
             else:
                 cols = [json.loads(v) for op, path, v in parse_diff(text) if op in "+=" and path == "MetaData.Schema.D2" and v.startswith("{")]
             for c in cols:
-                out[c["A2"]] = (DATA_VALUE_TYPES.get(c.get("S2", ""), c.get("S2")), self.name_of(c.get("S4")))
+                out[c["A2"]] = (DATA_VALUE_TYPES.get(c.get("S2", ""), c.get("S2")), self.ref_name(c.get("S4")))
         return out
+
+    def ref_name(self, uid: str | None) -> str | None:
+        """The name of a referenced object: the workspace, else the stock catalogue (a platform object such as Account)."""
+        if not uid:
+            return None
+        from .entity.catalog import STOCK_ENTITIES  # local: the catalogue loads its assets on import
+        return self.name_of(uid) or next((n for n, u in STOCK_ENTITIES.items() if u == uid.lower()), None)
 
     def column_uids(self, entity: str) -> dict[str, str]:
         """name -> column UId, over every copy of the entity (what a signal's changed-column list stores)."""

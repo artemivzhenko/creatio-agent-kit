@@ -49,8 +49,11 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         public string? CurrentPage
         {
             get => _currentPage;
-            set { _currentPage = value; Elements.Clear(); }
+            set { _currentPage = value; Elements.Clear(); Scope = null; }
         }
+
+        // The dialog the current page is shown in over another page (S48-T11); null: the whole document.
+        public string? Scope;
 
         public string? ActiveCode;
         public int Ordinal;
@@ -186,9 +189,15 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         return id.ToString();
     }
 
-    /// <summary>Changes columns of one record over OData.</summary>
-    public Task UpdateRecordAsync(string entity, string id, IReadOnlyList<RecordAssignment> values, CancellationToken cancellationToken = default) =>
-        _backend.UpdateAsync(entity, ParseId(id), ODataValues.Body(values), cancellationToken);
+    /// <summary>Changes columns of one record over OData; a record the PATCH created (an upsert of a new id) joins the cleanup list.</summary>
+    public async Task UpdateRecordAsync(string entity, string id, IReadOnlyList<RecordAssignment> values, CancellationToken cancellationToken = default)
+    {
+        var guid = ParseId(id);
+        if (await _backend.UpdateAsync(entity, guid, ODataValues.Body(values), cancellationToken).ConfigureAwait(false))
+        {
+            _cleanup.Add((entity, guid));
+        }
+    }
 
     /// <summary>Deletes one record over OData and forgets it in the cleanup list.</summary>
     public async Task DeleteRecordAsync(string entity, string id, CancellationToken cancellationToken = default)
@@ -555,47 +564,102 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     /// <summary>Opens the page of the newest waiting element of the newest running run of the process since the case began (S45-T09).</summary>
     public async Task OpenProcessTaskAsync(string process, string pageName, CancellationToken cancellationToken = default)
     {
-        if (_currentUser is null)
-        {
-            throw new InvalidOperationException("No user is selected; 'use' must run before a page is opened.");
-        }
-
-        var since = CaseStartedUtc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
-        var deadline = DateTime.UtcNow.AddMilliseconds(Settings.PageCheckTimeoutMs);
-        string? element = null;
-        while (element is null)
-        {
-            var runs = await QueryRecordsAsync("SysProcessLog", new[] { "Id", "CompleteDate" },
-                "SysSchema/Name eq '" + process + "' and StartDate ge " + since, 50, cancellationToken).ConfigureAwait(false);
-            var running = runs.Where(r => !Commands.CheckProcessCommand.Done(r["CompleteDate"])).Select(r => "SysProcess/Id eq " + r["Id"]).ToArray();
-            if (running.Length > 0)
-            {
-                var waiting = await QueryRecordsAsync("SysProcessElementLog", new[] { "Id", "CompleteDate", "StartDate" },
-                    string.Join(" or ", running), 200, cancellationToken).ConfigureAwait(false);
-                element = waiting.Where(e => !Commands.CheckProcessCommand.Done(e["CompleteDate"])).OrderByDescending(e => e["StartDate"], StringComparer.Ordinal)
-                    .Select(e => e["Id"]).FirstOrDefault();
-            }
-
-            if (element is null)
-            {
-                if (DateTime.UtcNow > deadline)
-                {
-                    throw new CommandFailedException("no running task of " + process + " started since " + since + " (" + runs.Count + " run(s), none waiting on a page).");
-                }
-
-                await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
+        var element = await FindProcessTaskAsync(process, Settings.PageCheckTimeoutMs, cancellationToken).ConfigureAwait(false);
         if (_page is null)
         {
             await NavigateAsync("/0/Shell/", cancellationToken).ConfigureAwait(false);
         }
 
         await RequirePage().EvaluateAsync(OpenProcessPageScript, element).ConfigureAwait(false);
-        ActiveTabCode = null;
         _logger.LogDebug("Opened the task {Element} of {Process}.", element, process);
+        await BindProcessPageAsync(pageName, Settings.PageCheckTimeoutMs, cancellationToken).ConfigureAwait(false);
+    }
+
+    // How long a page task a UI line started has to show its page by itself before the framework opens it (S48-T11).
+    private const int ShownByItselfMs = 5000;
+
+    /// <summary>
+    /// Waits for the page task a UI line started (S48-T11): the application shows the page of a task it started for the current user by itself,
+    /// so the page is opened only when it has not appeared; then it is bound like 'open process-task' binds it.
+    /// </summary>
+    public async Task WaitProcessTaskAsync(string process, string pageName, int? budgetMs, CancellationToken cancellationToken = default)
+    {
+        var element = await FindProcessTaskAsync(process, budgetMs ?? Settings.PageCheckTimeoutMs, cancellationToken).ConfigureAwait(false);
+        var browser = _page ?? throw new CommandFailedException("'wait-process-task' needs the page whose line started the process: 'open <page>' comes first.");
+        if (!await PageProbe.AnyPresentAsync(Probes(pageName, DialogScope), ShownByItselfMs, cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogDebug("The task {Element} of {Process} did not show its page; opening it.", element, process);
+            await browser.EvaluateAsync(OpenProcessPageScript, element).ConfigureAwait(false);
+        }
+
+        await BindProcessPageAsync(pageName, Settings.PageCheckTimeoutMs, cancellationToken).ConfigureAwait(false);
+    }
+
+    // A pre-configured page opens in a dialog over the page that was open; that page keeps its own controls (often a SaveButton too).
+    internal const string DialogScope = "mat-dialog-container";
+
+    // The page in a dialog is bound with its elements scoped to the dialog; a page shown any other way (over the Shell) is adopted as before.
+    private async Task BindProcessPageAsync(string pageName, int budgetMs, CancellationToken cancellationToken)
+    {
+        ActiveTabCode = null;
+        if (await PageProbe.AnyPresentAsync(Probes(pageName, DialogScope), budgetMs, cancellationToken).ConfigureAwait(false))
+        {
+            CurrentPage = pageName;
+            CurrentTab!.Scope = DialogScope;
+            _logger.LogDebug("Current page is now {Page}, in its dialog.", pageName);
+            return;
+        }
+
         await AdoptPageAsync(pageName, cancellationToken).ConfigureAwait(false);
+    }
+
+    private IExistable[] Probes(string pageName, string? scope)
+    {
+        Catalog.TryGetPage(pageName, out var page);
+        return Catalog.Entries
+            .Where(e => string.Equals(e.Page, pageName, StringComparison.OrdinalIgnoreCase) && e.Supports(typeof(IExistable)))
+            .OrderBy(e => string.IsNullOrWhiteSpace(e.Definition.Tab) ? 0 : 1)
+            .Take(PageProbe.Sample)
+            .Select(e => (IExistable)_factory.Create(e.Definition, page, RequirePage(), Settings, scope))
+            .ToArray();
+    }
+
+    // The newest waiting element of the newest running run of the process (or of a replacing version) that started since the case began.
+    private async Task<string> FindProcessTaskAsync(string process, int budgetMs, CancellationToken cancellationToken)
+    {
+        if (_currentUser is null)
+        {
+            throw new InvalidOperationException("No user is selected; 'use' must run before a page is opened.");
+        }
+
+        var since = CaseStartedUtc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        var deadline = DateTime.UtcNow.AddMilliseconds(budgetMs);
+        while (true)
+        {
+            var runs = await QueryRecordsAsync("SysProcessLog", new[] { "Id", "CompleteDate", "StartDate" },
+                Commands.CheckProcessCommand.ProcessFilter(process) + " and StartDate ge " + since, 50, cancellationToken).ConfigureAwait(false);
+            // Newest run first: the task of the newest one that waits is the page on screen.
+            foreach (var run in runs.Where(r => !Commands.CheckProcessCommand.Done(r["CompleteDate"])).OrderByDescending(r => r["StartDate"], StringComparer.Ordinal))
+            {
+                var waiting = await QueryRecordsAsync("SysProcessElementLog", new[] { "Id", "CompleteDate", "StartDate" },
+                    "SysProcess/Id eq " + run["Id"], 200, cancellationToken).ConfigureAwait(false);
+                var element = waiting.Where(e => !Commands.CheckProcessCommand.Done(e["CompleteDate"])).OrderByDescending(e => e["StartDate"], StringComparer.Ordinal)
+                    .Select(e => e["Id"]).FirstOrDefault();
+                if (element is not null)
+                {
+                    // The run counts for 'check-process' whenever it began, as a run the case started does (its page completes later).
+                    LastProcess = new ProcessRunResult(process, run["Id"], true, null, new Dictionary<string, string>());
+                    return element;
+                }
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new CommandFailedException("no running task of " + process + " started since " + since + " (" + runs.Count + " run(s), none waiting on a page).");
+            }
+
+            await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Opens an unconfigured raw path for analysis and leaves no configured current page bound.</summary>
@@ -679,7 +743,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         }
 
         Catalog.TryGetPage(target.Definition.Page, out var pageDefinition);
-        var element = _factory.Create(target.Definition, pageDefinition, RequirePage(), Settings);
+        var element = _factory.Create(target.Definition, pageDefinition, RequirePage(), Settings, tab?.Scope);
         if (tab is not null)
         {
             tab.Elements[key] = element;

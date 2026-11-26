@@ -27,6 +27,7 @@ INSTALL_TYPES = {0: "install with package"}
 NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 _DATE_RE = re.compile(r'"/(Date\([^)"]*\))/"')
 _INDENT_RE = re.compile(r"\n([ \t]+)\S")
+PLATFORM_BINDINGS = Path(__file__).resolve().parents[2] / "data" / "assets" / "platform_bindings.json"
 
 
 class JsonFile:
@@ -58,6 +59,23 @@ class JsonFile:
             return self.text
         out = json.dumps(self.obj, indent=self.indent, ensure_ascii=False)
         return _DATE_RE.sub(lambda m: '"\\/' + m.group(1) + '\\/"', out).replace("\n", self.nl) + self.end
+
+
+def platform_table(schema_name: str) -> dict | None:
+    """{uid, columns: {name: {UId, S2, E21}}} of a platform table in the bundled catalog (data/assets), None when not there."""
+    return json.loads(PLATFORM_BINDINGS.read_text(encoding="utf-8"))["tables"].get(schema_name)
+
+
+def site_table(env: str, schema_name: str, package: str) -> dict:
+    """The same shape read from the site: the object merged over its copies below `package` (entity.hierarchy.fetch_base)."""
+    from ..clio import Clio
+    from ..entity.hierarchy import fetch_base
+    try:
+        found = fetch_base(Clio(env), schema_name, package)
+    except KeyError:  # a package not pushed yet has no hierarchy on the site: Custom sees every installed package
+        found = fetch_base(Clio(env), schema_name, "Custom")
+    return {"uid": found["uid"].lower(),
+            "columns": {c["A2"]: {k: c[k] for k in ("UId", "S2", "E21") if k in c} for c in found["schema"].get("D2", [])}}
 
 
 def object_columns(workspace: Workspace, schema_name: str) -> dict[str, dict]:
@@ -101,6 +119,7 @@ class DataBinding(PackageItem):
         for f in (self.data, *self.loc.values()):
             if f.obj.get("PackageData") is None:
                 f.obj["PackageData"] = []
+        self.known_columns: dict | None = None  # `create` keeps the columns it read (a site table outside the catalog)
 
     def files(self):
         out = {self.descriptor.path: (self.descriptor.text, True), self.data.path: (self.data.render(), self.data.bom)}
@@ -279,7 +298,9 @@ class DataBinding(PackageItem):
         for n in values:
             self._column(n)
         # without Localization files the platform keeps even a localisable Name in data.json
-        known = object_columns(self.workspace, self.schema_name) if self.cultures else {}
+        # shortcut: a later add-row on an empty binding of a site table outside the catalog cannot tell its localisable columns
+        known = (self.known_columns or object_columns(self.workspace, self.schema_name)
+                 or (platform_table(self.schema_name) or {}).get("columns", {})) if self.cultures else {}
         loc = set(self.localized) | {n for n in self.columns if known.get(n, {}).get("E21")} | {n for n, v in values.items() if isinstance(v, dict)}
         for n in loc:
             values.setdefault(n, "")  # the designer writes every localised column of a row, empty when not translated
@@ -307,9 +328,9 @@ class DataBinding(PackageItem):
 
     @classmethod
     def create(cls, package: Path, name: str, schema_name: str, key_columns: list[str], rows: list[dict],
-               cultures: list[str] | None = None, columns: list[str] | None = None) -> "DataBinding":
-        """A binding of `schema_name` (an object of the workspace) with the key columns, `columns` and the columns the rows use,
-        as the designer writes it."""
+               cultures: list[str] | None = None, columns: list[str] | None = None, env: str | None = None) -> "DataBinding":
+        """A binding of `schema_name` with the key columns, `columns` and the columns the rows use, as the designer writes it.
+        The columns come from the object in the workspace, else from the site (`env`), else from the platform catalog."""
         package = Path(package)
         if not NAME_RE.fullmatch(name):
             raise ValueError(f"{name!r} is not a valid binding name")
@@ -317,9 +338,14 @@ class DataBinding(PackageItem):
         if ddir.exists():
             raise FileExistsError(ddir)
         workspace = Workspace(package)
-        known = object_columns(workspace, schema_name)
-        if not known:
-            raise KeyError(f"object {schema_name} is not in the workspace; copy an existing binding of it instead")
+        table = None
+        if not workspace.find(schema_name, "EntitySchemaManager"):
+            table = site_table(env, schema_name, package.name) if env else platform_table(schema_name)
+            if table is None:
+                tables = json.loads(PLATFORM_BINDINGS.read_text(encoding="utf-8"))["tables"]
+                raise KeyError(f"object {schema_name} is neither in the workspace nor in the platform catalog ({', '.join(tables)}); "
+                               "--env <env> reads its columns from the site")
+        known = table["columns"] if table else object_columns(workspace, schema_name)
         used = list(dict.fromkeys(list(key_columns) + list(columns or []) + [n for r in rows for n in r]))
         missing = [n for n in used if n not in known]
         if missing:
@@ -327,12 +353,14 @@ class DataBinding(PackageItem):
         columns = [{"ColumnUId": known[n]["UId"], "IsForceUpdate": False, "IsKey": n in key_columns, "ColumnName": n,
                     "DataTypeValueUId": known[n]["S2"]} for n in used]
         desc = Descriptor.new(ddir / "descriptor.json", {"UId": new_uid(), "Name": name, "ModifiedOnUtc": "", "InstallType": 0,
-                                                          "Schema": {"UId": workspace.uid_of(schema_name, "EntitySchemaManager"), "Name": schema_name},
+                                                          "Schema": {"UId": table["uid"] if table else workspace.uid_of(schema_name, "EntitySchemaManager"),
+                                                                     "Name": schema_name},
                                                           "Columns": columns})
         write_text(desc.path, desc.text, True)
         write_text(ddir / "data.json", JsonFile.new(ddir / "data.json", {"PackageData": []}).text, True)
         write_text(ddir / "filter.json", "", False)
         binding = cls(package, name)
+        binding.known_columns = known
         if any(known[n].get("E21") for n in used):
             for culture in cultures or ["en-US"]:
                 binding._loc_file(culture)

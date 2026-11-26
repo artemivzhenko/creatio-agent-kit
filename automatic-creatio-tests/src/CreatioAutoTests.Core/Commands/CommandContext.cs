@@ -95,17 +95,16 @@ public sealed class CommandContext
         CaseVariables.Substitute(text, Session.Variables);
 
     /// <summary>
-    /// Rejoins a <c>Column=Value;...</c> list after substituting <c>$name</c> in its unquoted tokens, and parses it.
-    /// Validation accepted the shape, so a parse error here is a substituted value that broke it.
+    /// Parses a <c>Column=Value;...</c> list and substitutes <c>$name</c> in its unquoted values (a quoted value is text, kept as written).
+    /// Validation accepted the shape, so a parse error here is not expected.
     /// </summary>
     public IReadOnlyList<RecordAssignment> Assignments(IEnumerable<CommandToken> tokens)
     {
-        var text = RecordAssignments.Rejoin(tokens.Select(t => t.IsQuoted ? t : t with { Value = Substitute(t.Value) }));
-        if (!RecordAssignments.TryParse(text, out var assignments, out var error))
+        if (!RecordAssignments.TryParse(RecordAssignments.RejoinRaw(tokens), out var assignments, out var error))
         {
-            throw new CommandFailedException("'" + Command.RawText + "' cannot be read once its values are filled in: " + error + ".");
+            throw new CommandFailedException("'" + Command.RawText + "' cannot be read: " + error + ".");
         }
 
-        return assignments;
+        return assignments.Select(a => a.Quoted ? a : a with { Value = Substitute(a.Value) }).ToArray();
     }
 }

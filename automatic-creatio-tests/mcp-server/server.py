@@ -46,16 +46,36 @@ def _exe() -> list[str]:
     return ["dotnet", "run", "--project", str(CLI_PROJECT), "--"]
 
 
+def _stale_note() -> str:
+    """A built exe older than the newest source under src/ is rebuilt once (the last line of dotnet build is the note);
+    CREATIO_TESTS_NO_BUILD=1 only warns. Empty when the exe is fresh or there is none (dotnet run builds by itself)."""
+    exe = next((e for c in ("Debug", "Release") if (e := CLI_PROJECT / "bin" / c / "net8.0" / ("creatio-tests.exe" if os.name == "nt" else "creatio-tests")).is_file()), None)
+    if exe is None:
+        return ""
+    newest = max((p.stat().st_mtime for ext in ("*.cs", "*.csproj") for p in (ROOT / "src").rglob(ext) if not {"obj", "bin"} & set(p.parts)), default=0.0)
+    # the apphost is not rewritten by a rebuild; the dlls beside it are
+    built = max([exe.stat().st_mtime] + [d.stat().st_mtime for d in exe.parent.glob("*.dll")])
+    if built >= newest:
+        return ""
+    build = ["dotnet", "build", str(CLI_PROJECT), "-c", exe.parent.parent.name]
+    if os.environ.get("CREATIO_TESTS_NO_BUILD") == "1":
+        return f"warning: {exe} is older than the sources under src/ (CREATIO_TESTS_NO_BUILD=1, not rebuilt); build it: {' '.join(build)}\n\n"
+    done = subprocess.run(build, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+    lines = [l for l in (done.stdout or "").splitlines() if l.strip()]
+    return f"rebuilt the stale {exe.name} ({' '.join(build)}, exit {done.returncode}): {lines[-1].strip() if lines else ''}\n\n"
+
+
 def _cli(args: list[str], timeout: int = RUN_TIMEOUT) -> str:
     """Runs the command line from the repository root and returns its output, exit code included."""
     try:
+        note = _stale_note()
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         run = subprocess.run(_exe() + args + ["--no-color"], cwd=ROOT, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace", env=env)
     except subprocess.TimeoutExpired:
         return f"timed out after {timeout} s: creatio-tests {' '.join(args)}"
     out = (run.stdout or "") + (("\n" + run.stderr) if run.stderr.strip() else "")
-    return out.strip() + f"\n\nexit code {run.returncode}"
+    return note + out.strip() + f"\n\nexit code {run.returncode}"
 
 
 def _read(path: Path) -> str:

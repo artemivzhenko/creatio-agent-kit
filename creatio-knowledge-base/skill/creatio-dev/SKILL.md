@@ -28,7 +28,8 @@ change.
    `tools/usertask`; `describe_schema` / `describe_item` before reading any file. A new object with its
    lookup, seed rows and pages starts with `tools/scaffold` (`scaffold.py entity <pkg> <Object> --caption ...
    --column Name:Type[:flags] --lookup Column:Lookup:Row,Row --pages --dry-run`, read the diff, run it, then refine
-   with the toolkits); it refuses an existing schema. C# goes into
+   with the toolkits); it refuses an existing schema. A REST service schema is `scaffold.py source <pkg> <Name> --service`, not one typed by
+   hand (on 8.2.3 a source code schema cannot see `Files/cs` types on the site, and the local `--build` hides it). C# goes into
    `Files/cs` per `get_code_style("3.7")` and gets a unit test per `get_code_style("3.8")`
    (`project.py tests-init <project.json>` once per package, then project.json's `commands.unitTests` green before you say
    done - it rebuilds the dll against the test binaries, so push with `push.py --build` (`push_package(..., build=True)`); `run_tests` runs them inside Creatio).
@@ -81,11 +82,11 @@ package or in Custom, or a push whose changes are not visible - `schema_layers`;
 `resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
 records of an object with their lookups named - `sample_records`, its columns - `describe_table`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
-the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
+the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`. One record written or changed from a tool is `env_call POST|PATCH|DELETE odata/<Object>` (`env/call.py` on the CLI); `env_odata` reads; a table with no object is read with `env_sql`; a backend case's `seed` line (dev-only) writes a fixture row, `make_fixture` gives its shape.
 
-No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it: `missing` before
+No tool answers? Call `report_gap(kind, need, instead, script=, text=, task=)` before you go around it: `missing` before
 your own script or query, `by-hand` after a value found by trial, `misbehaved` after a tool you worked around. Pass
-the script's path (the kit keeps a copy; never delete it). No password or token in the text. A gap that is not
+the script's path (the kit keeps a copy; never delete it). A script written for the task is saved under `<task folder>/scripts/<name>` (never a scratchpad) and `report_gap` gets its path; a one-line query or command with no file goes as `text=`. No password or token in the text. A gap that is not
 recorded does not become a tool.
 
 ## Reading C#: `members` first, Roslyn for the graph

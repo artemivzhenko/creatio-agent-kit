@@ -91,6 +91,7 @@ public sealed class ScriptParser
     {
         var tokens = new List<CommandToken>();
         var buffer = new StringBuilder();
+        var raw = new StringBuilder();
         var inQuotes = false;
         var quotedToken = false;
 
@@ -98,25 +99,27 @@ public sealed class ScriptParser
         {
             if (buffer.Length > 0 || quotedToken)
             {
-                tokens.Add(new CommandToken(buffer.ToString(), quotedToken));
+                tokens.Add(new CommandToken(buffer.ToString(), quotedToken) { Raw = quotedToken ? raw.ToString() : null });
                 buffer.Clear();
             }
 
+            raw.Clear();
             quotedToken = false;
         }
 
         foreach (var c in text)
         {
+            if (char.IsWhiteSpace(c) && !inQuotes)
+            {
+                Flush();
+                continue;
+            }
+
+            raw.Append(c);
             if (c == '"')
             {
                 inQuotes = !inQuotes;
                 quotedToken = true;
-                continue;
-            }
-
-            if (char.IsWhiteSpace(c) && !inQuotes)
-            {
-                Flush();
                 continue;
             }
 

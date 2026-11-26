@@ -38,6 +38,12 @@ public sealed class FakeExecutionSession : IExecutionSession
         return Task.CompletedTask;
     }
     public Task NavigateAsync(string path, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task WaitProcessTaskAsync(string process, string pageName, int? budgetMs, CancellationToken cancellationToken = default)
+    {
+        Navigations.Add("wait-process-task " + process + " on " + pageName + (budgetMs is null ? string.Empty : " " + budgetMs));
+        return Task.CompletedTask;
+    }
+
     public Task OpenProcessTaskAsync(string process, string pageName, CancellationToken cancellationToken = default)
     {
         Navigations.Add("process-task " + process + " on " + pageName);

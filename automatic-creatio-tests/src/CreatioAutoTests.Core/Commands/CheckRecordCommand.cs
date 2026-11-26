@@ -48,7 +48,7 @@ public sealed class CheckRecordCommand : ICommand
     {
         var expected = valueToken.IsQuoted ? valueToken.Value : context.Substitute(valueToken.Value);
         expected = !valueToken.IsQuoted && context.Session.StaticValues.TryGetValue(expected, out var staticValue) ? staticValue : expected;
-        var select = ODataValues.ColumnFor(column, expected);
+        var select = ODataValues.ColumnFor(column, expected, valueToken.IsQuoted);
 
         var rows = await context.Session.QueryRecordsAsync(entity, new[] { select }, filter, 1, cancellationToken).ConfigureAwait(false);
         if (rows.Count == 0)
@@ -79,8 +79,8 @@ public sealed class CheckRecordCommand : ICommand
     {
         return string.Join(" and ", assignments.Select(assignment =>
         {
-            var value = staticValues.TryGetValue(assignment.Value, out var staticValue) ? staticValue : assignment.Value;
-            return ODataValues.FilterColumn(assignment.Column, value) + " eq " + ODataValues.FilterLiteral(value);
+            var value = !assignment.Quoted && staticValues.TryGetValue(assignment.Value, out var staticValue) ? staticValue : assignment.Value;
+            return ODataValues.FilterColumn(assignment.Column, value, assignment.Quoted) + " eq " + ODataValues.FilterLiteral(value, assignment.Quoted);
         }));
     }
 }

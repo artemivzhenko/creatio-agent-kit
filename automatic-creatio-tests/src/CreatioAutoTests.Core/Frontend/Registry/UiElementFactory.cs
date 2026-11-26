@@ -26,7 +26,7 @@ public sealed class UiElementFactory
     /// The concrete class comes from the registry of the page's generation, which is what the
     /// validator resolved earlier; without a page definition the element is taken to be Freedom UI.
     /// </summary>
-    public IUiElement Create(ElementDefinition definition, PageDefinition? pageDefinition, IPage page, RunSettings settings)
+    public IUiElement Create(ElementDefinition definition, PageDefinition? pageDefinition, IPage page, RunSettings settings, string? scope = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(page);
@@ -35,7 +35,7 @@ public sealed class UiElementFactory
         var generation = pageDefinition?.Generation ?? UiGeneration.FreedomUI;
         var registration = _registry.Resolve(generation, definition.Type);
         var logger = _loggerFactory.CreateLogger(registration.ImplementationType);
-        var context = new ElementRuntimeContext(page, definition, settings, logger, pageDefinition);
+        var context = new ElementRuntimeContext(page, definition, settings, logger, pageDefinition, scope);
 
         try
         {

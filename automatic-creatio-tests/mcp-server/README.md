@@ -29,5 +29,8 @@ The repository root is the parent of this folder (`CREATIO_TESTS_ROOT` overrides
 take minutes, `CREATIO_TESTS_TIMEOUT` (seconds, default 1800) bounds it. The environment and
 users come from the repository's `Configuration/creatio.env.config.json`, as for the command line.
 
+Before a `validate`, `run`, `analyse` or `schemas` call the server compares the newest `*.cs` / `*.csproj` under `src/` with the built exe; when a source is newer it runs `dotnet build -c <configuration>` once and starts the answer with the last line of that build.
+With `CREATIO_TESTS_NO_BUILD=1` it does not build: the answer starts with a warning that names the stale exe and the build command.
+
 Check: `mcp-server\.venv\Scripts\python.exe mcp-server\test_server.py` (calls the tools as
 functions; `validate` runs the real command line).

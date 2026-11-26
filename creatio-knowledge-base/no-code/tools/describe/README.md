@@ -62,6 +62,8 @@ python describe.py find-text <workspace|package> <regex> [--kind page|object|...
 | `deps` | typed dependencies of a schema over the workspace: what it builds on and who builds on it |
 | `impact` | the dependents of the schemas a task changes, and the other active tasks that change or affect them; exit 1 on a conflict |
 | `layers` | the copies of a schema on an environment, applied first to last; exit 1 when the Custom layer has one |
+| `columns-check` | the column references of a package (Freedom attributes, process filters and values, C# AddColumn paths) that the site lacks; read-only, exit 1 on a hit |
+| `body` | the text of one copy of a schema as the site holds it (.js / .cs, or MetaData for an object or process); several copies and no --package: one line per copy, exit 1 |
 | `snapshot` | an object as lines: effective columns over the workspace layers (disk), table columns / rows / checksums / copies (site) |
 | `merge-plan` | the plan of collapsing each schema's replacing layers into one: target, additions, conflicts, dependencies; read-only, exit 1 on a conflict |
 | `merge` | the replacing layers of one object or page collapsed into one layer of the target package; prints the files, --apply writes them; exit 1 when it stops |
@@ -379,6 +381,32 @@ chain reaches `BaseLookup` - through the workspace's own objects or the stock on
 columns, the data bindings that seed it (rows counted) and how many items refer to it. That is
 the list a de-duplication or binding-value task starts from. An object whose parent is outside
 both the workspace and the stock list is reported as *not decided* rather than guessed.
+
+## The body of one copy on the site (S48-T04)
+
+`describe.py body <Schema> -e <env> [--package <Pkg>] [--out <file>]` (library `creatio_schemas/describe/body.py::schema_body`,
+which other toolkits call for a site layer) prints the text of one SysSchema copy - a client or source code schema: the
+largest `SysSchemaContent` row (the `.js` / `.cs`); an object, a process, a user task: `SysSchema.MetaData` (a process's is
+JSON, an object's the platform's diff-form text, not a pulled `metadata.json`). It reads base64 in 15000-byte chunks, ten
+per clio call, and checks the bytes against the site's md5; `--out` writes them byte for byte. Without `--package` and
+with several copies it prints `<package>  <size> bytes  md5 <8>  <ModifiedOn>` per copy and exits 1; no copy exits 2.
+`layers` carries no body column: with `--rule` it reads each layer's body through this reader. `shell_source` (MCP) greps
+the Freedom UI shell bundles only; `body` is any schema on the site.
+
+## Column references the site lacks (S48-T16)
+
+`describe.py columns-check <package> -e <env> [--schema X]` (library `creatio_schemas/describe/columns_check.py`) reads the column
+references the files hold and asks the site once per root object (its table's columns and foreign keys, read-only): Freedom
+page attributes (`DS.Column.Sub`, through the data source's object) and the data sources' own attribute paths, process filters and
+the columns an Add / Modify data element writes, and C# `AddColumn("a.b")` after the nearest preceding
+`new EntitySchemaQuery(..., "Root")` (`Files/cs` and the other plain C# files). A lookup column `X` is the table column `XId`; a path
+`UsrOrder.UsrContact.Name` is followed through the foreign keys and left unchecked where the site has none. One line per miss,
+`<schema>: <where>: <Obj.Column> is missing on the site (path <Root>.<path>)`; exit 1 on a hit, 0 with `every column reference
+exists on the site`. Not read: Classic rules and `bindTo`.
+
+`merge` / `merge-plan` read a layer's `SCHEMA_DEPS` as a JavaScript array literal (single or double quotes, a trailing comma);
+a section that is no such literal stops the merge naming the package and the schema: `UsrB UsrPage_FormPage: SCHEMA_DEPS is not an
+array literal: ...`. `item <Page> data-sources` prints a data source whose `attributes` hold objects as their JSON text.
 
 ## Snapshot of an object
 

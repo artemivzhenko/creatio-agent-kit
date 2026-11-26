@@ -111,6 +111,23 @@ def test_set_rename_and_remove_keys():
             assert code == 2, (argv, out)
 
 
+def test_set_on_a_freedom_page_writes_the_page_string_with_its_b2_entry():
+    tmp = Path(tempfile.mkdtemp())
+    pkg = tmp / "UsrPkg"
+    shutil.copytree(TOOLS / "pages" / "tests" / "fixtures" / "UsrPkg", pkg)
+    try:
+        code, out = run("set", str(pkg), "UsrOrder_FormPage", "UsrHint", "en-US=Pick one", "uk-UA=Obery")
+        assert code == 0 and "LocalizableStrings.UsrHint.Value" in out and "set-value --text" in out
+        r = Resources(pkg / "Resources" / "UsrOrder_FormPage.ClientUnit")
+        assert r.get("LocalizableStrings.UsrHint.Value") == "Pick one" and r.get("LocalizableStrings.UsrHint.Value", "uk-UA") == "Obery"
+        assert r.get("UsrHint") is None  # D95: the plain key the page never shows is not written
+        assert '"A2": "UsrHint"' in read(pkg / "Schemas" / "UsrOrder_FormPage" / "metadata.json")
+        code, out = run("set", str(pkg), "UsrOrder_FormPage", "Caption", "en-US=Order")  # Caption stays a plain key
+        assert code == 0 and Resources(pkg / "Resources" / "UsrOrder_FormPage.ClientUnit").get("Caption") == "Order"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_")]:
         fn()

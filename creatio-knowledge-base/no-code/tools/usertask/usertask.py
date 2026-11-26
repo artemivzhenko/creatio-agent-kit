@@ -5,7 +5,7 @@
     python usertask.py validate     <package> <Task>
     python usertask.py method       <package> <Task> <Method>                      # one method's C#
     python usertask.py new          <package> <Task> --caption "Notify owner" [--param RecordId:Guid:In:required] [--param Note:Text] [--interactive] [--cultures en-US]
-    python usertask.py add-param    <package> <Task> <Name> <Type> [--direction In|Out|Variable] [--caption C] [--required] [--ref UsrOrder]
+    python usertask.py add-param    <package> <Task> <Name> <Type> [--direction In|Out|Variable] [--caption C] [--required] [--ref UsrOrder [--env dev]]
     python usertask.py remove-param <package> <Task> <Name>
     python usertask.py rename-param <package> <Task> <Old> <New>
     python usertask.py set-caption  <package> <Task> <value>
@@ -50,7 +50,7 @@ def new(task, a):
 
 
 def add_param(task, a):
-    task.add_param(a.name, a.type, a.direction, a.caption or a.name, a.required, a.ref)
+    task.add_param(a.name, a.type, a.direction, a.caption or a.name, a.required, a.ref, env=a.env)
     print(f"add parameter {a.name} ({a.type}, {a.direction})")
 
 
@@ -99,7 +99,8 @@ def build() -> CommandLine:
     p.add_argument("--direction", default="In", choices=["In", "Out", "Variable", "Internal"])
     p.add_argument("--caption", default="")
     p.add_argument("--required", action="store_true")
-    p.add_argument("--ref", help="referenced object of a Lookup parameter")
+    p.add_argument("--ref", help="referenced object of a Lookup parameter: writes L9 (its UId) and L16 (its name)")
+    p.add_argument("--env", help="look --ref up on this environment when it is neither in the workspace nor stock")
     p = c.command("remove-param", remove_param, "drop a parameter and its caption", writes=True)
     p.add_argument("name")
     p = c.command("rename-param", rename_param, "rename a parameter (captions follow)", writes=True)

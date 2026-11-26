@@ -4,10 +4,14 @@
     python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list|mini]
                               [--cultures en-US,ru-RU] [--dry-run]
     python pages.py inspect   <package> <Page>
+    python pages.py layout    <package> <Page> --container <Name> [--env <env>]
     python pages.py add-field <package> <Page> <Column> [--parent SideAreaProfileContainer] [--row N] [--col N] [--span N]
+    python pages.py replace   <package> <Page> [--env <env>] [--parent-uid <UId>] [--caption ..] [--cultures en-US,uk-UA]
     python pages.py add-grid  <package> <Page> <Name> --entity UsrOrder --columns UsrName,UsrAmount [--parent GeneralInfoTabContainer] [--rows 6] [--editable]
                               [--master UsrOrder] [--add-button] [--page UsrOrderItem_FormPage] [--literal-captions]
-    python pages.py set-value <package> <Page> <Element> <Property> <Value> [--text "Caption"] [--culture en-US]
+                              [--panel "Items" [--no-add-button]] [--before <Element>] [--env <env>]
+    python pages.py grid-caption <package> <Page> <Grid> <Column> en-US="Amount" [uk-UA=".."]
+    python pages.py set-value <package> <Page> <Element> <Property|a.b.c> <Value> [--text "Caption"] [--culture en-US]
     python pages.py remove    <package> <Page> <Element>
     python pages.py validate  <package> <Page>
     python pages.py audit     <package> <Page> [--all]
@@ -39,7 +43,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scaffold"))
 
-from creatio_schemas.cli import CommandLine  # noqa: E402
+from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
+from creatio_schemas import jscheck  # noqa: E402
 from creatio_schemas.files import write_text  # noqa: E402
 from creatio_schemas.page import PageSchema, compare_page_files  # noqa: E402
 
@@ -88,6 +93,24 @@ def new(_, a):
     print(f"{len(files)} file(s) " + ("would be written (dry run: nothing written)" if a.dry_run else f"written to {package.name}; validation: ok"))
 
 
+def env_of(a):
+    from creatio_schemas.environment import open_environment
+    return open_environment(a.env) if a.env else None
+
+
+def replace(_, a):
+    page = PageSchema.create_replacing(Path(a.package), a.page, a.parent_uid, a.caption, a.cultures.split(",") if a.cultures else None, env_of(a))
+    print(f"created {page.name} replacing {page.replacing} ({page.descriptor.data['Parent']['UId']}):")
+    for path in sorted(page.files()):
+        print(f"  {path.relative_to(page.package).as_posix()}")
+
+
+def grid_caption(page, a):
+    if not all("=" in v for v in a.values):
+        raise ValueError('give culture=text pairs, e.g. en-US="Amount"')
+    print(f"caption of {a.grid}.{a.column}: #ResourceString({page.grid_caption(a.grid, a.column, parse_assignments(a.values))})#")
+
+
 def inspect(page, a):
     print(page.describe())
 
@@ -97,6 +120,7 @@ def validate(page, a):
     for p in problems:
         print(p)
     print("ok" if not problems else f"{len(problems)} problem(s)")
+    print("\n".join(jscheck.lines(page.body_path)))
     return 1 if page.errors() else 0
 
 
@@ -109,8 +133,9 @@ def add_grid(page, a):
     if not a.master:
         print(f"warning: no --master: the grid lists every row of {a.entity}")
     op = page.add_grid(a.name, a.entity, a.columns.split(","), parent=a.parent, rows=a.rows, editable=a.editable, master=a.master,
-                       add_button=a.add_button, entity_page=a.entity_page, literal_captions=a.literal_captions)
-    print(f"add {a.name}: grid of {a.entity} in {a.parent} row {op['values']['layoutConfig']['row']}")
+                       add_button=a.add_button or bool(a.panel and not a.no_add_button), entity_page=a.entity_page,
+                       literal_captions=a.literal_captions, panel=a.panel, before=a.before, env=env_of(a) if a.before else None)
+    print(f"add {a.name}: grid of {a.entity} in {op['parentName']}[{op['index']}]" + (f" of panel {a.panel!r}" if a.panel else ""))
 
 
 def set_value(page, a):
@@ -152,8 +177,16 @@ def audit(page, a):
     lines = run(page, a.all)
     for line in lines:
         print(line)
+    if page.replacing:
+        print(f"# a replacing copy of {page.replacing}: the counts cover this layer only")
     print(f"{page.name}: {len(lines)} " + ("count(s)" if a.all else "finding(s)"))
     return 1 if lines and not a.all else 0
+
+
+def layout(_, a):
+    from creatio_schemas.environment import open_environment
+    from creatio_schemas.page.layout import layout_lines
+    print("\n".join(layout_lines(Path(a.package), a.page, a.container, open_environment(a.env) if a.env else None)))
 
 
 def build() -> CommandLine:
@@ -165,6 +198,14 @@ def build() -> CommandLine:
     p.add_argument("--template", choices=["form", "list", "mini"], default="form")
     p.add_argument("--cultures", help="comma-separated; default the package's cultures")
     p.add_argument("--dry-run", action="store_true", help="list the files, write nothing")
+    p = c.command("replace", replace, "a replacing copy of a base Freedom page: descriptor, diff metadata, properties, resources, empty body")
+    p.add_argument("--env", help="clio environment: the page's UId from the site when the workspace and the catalog lack it")
+    p.add_argument("--parent-uid", help="the base page's UId, given")
+    p.add_argument("--caption", help="default: the copy's caption in the workspace, else the page name")
+    p.add_argument("--cultures", help="comma-separated; default the package's cultures")
+    p = c.command("layout", layout, "a grid container over every layer (site copies with --env): the element in each cell, free cells")
+    p.add_argument("--container", required=True)
+    p.add_argument("--env", help="clio environment: the site's copies too, each body read from the site")
     c.command("inspect", inspect, "elements, attributes, data sources and problems")
     c.command("validate", validate, "problems; exit code 1 on errors")
     p = c.command("add-field", add_field, "a field bound to a column of the page's object", writes=True)
@@ -184,9 +225,17 @@ def build() -> CommandLine:
     p.add_argument("--add-button", action="store_true", help="a New button above the grid (crt.CreateRecordRequest, the master column preset)")
     p.add_argument("--page", dest="entity_page", help="the page the New button opens; default <entity>_FormPage")
     p.add_argument("--literal-captions", action="store_true", help="column captions as plain text (a probe); default: resource strings")
+    p.add_argument("--panel", metavar="TITLE", help="the designer's detail: an expansion panel with this title, tools (add, refresh), the grid inside")
+    p.add_argument("--no-add-button", action="store_true", help="with --panel: tools without the add button")
+    p.add_argument("--before", metavar="ELEMENT", help="at this element's index in its parent (this page's, else the replaced page's)")
+    p.add_argument("--env", help="clio environment: read the replaced page from the site for --before")
+    p = c.command("grid-caption", grid_caption, "a grid column's caption as a page string, in each culture given", writes=True)
+    p.add_argument("grid")
+    p.add_argument("column", help="the column's code, path or the part after <DS>_")
+    p.add_argument("values", nargs="+", metavar="culture=text")
     p = c.command("set-value", set_value, "one property of an element; a #ResourceString(Key)# value gets its B2 entry and string", writes=True)
     p.add_argument("element")
-    p.add_argument("property")
+    p.add_argument("property", help="a.b.c sets a nested property")
     p.add_argument("value")
     p.add_argument("--text", help="the string's text for #ResourceString(Key)# (needed when the page has no such string yet)")
     p.add_argument("--culture", help="the culture of --text; default en-US; the page's other cultures stay without the key (`resources.py missing` lists them)")
@@ -203,7 +252,7 @@ def build() -> CommandLine:
 
 
 def main(argv=None) -> int:
-    return build().run(sys.argv[1:] if argv is None else argv, lambda a: None if a.command == "new" else PageSchema(Path(a.package), a.page))
+    return build().run(sys.argv[1:] if argv is None else argv, lambda a: None if a.command in ("new", "replace", "layout") else PageSchema(Path(a.package), a.page))
 
 
 if __name__ == "__main__":

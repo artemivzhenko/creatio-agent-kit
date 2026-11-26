@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -24,8 +25,16 @@ def resolve_package(name: str, project: Path | None = None) -> Path:
     """A package folder given by path, or by name: packages/<name> under the current folder or the project's."""
     if Path(name).is_dir():
         return Path(name)
-    for base in (Path.cwd(), Path(project).resolve().parent if project else None):
-        if base is not None and (base / "packages" / name).is_dir():
+    bases = [Path.cwd()]
+    if project:
+        root = Path(project).resolve().parent
+        try:
+            workspace = (json.loads(Path(project).read_text(encoding="utf-8-sig")).get("package") or {}).get("workspace")
+        except (OSError, ValueError):
+            workspace = None
+        bases += [root] + ([root / workspace] if workspace else [])  # an absolute `package.workspace` wins in the join
+    for base in bases:
+        if (base / "packages" / name).is_dir():
             return base / "packages" / name
     raise FileNotFoundError(f"no package folder named {name}; give its path (packages/{name})")
 

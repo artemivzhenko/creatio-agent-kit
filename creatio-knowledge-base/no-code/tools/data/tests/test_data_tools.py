@@ -156,7 +156,7 @@ def test_create_binds_an_object_of_the_workspace():
         assert empty.row(key)["Name"] == "Flat"
         key = empty.add_row({"Name": {"de-DE": "Spaeter"}})
         assert empty.cultures == ["de-DE"] and empty.row(key)["Name"] == {"de-DE": "Spaeter"}
-        for args, error in ((("UsrX", "SysSettings", ["Id"], []), KeyError), (("Usr X", "UsrOrderStatus", ["Id"], []), ValueError),
+        for args, error in ((("UsrX", "UsrNowhere", ["Id"], []), KeyError), (("Usr X", "UsrOrderStatus", ["Id"], []), ValueError),
                             (("UsrPriority", "UsrOrderStatus", ["Id"], []), FileExistsError), (("UsrY", "UsrOrderStatus", ["Id"], [{"Nope": 1}]), KeyError)):
             try:
                 DataBinding.create(pkg, *args)
@@ -164,6 +164,80 @@ def test_create_binds_an_object_of_the_workspace():
                 pass
             else:
                 raise AssertionError(f"create{args} must raise {error.__name__}")
+
+
+def test_platform_catalog_loads_and_has_the_five_tables():
+    from creatio_schemas.data.binding import PLATFORM_BINDINGS, platform_table
+    catalog = json.loads(PLATFORM_BINDINGS.read_text(encoding="utf-8"))
+    assert catalog["version"].startswith("8.3.2")
+    for table in ("Lookup", "SysEntitySchemaOperationRight", "SysSettings", "SysSettingsValue", "SysModuleEntity", "SysModule",
+                  "SysModuleInWorkplace"):
+        t = platform_table(table)
+        assert t and len(t["uid"]) == 36 and t["columns"]["Id"]["UId"] == "ae0e45ca-c495-4fe7-a39d-3ab7278e1617", table
+        assert all(c["S2"] for c in t["columns"].values()), table
+    assert platform_table("Lookup")["columns"]["Name"].get("E21") is True and platform_table("UsrNowhere") is None
+
+
+def test_create_binds_a_platform_table_from_the_catalog():
+    from creatio_schemas.data.binding import platform_table
+    with workspace() as pkg:
+        entity = "5d2a1c3e-0000-4000-8000-000000000001"
+        reg = DataBinding.create(pkg, "UsrLookup_UsrOrderStatus", "Lookup", ["Id"], [{"Name": "Order statuses", "SysEntitySchemaUId": entity}])
+        lookup = platform_table("Lookup")
+        assert reg.descriptor.data["Schema"] == {"UId": lookup["uid"], "Name": "Lookup"}
+        assert {c["ColumnName"]: c["ColumnUId"] for c in reg.descriptor.data["Columns"]}["Name"] == lookup["columns"]["Name"]["UId"]
+        again = DataBinding(pkg, "UsrLookup_UsrOrderStatus")
+        assert again.rows()[0]["Name"] == {"en-US": "Order statuses"} and again.rows()[0]["SysEntitySchemaUId"] == entity  # Name localised
+        right = DataBinding.create(pkg, "UsrOrderRights", "SysEntitySchemaOperationRight", ["Id"],
+                                   [{"SysAdminUnit": ALL_EMPLOYEES, "SubjectSchemaUId": entity, "CanRead": "true", "Position": "0"}])
+        row = right.rows()[0]
+        assert row["CanRead"] is True and row["Position"] == 0 and row["SysAdminUnit"] == ALL_EMPLOYEES and right.validate() == []
+        key = DataBinding(pkg, "UsrLookup_UsrOrderStatus").add_row({"Name": "Later"})  # a later add-row: Name still localised
+        assert DataBinding(pkg, "UsrLookup_UsrOrderStatus").loc["en-US"].obj["PackageData"] and key
+
+
+def test_create_with_env_reads_the_table_from_the_site():
+    import creatio_schemas.data.binding as binding
+    seen = []
+
+    def fake(env, table, package):
+        seen.append((env, table, package))
+        return {"uid": "5d2a1c3e-0000-4000-8000-000000000002",
+                "columns": {"Id": {"UId": "ae0e45ca-c495-4fe7-a39d-3ab7278e1617", "S2": DVT_OF["Guid"]},
+                            "Caption": {"UId": "5d2a1c3e-0000-4000-8000-000000000003", "S2": DVT_OF["MediumText"], "E21": True}}}
+
+    saved, binding.site_table = binding.site_table, fake
+    try:
+        with workspace() as pkg:
+            b = DataBinding.create(pkg, "UsrSiteTable", "SysUsrTable", ["Id"], [{"Caption": "x"}], env="dev")
+            assert seen == [("dev", "SysUsrTable", "UsrPkg")] and b.descriptor.data["Schema"]["UId"] == "5d2a1c3e-0000-4000-8000-000000000002"
+            assert b.rows()[0]["Caption"] == {"en-US": "x"}  # localisable on the site: Localization/, not data.json
+            try:
+                DataBinding.create(pkg, "UsrNone", "SysUsrOther", ["Id"], [])
+                raise AssertionError("must be refused")
+            except KeyError as err:
+                assert "--env <env>" in str(err) and "Lookup" in str(err)
+    finally:
+        binding.site_table = saved
+
+
+def test_site_table_of_a_package_not_on_the_site_reads_it_below_custom():
+    import creatio_schemas.entity.hierarchy as hierarchy
+    from creatio_schemas.data.binding import site_table
+    asked = []
+
+    def fake(clio, obj, package):
+        asked.append(package)
+        if package != "Custom":
+            raise KeyError(f"no object {obj} in the hierarchy of package {package}")
+        return {"uid": "5D2A1C3E-0000-4000-8000-000000000004", "schema": {"D2": [{"A2": "Id", "UId": "u", "S2": "t", "E9": True}]}}
+
+    saved, hierarchy.fetch_base = hierarchy.fetch_base, fake
+    try:
+        t = site_table("dev", "Lookup", "UsrPkg")
+    finally:
+        hierarchy.fetch_base = saved
+    assert asked == ["UsrPkg", "Custom"] and t == {"uid": "5d2a1c3e-0000-4000-8000-000000000004", "columns": {"Id": {"UId": "u", "S2": "t"}}}
 
 
 def test_json_file_keeps_the_style_of_the_file():

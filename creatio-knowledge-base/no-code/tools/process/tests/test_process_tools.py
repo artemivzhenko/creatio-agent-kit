@@ -644,6 +644,113 @@ def test_an_entity_the_workspace_does_not_hold_comes_from_the_sites_sys_schema()
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_signal_filter_of_an_existing_start_is_rewritten_and_printed():
+    # S48-T13 (D29): a start signal's filter changes after a column split; mode and columns stay, the line is what inspect shows
+    import contextlib
+    import io
+    sys.path.insert(0, str(HERE.parent))
+    import proc
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        p = ProcessSchema.create(pkg, "UsrSig_Process", "Sig", ["en-US"])
+        start = p.add_element("startSignal", "OnChange", "On change")
+        p.set_signal(start, "UsrPkg", "modified", ["UsrName"], "UsrNumber > 100")
+        p.save()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert proc.main(["element", str(pkg), "UsrSig_Process", "signal", "OnChange", "--filter", "UsrName = abc; UsrIsActive = true"]) == 0
+        line = out.getvalue().splitlines()[0]
+        assert line == ("OnChange: record signal: UsrPkg modified (columns: UsrName); when UsrPkg where UsrName = abc and UsrIsActive = True"), line
+        q = ProcessSchema(pkg, "UsrSig_Process")
+        assert q.element("OnChange")["DZ8"] is True and "UsrNumber" not in q.element("OnChange")["DZ13"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_retask_moves_an_element_to_another_user_task_keeping_values_by_name():
+    # S48-T13 (D81): J6/BL7, the parameters' owner, GT4 and GT5 follow the new task; unmatched ones listed
+    import contextlib
+    import io
+    from creatio_schemas.usertask import UserTaskSchema
+    sys.path.insert(0, str(HERE.parent))
+    import proc
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        a = UserTaskSchema.create(pkg, "UsrTaskA", "A", [("RecordId", "Guid"), ("Note", "Text"), ("Old", "Integer")])
+        b = UserTaskSchema.create(pkg, "UsrTaskB", "B", [("RecordId", "Guid"), ("Note", "Text"), ("Extra", "Boolean")])
+        p = ProcessSchema.create(pkg, "UsrRetask_Process", "Retask", ["en-US"])
+        el = p.add_element("readData", "Step", "Step", after="StartEvent1", before="TerminateEvent1")
+        first = p.retask(el, "UsrTaskA")
+        assert first["old"] == "ReadDataUserTask" and first["new"] == "UsrTaskA" and first["added"] == ["RecordId", "Note", "Old"]
+        assert "ResultEntity" in first["removed"] and el["J6"] == el["BL7"] == a.uid
+        p.set_value(el, "Note", "hello")
+        p.save()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert proc.main(["element", str(pkg), "UsrRetask_Process", "retask", "Step", "--task", "UsrTaskB"]) == 0
+        assert out.getvalue().splitlines()[0] == "Step: UsrTaskA -> UsrTaskB; kept 2 parameter(s); removed (not in UsrTaskB): Old; added: Extra", out.getvalue()
+        q = ProcessSchema(pkg, "UsrRetask_Process")
+        step = q.element("Step")
+        by_name = {x["A2"]: x for x in b.params}
+        assert step["J6"] == step["BL7"] == b.uid and [x["A2"] for x in step["BP2"]] == ["RecordId", "Note", "Extra"]
+        assert all(x["A3"] == x["A4"] == b.uid for x in step["BP2"])
+        note = q.element_param(step, "Note")
+        assert note["L8"]["GS2"] == "hello"
+        rows = [m for m in q.mappings if m.get("A2") == "Step"]
+        assert len(rows) == 3 and all(m["GT4"] == b.uid for m in rows)
+        assert next(m for m in rows if m["GT3"] == note["UId"])["GT5"] == by_name["Note"]["UId"] and q.validate() == []
+        # a task the workspace does not hold: --env reads its metadata from the site's SysSchema (a fake select here)
+        site_uid = "5e1f0000-0000-4000-8000-000000000001"
+        meta = json.dumps({"MetaData": {"Schema": {"UId": site_uid.upper(), "A2": "UsrSiteTask", "FJ1": [
+            {"A2": "Note", "UId": "5e1f0000-0000-4000-8000-000000000002", "L1": by_name["Note"]["L1"]}]}}})
+        queries = []
+        q.rows_of = lambda sql: queries.append(sql) or ([{"meta": meta}] if "'UsrSiteTask'" in sql else [])
+        r = q.retask(step, "UsrSiteTask")
+        assert r["kept"] == ["Note"] and step["J6"] == site_uid and "ProcessUserTaskSchemaManager" in queries[-1]
+        q.rows_of = None
+        for bad, kind in ((lambda: q.retask(step, "UsrNowhere"), KeyError), (lambda: q.retask(q.element("StartEvent1"), "UsrTaskA"), ValueError)):
+            try:
+                bad()
+                raise AssertionError("expected an error")
+            except kind:
+                pass
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_find_streams_hits_and_reads_the_bindings_only_to_caption_a_printed_id():
+    # S48-T13 (E11): a cold package spent 230 of 273 s reading every data binding; now only a printed hit holding an Id reads them
+    import contextlib
+    import io
+    from unittest.mock import patch
+    from creatio_schemas.workspace import Workspace
+    sys.path.insert(0, str(HERE.parent))
+    import proc
+    reads = []
+
+    def rows(self):
+        if getattr(self, "_rows", None) is None:
+            reads.append(1)
+            self._rows = {"UsrLog": {"368340c2-dddc-46fe-ac7f-d3485b497f95": "Logs"}}
+        return self._rows
+
+    def run(*argv):
+        out = io.StringIO()
+        with patch.object(Workspace, "lookup_rows", rows), contextlib.redirect_stdout(out):
+            assert proc.main(["find", str(FIXTURES), *argv]) == 0
+        return out.getvalue().splitlines()
+    assert run("UsrNothingMatches") == ["no process text matches /UsrNothingMatches/"] and reads == []
+    lines = run(".", "--limit", "1")
+    assert len(lines) == 2 and lines[1] == "  ... more; next: --offset 1", lines
+    lines = run("Const: 368340c2")
+    assert lines[0].endswith("EntitySchemaId: Const: Logs (368340c2-dddc-46fe-ac7f-d3485b497f95)") and reads == [1], (lines, reads)
+    assert run(".", "--offset", "9") == ["  (offset 9 is past the end: 3 hits)"]
+
+
 def proc_disagree(value, mapping):
     from creatio_schemas.process.schema import _disagree
     return _disagree(value, mapping)

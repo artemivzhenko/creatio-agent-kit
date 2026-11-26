@@ -29,7 +29,7 @@ python data.py inspect    <package> <Binding>
 python data.py validate   <package> <Binding>
 python data.py rows       <package> <Binding> [--limit 20] [--culture en-US]
 python data.py new        <package> <Binding> --table UsrOrderStatus [--key Id] [--columns Name,Description]
-                          [--cultures en-US,ru-RU] [--rows rows.json]
+                          [--cultures en-US,ru-RU] [--rows rows.json] [--env dev]
 python data.py set        <package> <Binding> <key> <Column> <value> [--culture ru-RU]
 python data.py add-row    <package> <Binding> Column=value ...           (prints the new row's key)
 python data.py remove-row <package> <Binding> <key>
@@ -42,7 +42,7 @@ python data.py duplicates <Object> <Column> -e <env> | --project <project.json>
 | `inspect` | bound table, row count, columns, problems |
 | `validate` | problems; exit code 1 on errors |
 | `rows` | the rows, one line each, key first |
-| `new` | a binding of an object of the workspace |
+| `new` | a binding of an object of the workspace or a platform table |
 | `set` | one value of one row |
 | `add-row` | a new row |
 | `remove-row` | drop a row and its translations |
@@ -89,12 +89,33 @@ Data/<Name>/Localization/data.<c>.json  the localisable columns per culture: [{S
 - `filter.json` is never rewritten; `new` writes it empty.
 - `new`: descriptor with the key and named columns, `data.json`, empty `filter.json`, a
   `Localization` file per culture when a localisable column is bound - BOM, CRLF, two spaces, as
-  the 8.x designer writes them. Only objects of the workspace can be bound; for a platform table
-  (`SysSettings`) copy an existing binding.
+  the 8.x designer writes them. An object of the workspace is read from it; a platform table from
+  the site with `--env` (the object merged over its copies below the package, `entity.hierarchy`),
+  else from `assets/platform_bindings.json` (`Lookup`, `SysEntitySchemaOperationRight`, `SysSettings`,
+  `SysSettingsValue`, `SysModuleEntity`, `SysModule`, `SysModuleInWorkplace`: schema UId, column
+  UIds, types, localisable flags, read once from the package archives of an 8.3.2 install and equal
+  to the stock catalogues in `entity/assets`; `version` says which).
 - `set` converts the text to the column's type (Boolean, Integer, Float / Money); a lookup takes a
   UId or `null` and its stale `DisplayValue` is cleared. `add-row` writes every localisable
   column to every culture (empty when not given) and a new `Id` when the key is `Id`.
   `remove-row` drops the row from every culture too.
+
+## Platform rows a package can carry
+
+A package installs rows of platform tables like any other: a `Lookup` row registers an own lookup
+in the Lookups section (`Name`, `SysEntitySchemaUId` = the object's UId); `SysEntitySchemaOperationRight`
+rows grant a role (`SysAdminUnit`, e.g. All employees) `CanRead` / `CanAppend` / `CanEdit` / `CanDelete`
+on an object (`SubjectSchemaUId`); `SysSettings` + `SysSettingsValue` carry a setting and its value
+(a copy under a new `Code` needs a new `Id`); `SysModuleEntity` / `SysModule` / `SysModuleInWorkplace`
+make a section. Not every platform table belongs in a binding: disabling a process is not a
+`SysProcessDisabled` row (the platform facts say how a process is disabled).
+
+```bash
+python data.py new     UsrPkg UsrLookup_UsrOrderStatus --table Lookup --columns Name,Description,SysEntitySchemaUId --env dev
+python data.py add-row UsrPkg UsrLookup_UsrOrderStatus Name="Order statuses" SysEntitySchemaUId=<object UId>
+python data.py new     UsrPkg UsrOrderRights --table SysEntitySchemaOperationRight --columns SysAdminUnit,SubjectSchemaUId,CanRead,CanAppend,CanEdit,CanDelete,Position --env dev
+python data.py add-row UsrPkg UsrOrderRights SysAdminUnit=a29a3ba5-4b0d-de11-9a51-005056c00008 SubjectSchemaUId=<object UId> CanRead=true CanAppend=true CanEdit=true CanDelete=false Position=0
+```
 
 ## Duplicates on an environment
 

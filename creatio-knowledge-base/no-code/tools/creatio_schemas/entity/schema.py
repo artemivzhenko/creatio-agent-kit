@@ -34,6 +34,26 @@ TEXT_WIDTH = {"ShortText": 50, "MediumText": 250, "LongText": 500, "MaxSizeText"
 DEFAULT_VERSION = "8.2.3.1351"
 
 
+def entity_uid(workspace, ref: str, env: str | None = None) -> str:
+    """The base UId of the object `ref` (a UId is returned as given): the workspace, the stock catalogue, then `env`."""
+    if is_uid(ref):
+        return ref.lower()
+    hits = workspace.find(ref, "EntitySchemaManager")
+    if hits:
+        return hits[0]["base"]
+    if ref in STOCK_ENTITIES:
+        return STOCK_ENTITIES[ref]
+    if env:
+        from ..clio import Clio
+        from ..records import quote
+        rows = Clio(env).sql(f'select "UId"::text uid from "SysSchema" where "Name" = {quote(ref)} '
+                             """and "ManagerName" = 'EntitySchemaManager' and not "ExtendParent" limit 1""")
+        if rows:
+            return rows[0]["uid"].lower()
+    raise KeyError(f"object {ref!r} is neither in the workspace nor a stock object"
+                   + (f" nor on {env}" if env else "; pass its UId or --env <env>"))
+
+
 class EntitySchema(Schema):
     RESOURCE_SUFFIX = "Entity"
 
@@ -142,15 +162,8 @@ class EntitySchema(Schema):
             return None
         return self.workspace.name_of(uid) or next((n for n, u in STOCK_ENTITIES.items() if u == uid.lower()), uid)
 
-    def _ref_uid(self, ref: str) -> str:
-        if is_uid(ref):
-            return ref.lower()
-        hits = self.workspace.find(ref, "EntitySchemaManager")
-        if hits:
-            return hits[0]["base"]
-        if ref in STOCK_ENTITIES:
-            return STOCK_ENTITIES[ref]
-        raise KeyError(f"lookup target {ref!r} is neither in the workspace nor a stock 8.2.3 object; pass its UId")
+    def _ref_uid(self, ref: str, env: str | None = None) -> str:
+        return entity_uid(self.workspace, ref, env)
 
     # ======================================================================= #
     # Changing
@@ -171,7 +184,13 @@ class EntitySchema(Schema):
         self._require_diff()
         if not NAME_RE.fullmatch(name):
             raise ValueError(f"{name!r} is not a valid column name")
-        if any(c["A2"].lower() == name.lower() for c in self.columns()):
+        clash = next((c for c in self.columns() if c["A2"].lower() == name.lower()), None)
+        if clash is not None:
+            info = None if self.is_own(clash) else self.base_info
+            if info:  # D71: a day-old cache may still list a column the site has dropped
+                raise ValueError(f"column {name} exists in the base cached {info['fetched'][:10]} from {info['env']}; "
+                                 f"objects.py base {self.package} {self.name} --env {info['env']} fetches it again "
+                                 f"(or column add ... --refresh --env {info['env']})")
             raise ValueError(f"column {name} exists")
         types = {v: k for k, v in ALL_DATA_VALUE_TYPES.items()}
         if type_name not in types:
@@ -262,6 +281,17 @@ class EntitySchema(Schema):
             own["S2"] = uid
         else:
             self.delta.set(self._require_parent(f"changing the type of {name}"), path_of("D2", (col["UId"],), "S2"), uid)
+
+    def set_ref(self, name: str, ref: str, env: str | None = None) -> str:
+        """Point a lookup column this package adds at another object, in place: same UId, caption and flags. Returns the new UId."""
+        self._require_diff()
+        col = next((c for c in self.own_columns() if c["A2"] == name), None)
+        if col is None:
+            raise ValueError(f"{name} is not a column this package adds; the reference of an inherited column belongs to the base")
+        if "S4" not in col:
+            raise ValueError(f"{name} is not a lookup")
+        col["S4"] = self._ref_uid(ref, env)
+        return col["S4"]
 
     def remove_column(self, name: str) -> str:
         """Remove a column this package adds; returns its UId. The table column and its data are the platform's business."""

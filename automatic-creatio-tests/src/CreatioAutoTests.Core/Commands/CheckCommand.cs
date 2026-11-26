@@ -12,6 +12,8 @@ namespace CreatioAutoTests.Commands;
 ///   check X is [not] readonly
 ///   check X is [not] editable
 ///   check X is [not] shown  - waits up to the element timeout for a rule to show or hide X
+///   check G rows are "a" "b" [column C] | row N is "a" [column C] | row N has [not] class c | active row is N - the rows of a grid
+///   check A is before B     - A comes before B in the page (panels, buttons)
 ///   check X columns         - the grid renders exactly the configured columns, in that order
 ///   check console no errors [except "regex"] - no browser console error (or uncaught page error) so far
 ///   check network no errors [except "regex"] - no failed request and no 4xx / 5xx answer so far (the regex is matched against "METHOD url")
@@ -20,7 +22,7 @@ namespace CreatioAutoTests.Commands;
 [Command("check",
     Validator = typeof(StateCheckValidator),
     SupportedTargets = new[] { typeof(IExistable) },
-    Usage = "check <code> [not] exists | check <code> is [not] required|readonly|editable|shown | check <code> columns | check console|network no errors [except \"<regex>\"]")]
+    Usage = "check <code> [not] exists | check <code> is [not] required|readonly|editable|shown | check <code> columns | check <grid> rows are \"a\" \"b\" [column <caption>] | row <N> is \"a\" | row <N> has [not] class <name> | active row is <N> | check <a> is before <b> | check console|network no errors [except \"<regex>\"]")]
 public sealed class CheckCommand : ICommand
 {
     /// <summary>Asserts validated presence, absence, required, or readonly state on the target.</summary>
@@ -53,6 +55,18 @@ public sealed class CheckCommand : ICommand
                 throw new CommandFailedException(errors.Length + " console error(s): " + string.Join(" | ", errors.Take(5).Select(e => e.Length > 200 ? e[..200] : e)));
             }
 
+            return;
+        }
+
+        if (GridRowForms.IsForm(context.Command))
+        {
+            await CheckGridRowsAsync(context, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (context.Targets.Count == 2)
+        {
+            await CheckOrderAsync(context, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -102,6 +116,47 @@ public sealed class CheckCommand : ICommand
 
             default:
                 throw new CommandFailedException("Unsupported form of 'check': " + context.Command.RawText + ".");
+        }
+    }
+
+    /// <summary>'check A is before B': both elements are on the page and A comes first in the document.</summary>
+    private static async Task CheckOrderAsync(CommandContext context, CancellationToken cancellationToken)
+    {
+        var (first, second) = (context.Target<IPositioned>(0), context.Target<IPositioned>(1));
+        foreach (var e in new[] { first, second }.Cast<IExistable>())
+        {
+            if (!await e.ExistsAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new CommandFailedException("'" + e.Code + "' was not found on the page.");
+            }
+        }
+
+        if (!await first.IsBeforeAsync(second, cancellationToken).ConfigureAwait(false))
+        {
+            throw new CommandFailedException("'" + first.Code + "' is not before '" + second.Code + "' on the page.");
+        }
+    }
+
+    /// <summary>The grid forms: the rows are read again until the assertion holds or the element budget ends (a list fills a moment after the page).</summary>
+    private static async Task CheckGridRowsAsync(CommandContext context, CancellationToken cancellationToken)
+    {
+        GridRowForms.TryParse(context.Command, context.ResolveValue, out var check, out _);
+        var grid = context.Target<IGridRowsReadable>();
+        var deadline = DateTime.UtcNow.AddMilliseconds(context.Session.Settings.ElementTimeoutMs);
+        while (true)
+        {
+            var failure = GridRowChecks.Evaluate(grid.Code, check, await grid.ReadGridRowsAsync(check.Column, cancellationToken).ConfigureAwait(false));
+            if (failure is null)
+            {
+                return;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new CommandFailedException(failure);
+            }
+
+            await Task.Delay(300, cancellationToken).ConfigureAwait(false);
         }
     }
 

@@ -57,10 +57,47 @@ def served(env, name: str) -> str | None:
     """The text the site serves for a client schema (conf/content/<Schema>.js), None when it does not serve it."""
     env.login()  # a refused login raises, it is not "not served"
     try:
-        r = env.fetch(("" if env.net_core else "0/") + f"conf/content/{name}.js")
+        r = env.fetch(f"conf/content/{name}.js")  # fetch puts `0/` before it on .NET Framework
     except RuntimeError:  # the site cannot be reached
         return None
     return r.text if r.ok else None
+
+
+def members(body: str, name: str) -> list[str]:
+    """The names a client layer adds, read by the layout readers: a Freedom page's `viewConfigDiff` operations (not the removes) and
+    handler requests; a Classic schema's diff inserts, methods and rule UIds."""
+    # shortcut: a member is a substring of its name in the composed text, so a name present elsewhere hides a missing
+    # member; upgrade to a per-kind `"name": "<n>"` match when a false `served` verdict shows up (S48-T05)
+    if "/**SCHEMA_VIEW_CONFIG_DIFF*/" in body:
+        from .page.schema import PageSchema
+
+        page = PageSchema.__new__(PageSchema)  # the reader over a text, as `classicui.methods.view` is for Classic
+        page.body = body
+        names = [op["name"] for op in PageSchema._ops_of(body) if op.get("name") and op.get("operation") != "remove"]
+        return list(dict.fromkeys(names + [req for req, _ in page.handlers()]))
+    from .classicui.layout import _tree
+    from .classicui.methods import view
+
+    c = view(body, name)
+    names = [op["name"] for op in c.diff_operations() if op["name"] and op["operation"] != "remove"] + [m["name"] for m in c.methods()]
+    for section in ("businessRules", "rules"):
+        span = c.sections.get(section)
+        for by_key in (_tree(c, *span) if span else {}).values():
+            names += [str(p.get("uId") or k) for k, p in by_key.items() if isinstance(p, dict)] if isinstance(by_key, dict) else []
+    return list(dict.fromkeys(names))
+
+
+def _served_status(status: str, body: str, name: str, text: str | None) -> str:
+    """`status` plus the served verdict: a composed body never holds a middle layer's whole text, so its own members are looked for."""
+    if text is None:
+        return "not served: conf/content has no such file"
+    names = members(body, name)
+    if not names:  # nothing to name (a bare module): the whole text, as before the composed bodies
+        return status if _normal(body) in _normal(text) else "not served: conf/content holds another body (the site's client cache is older)"
+    missing = [n for n in names if n not in text]
+    if missing:
+        return f"not served: {len(missing)} of {len(names)} members missing ({', '.join(missing[:3])})"
+    return f"{status}, served ({len(names)} of {len(names)} members)"
 
 
 def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | None = None, fetch=None) -> list[tuple[str, str]]:
@@ -106,10 +143,7 @@ def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | N
             status = _process(package, env, name, bin_dir) or status
         if status.startswith("same") and row["manager"] == "ClientUnitSchemaManager" and body is not None:
             text = (fetch or served)(env, name)
-            if text is None:
-                status = "not served: conf/content has no such file"
-            elif _normal(body.read_bytes().decode("utf-8-sig", errors="replace")) not in _normal(text):
-                status = "not served: conf/content holds another body (the site's client cache is older)"
+            status = _served_status(status, body.read_text(encoding="utf-8-sig", errors="replace"), name, text)
         out.append((name, status + retried if status.startswith("same") else status))
     return out
 

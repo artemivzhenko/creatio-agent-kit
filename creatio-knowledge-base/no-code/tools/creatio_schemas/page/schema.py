@@ -58,6 +58,20 @@ PAGE_TEMPLATES = {"form": ("FormPage", "3b2e117f-8c6b-4ca5-80a2-7ebb497cddf9", "
 
 DEFAULT_FIELD_PARENT = "SideAreaProfileContainer"
 DEFAULT_GRID_PARENT = "GeneralInfoTabContainer"
+MANAGER = "ClientUnitSchemaManager"
+
+# the empty body of a replacing copy: every marker section the parser reads, nothing in them (S48-T07, D64)
+REPLACING_BODY = """define("@NAME@", /**SCHEMA_DEPS*/[]/**SCHEMA_DEPS*/, function/**SCHEMA_ARGS*/()/**SCHEMA_ARGS*/ {
+\treturn {
+\t\tviewConfigDiff: /**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/,
+\t\tviewModelConfigDiff: /**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/[]/**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/,
+\t\tmodelConfigDiff: /**SCHEMA_MODEL_CONFIG_DIFF*/[]/**SCHEMA_MODEL_CONFIG_DIFF*/,
+\t\thandlers: /**SCHEMA_HANDLERS*/[]/**SCHEMA_HANDLERS*/,
+\t\tconverters: /**SCHEMA_CONVERTERS*/{}/**SCHEMA_CONVERTERS*/,
+\t\tvalidators: /**SCHEMA_VALIDATORS*/{}/**SCHEMA_VALIDATORS*/
+\t};
+});
+"""
 
 
 def strip_comments(text: str) -> str:
@@ -81,6 +95,37 @@ def strip_comments(text: str) -> str:
             out.append(text[i])
             i += 1
     return "".join(out)
+
+
+def object_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of each top-level `{...}` item of the JSON array text of a section, comments and strings skipped."""
+    spans, depth, start, i, n = [], 0, 0, 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif text.startswith("//", i):
+            i = text.find("\n", i)
+            if i < 0:
+                break
+            continue
+        elif text.startswith("/*", i):
+            i = text.find("*/", i + 2)
+            if i < 0:
+                break
+            i += 1
+        elif ch in "[{":
+            if depth == 1 and ch == "{":
+                start = i
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 1 and ch == "}":
+                spans.append((start, i + 1))
+        i += 1
+    return spans
 
 
 class _Section:
@@ -153,17 +198,6 @@ class PageSchema(Schema):
         return self.section("SCHEMA_VIEW_CONFIG_DIFF").value
 
     @staticmethod
-    def _merge_values(ops: list, path: list, create: bool) -> dict:
-        for op in ops:
-            if op.get("operation") == "merge" and op.get("path") == path:
-                return op.setdefault("values", {}) if create else op.get("values", {})
-        if not create:
-            return {}
-        op = {"operation": "merge", "path": path, "values": {}}
-        ops.append(op)
-        return op["values"]
-
-    @staticmethod
     def _merged_tree(ops: list, key: str) -> dict:
         """Read view of a *Diff array: every merge op whose path starts at `key`, folded into one dict.
 
@@ -201,6 +235,44 @@ class PageSchema(Schema):
         ops = self.section(diff_section).value
         return self._merge_values(ops, [key], True) if create else self._merged_tree(ops, key)
 
+    @staticmethod
+    def _merge_values(ops: list, path: list, create: bool) -> dict:
+        for op in ops:
+            if op.get("operation") == "merge" and op.get("path") == path:
+                return op.setdefault("values", {}) if create else op.get("values", {})
+        if not create:
+            return {}
+        op = {"operation": "merge", "path": path, "values": {}}
+        ops.append(op)
+        return op["values"]
+
+    def _added(self, key: str) -> dict:
+        """attributes / dataSources for a writer that adds: the object form's dict, or a merge op this run appends to the diff form."""
+        obj, diff = {"attributes": ("SCHEMA_VIEW_MODEL_CONFIG", "SCHEMA_VIEW_MODEL_CONFIG_DIFF"),
+                     "dataSources": ("SCHEMA_MODEL_CONFIG", "SCHEMA_MODEL_CONFIG_DIFF")}[key]
+        return self._part(key, obj, diff, True) if obj in self.sections else self._new_merge(diff, [key])
+
+    def _new_merge(self, section: str, path: list) -> dict:
+        """The values of the merge op at `path` that this run appended to `section` (appended now when there is none): the
+        operations the body had stay as they are, so the writer touches only what it adds (E4)."""
+        sec = self.section(section)
+        for op in sec.value[len(sec.original):]:
+            if op.get("operation") == "merge" and op.get("path") == path:
+                return op.setdefault("values", {})
+        op = {"operation": "merge", "path": path, "values": {}}
+        sec.value.append(op)
+        return op["values"]
+
+    def _pop(self, key: str, obj_section: str, diff_section: str, name: str):
+        """Drop `name` from attributes / dataSources wherever the body holds it (every merge op at [key] of the diff form)."""
+        if obj_section in self.sections:
+            return self.sections[obj_section].value.get(key, {}).pop(name, None)
+        found = None
+        for op in self.section(diff_section).value:
+            if op.get("operation") == "merge" and op.get("path") == [key] and name in (op.get("values") or {}):
+                found = op["values"].pop(name)
+        return found
+
     @property
     def attributes(self) -> dict:
         """The view model attributes (a copy-safe read: write through attributes_w())."""
@@ -229,7 +301,7 @@ class PageSchema(Schema):
     def dependencies_w(self) -> dict:
         if "SCHEMA_MODEL_CONFIG" in self.sections:
             return self._part("dependencies", "SCHEMA_MODEL_CONFIG", "SCHEMA_MODEL_CONFIG_DIFF", True)
-        return self._merge_values(self.section("SCHEMA_MODEL_CONFIG_DIFF").value, [], True).setdefault("dependencies", {})  # the designer's root merge
+        return self._new_merge("SCHEMA_MODEL_CONFIG_DIFF", []).setdefault("dependencies", {})  # the designer's root merge
 
     @property
     def primary(self) -> str:
@@ -246,6 +318,12 @@ class PageSchema(Schema):
         if "PDS" in sources:
             return "PDS"
         return next((k for k, v in sources.items() if v.get("scope") == "page"), "PDS")
+
+    @property
+    def replacing(self) -> str | None:
+        """The replaced page's name when this is a replacing copy (descriptor ExtendParent), else None."""
+        d = self.descriptor.data
+        return (d.get("Parent") or {}).get("Name") if d.get("ExtendParent") else None
 
     @property
     def entity(self) -> str | None:
@@ -360,15 +438,19 @@ class PageSchema(Schema):
             "index": len(self._siblings(parent)),
         }
         self.view_config_diff.append(op)
-        self.attributes_w()[column] = {"modelConfig": {"path": f"{self.primary}.{column}"}}
+        self._added("attributes")[column] = {"modelConfig": {"path": f"{self.primary}.{column}"}}
         return op
 
     def add_grid(self, name: str, entity: str, columns: list[str], parent: str = DEFAULT_GRID_PARENT,
                  rows: int = 6, editable: bool = False, master: str | None = None, add_button: bool = False,
-                 entity_page: str | None = None, literal_captions: bool = False) -> dict:
+                 entity_page: str | None = None, literal_captions: bool = False, panel: str | None = None,
+                 before: str | None = None, env=None) -> dict:
         """A list of another object's records: the grid, its collection attribute and its data source.
         `master` (a lookup column of `entity` to this page's record) writes the designer's detail filter; `add_button` a New button
-        above the grid; captions are resource strings (`#ResourceString(<Grid>DS_<Col>)#`) unless `literal_captions`."""
+        above the grid; captions are resource strings (`#ResourceString(<Grid>DS_<Col>)#`) unless `literal_captions`.
+        `panel` (its title) puts the grid in the designer's detail: an expansion panel with a tools row (`add_button`, refresh)
+        and a list container (see _panel). `before` places the grid (or its panel) at that element's index in its parent - an
+        element of this body, else of the replaced page (the workspace's copies, else the site's through `env`)."""
         if self.has(name):
             raise KeyError(f"{self.name} already has an element {name}")
         known = self.workspace.columns(entity)
@@ -377,8 +459,11 @@ class PageSchema(Schema):
             raise KeyError(f"{entity} has no column {', '.join(missing)}")
         ds = f"{name}DS"
         captions = self._captions_of(entity)
+        index = None
+        if before:
+            parent, index = self._place_of(before, env)
         row = self._next_row(parent)
-        if add_button:
+        if add_button and not panel:
             self.view_config_diff.append(self._add_button(f"{name}AddButton", entity, entity_page, master, parent, row))
             row += 1
         if not literal_captions:
@@ -399,16 +484,18 @@ class PageSchema(Schema):
             },
             "parentName": parent,
             "propertyName": "items",
-            "index": len(self._siblings(parent)),
+            "index": len(self._siblings(parent)) if index is None else index,
         }
+        if panel:
+            self._panel(op, panel, entity, entity_page, master, add_button, editable, known, parent, row, index)
         self.view_config_diff.append(op)
-        self.attributes_w()[name] = {
+        self._added("attributes")[name] = {
             "isCollection": True,
             "modelConfig": {"path": ds, "sortingConfig": {"default": [{"columnName": columns[0], "direction": "asc"}]}},
             "viewModelConfig": {"attributes": {**{f"{ds}_{c}": {"modelConfig": {"path": f"{ds}.{c}"}} for c in columns},
                                                f"{ds}_Id": {"modelConfig": {"path": f"{ds}.Id"}}}},
         }
-        self.data_sources_w()[ds] = {
+        self._added("dataSources")[ds] = {
             "type": "crt.EntityDataSource",
             "scope": "viewElement",
             "config": {"entitySchemaName": entity, "attributes": {c: {"path": c} for c in columns}},
@@ -416,6 +503,107 @@ class PageSchema(Schema):
         if master:
             self.dependencies_w().setdefault(ds, []).append({"attributePath": master, "relationPath": f"{self.primary}.Id"})
         return op
+
+    def _panel(self, grid: dict, title: str, entity: str, entity_page: str | None, master: str | None, add_button: bool,
+               editable: bool, known: dict, parent: str, row: int, index: int | None) -> None:
+        """The designer's detail around `grid` (the shape of a designer-made detail of a base page on 8.3.2): `<P>ExpansionPanel`
+        (title a resource string) whose tools hold `<P>ToolsContainer` > `<P>ToolsFlexContainer` > `<P>AddButton` (unless not
+        `add_button`) and `<P>RefreshButton`, whose items hold `<P>ListContainer` > the grid; <P> is the grid name less a `List`
+        suffix. The panel ops go into the diff here; the grid op (appended by the caller) is moved into the list container."""
+        p = grid["name"][:-4] if grid["name"].endswith("List") and len(grid["name"]) > 4 else grid["name"]
+        ds = grid["name"] + "DS"
+        no_pad = {"top": "none", "right": "none", "bottom": "none", "left": "none"}
+
+        def put(name: str, values: dict, parent_: str, prop: str, at: int) -> None:
+            if self.has(name):
+                raise KeyError(f"{self.name} already has an element {name}")
+            self.view_config_diff.append({"operation": "insert", "name": name, "values": values, "parentName": parent_, "propertyName": prop, "index": at})
+
+        def button(key: str, text: str, icon: str, clicked: dict) -> dict:
+            self.ensure_resource_string(key, text)
+            return {"type": "crt.Button", "caption": f"#ResourceString({key})#", "icon": icon, "iconPosition": "only-icon", "color": "default",
+                    "size": "medium", "clicked": clicked, "visible": True, "clickMode": "default"}
+        self.ensure_resource_string(f"{p}ExpansionPanel_title", title)
+        put(f"{p}ExpansionPanel", {"layoutConfig": {"column": 1, "row": row, "colSpan": 2, "rowSpan": 1}, "type": "crt.ExpansionPanel", "tools": [],
+                                    "items": [], "title": f"#ResourceString({p}ExpansionPanel_title)#", "toggleType": "default",
+                                    "togglePosition": "before", "expanded": True, "labelColor": "#0D2E4E", "fullWidthHeader": False,
+                                    "titleWidth": 20, "visible": True, "padding": {"top": "small", "bottom": "small", "left": "none", "right": "none"}},
+            parent, "items", len(self._siblings(parent)) if index is None else index)
+        put(f"{p}ToolsContainer", {"type": "crt.GridContainer", "rows": "minmax(max-content, 24px)", "columns": ["minmax(32px, 1fr)"],
+                                    "gap": {"columnGap": "large", "rowGap": 0}, "styles": {"overflow-x": "hidden"}, "items": []},
+            f"{p}ExpansionPanel", "tools", 0)
+        put(f"{p}ToolsFlexContainer", {"type": "crt.FlexContainer", "direction": "row", "gap": "none", "items": [],
+                                        "layoutConfig": {"colSpan": 1, "column": 1, "row": 1, "rowSpan": 1}, "visible": True, "color": "transparent",
+                                        "borderRadius": "none", "padding": no_pad, "justifyContent": "start", "alignItems": "center", "wrap": "wrap"},
+            f"{p}ToolsContainer", "items", 0)
+        tools = 0
+        if add_button:
+            params = {"entityName": entity, **({"entityPageName": entity_page} if entity_page else {}),
+                      **({"defaultValues": [{"attributeName": master, "value": "$Id"}]} if master else {})}
+            put(f"{p}AddButton", button(f"{p}AddButton_caption", "Add", "add-button-icon", {"request": "crt.CreateRecordRequest", "params": params}),
+                f"{p}ToolsFlexContainer", "items", tools)
+            tools += 1
+        put(f"{p}RefreshButton", button(f"{p}RefreshButton_caption", "Refresh", "reload-button-icon",
+                                        {"request": "crt.LoadDataRequest", "params": {"config": {"loadType": "reload"}, "dataSourceName": ds}}),
+            f"{p}ToolsFlexContainer", "items", tools)
+        put(f"{p}ListContainer", {"type": "crt.GridContainer", "rows": "minmax( 32px, 32px)", "columns": ["minmax(32px, 1fr)", "minmax(32px, 1fr)"],
+                                   "gap": {"columnGap": "large", "rowGap": 0}, "styles": {"overflow-x": "hidden"}, "items": []},
+            f"{p}ExpansionPanel", "items", 0)
+        v = grid["values"]
+        for c in v["columns"]:  # the designer's column: its path, a lookup's reference object
+            col = c["code"][len(ds) + 1:]
+            c["path"] = col
+            if known[col][1]:
+                c["referenceSchemaName"] = known[col][1]
+        v["layoutConfig"] = {"colSpan": 2, "column": 1, "row": 1, "rowSpan": v["layoutConfig"]["rowSpan"]}
+        v["features"] = {"editable": {"enable": editable, "itemsCreation": False}}
+        v["fitContent"] = True
+        grid.update(parentName=f"{p}ListContainer", index=0)
+
+    def _place_of(self, element: str, env=None) -> tuple[str, int]:
+        """(parentName, index) of `element`: its insert in this body, else in the replaced page's copies - the workspace's,
+        else the site's (`env`); one place or a refusal that lists them."""
+        own = next((op for op in self.view_config_diff if op.get("name") == element and op.get("operation") in ("insert", "move")), None)
+        if own:
+            return own["parentName"], own.get("index", 0)
+        base = self.replacing or (self.descriptor.data.get("Parent") or {}).get("Name") or ""
+        bodies = {s["dir"].parent.parent.name: read_text(s["dir"] / f"{base}.js")[0] for s in self.workspace.find(base, MANAGER)
+                  if s["dir"].parent.parent != self.package and (s["dir"] / f"{base}.js").is_file()}
+        if not bodies and env is not None:
+            from ..describe.body import copies, read
+            bodies = {r["package"]: read(env, r["id"]) for r in copies(env, base) if r["package"] != self.package.name}
+        # shortcut: a move in an upper layer is not ordered against the insert - two places are refused, not resolved
+        places = {(op["parentName"], op.get("index", 0), pkg) for pkg, text in bodies.items() for op in self._ops_of(text)
+                  if op.get("name") == element and op.get("operation") in ("insert", "move")}
+        if len({p[:2] for p in places}) != 1:
+            where = "; ".join(f"{pkg}: {par}[{i}]" for par, i, pkg in sorted(places)) or \
+                ("no copy read" if not bodies else f"{len(bodies)} copies read")
+            raise KeyError(f"cannot place before {element}: {'no insert of it' if not places else 'several places'} in {base or 'this page'} "
+                           f"({where})" + ("" if bodies else " - pass --env to read the replaced page from the site"))
+        par, i, _ = next(iter(places))
+        return par, i
+
+    @staticmethod
+    def _ops_of(body: str) -> list:
+        m = re.search(r"/\*\*SCHEMA_VIEW_CONFIG_DIFF\*/(.*?)/\*\*SCHEMA_VIEW_CONFIG_DIFF\*/", body, re.S)
+        return _Section("SCHEMA_VIEW_CONFIG_DIFF", m.group(1)).value if m else []
+
+    def grid_caption(self, grid: str, column: str, values: dict[str, str]) -> str:
+        """A grid column's caption as a page string: `#ResourceString(<code>)#` in the column, its B2 entry and the text in each
+        culture of `values` ({culture: text}); `column` is the column's code, path or the part after `<DS>_`. Returns the key."""
+        cols = (self.element(grid).get("values") or {}).get("columns") or []
+        col = next((c for c in cols if column in (c.get("code"), c.get("path")) or str(c.get("code", "")).endswith("_" + column)), None)
+        if col is None:
+            raise KeyError(f"{grid} has no column {column}; it has: {', '.join(str(c.get('code')) for c in cols)}")
+        if not values:
+            raise ValueError("give culture=text, e.g. en-US=\"Amount\"")
+        key = col["code"]
+        culture, text = next(iter(values.items()))
+        self.ensure_resource_string(key, text, culture)
+        for culture, text in values.items():
+            self.resources.set(f"LocalizableStrings.{key}.Value", text, [culture])
+        col["caption"] = f"#ResourceString({key})#"
+        return key
 
     def _add_button(self, name: str, entity: str, entity_page: str | None, master: str | None, parent: str, row: int) -> dict:
         """The designer's New button of a detail: creates a record of `entity`, the master column set to this record's Id."""
@@ -465,14 +653,19 @@ class PageSchema(Schema):
             uid_m = re.search(r'(?m)^= MetaData\.Schema\.UId "([^"]+)"', self._metadata)
             a5_m = re.search(r'(?m)^= MetaData\.Schema\.A5 "([^"]+)"', self._metadata)
             order_m = re.search(r"(?m)^~ MetaData\.Schema\.B2 (\[[^\]\r\n]*\])", self._metadata)
-            if not (uid_m and a5_m and order_m):
-                raise KeyError(f"{self.name} metadata has no UId, A5 or `~ MetaData.Schema.B2` order line to extend")
+            if not (uid_m and a5_m):
+                raise KeyError(f"{self.name} metadata has no UId or A5 line to extend")
             uid = new_uid()
             entry = json.dumps({"UId": uid, "A2": key, "A3": uid_m.group(1), "A4": uid_m.group(1), "A5": a5_m.group(1)}, indent=2)
             block = "+ MetaData.Schema.B2 " + entry.replace("\n", nl) + nl
-            order = json.loads(order_m.group(1))
-            text_ = self._metadata[:order_m.start(1)] + json.dumps([uid] + order, separators=(",", ":")) + self._metadata[order_m.end(1):]
-            anchor = re.search(r"(?m)^[=-] MetaData\.Schema\.B2\.\[", text_) or re.search(r"(?m)^~ MetaData\.Schema\.B2 \[", text_)
+            text_ = self._metadata
+            if order_m:  # a replacing copy has no order line: its entries go in after A5, as the designer writes them
+                order = json.loads(order_m.group(1))
+                text_ = text_[:order_m.start(1)] + json.dumps([uid] + order, separators=(",", ":")) + text_[order_m.end(1):]
+            anchor = re.search(r"(?m)^[=-] MetaData\.Schema\.B2\.\[", text_) or re.search(r"(?m)^~ MetaData\.Schema\.B2 \[", text_) or \
+                re.search(r"(?m)^[=+] MetaData\.Schema\.B6 ", text_)
+            if not anchor:
+                raise KeyError(f"{self.name} metadata has no B2 line, order line or B6 line to put a string before")
             self._metadata = text_[:anchor.start()] + block + text_[anchor.start():]
             changed = True
         if self.resources.get(resource_key, culture) is None:
@@ -486,8 +679,15 @@ class PageSchema(Schema):
         """Set one property of an element's `values`; a `#ResourceString(Key)#` value gets its string written with it."""
         if isinstance(value, str):  # the command line gives strings: true / false / digits are JSON values
             value = {"true": True, "false": False}.get(value, int(value) if value.isdigit() else value)
+        if self.replacing and not self.has(element):  # an element of the replaced page: this layer merges the value into it
+            self.view_config_diff.append({"operation": "merge", "name": element, "values": {}})
         values = self.element(element).setdefault("values", {})
-        values[prop] = value
+        *path, last = prop.split(".")  # K56: a.b.c is a nested property, not a literal key
+        for seg in path:
+            values = values.setdefault(seg, {})
+            if not isinstance(values, dict):
+                raise ValueError(f"{element}: {seg} of {prop} is not an object")
+        values[last] = value
         if isinstance(value, str):
             for key in self.RESOURCE_REF.findall(value):
                 self.ensure_resource_string(key, text, culture)
@@ -496,9 +696,9 @@ class PageSchema(Schema):
         """Drop an element and what add_field / add_grid created for it."""
         op = self.element(name)
         self.view_config_diff.remove(op)
-        attr = self.attributes_w().pop(name, None)
+        attr = self._pop("attributes", "SCHEMA_VIEW_MODEL_CONFIG", "SCHEMA_VIEW_MODEL_CONFIG_DIFF", name)
         if isinstance(attr, dict) and attr.get("isCollection"):
-            self.data_sources_w().pop(attr["modelConfig"]["path"], None)
+            self._pop("dataSources", "SCHEMA_MODEL_CONFIG", "SCHEMA_MODEL_CONFIG_DIFF", attr["modelConfig"]["path"])
 
     def _captions_of(self, entity: str) -> dict[str, str]:
         if entity in self._entity_captions:
@@ -574,7 +774,8 @@ class PageSchema(Schema):
         form = "designer form (viewModelConfig)" if "SCHEMA_VIEW_MODEL_CONFIG" in self.sections else "template form (viewModelConfigDiff)"
         groups = self._by_container()
         tabs = sum(1 for g in groups if g[0].endswith("TabContainer"))
-        lines = [f"{self.name}: page of {self.entity or '?'}, {form}, {len(self.elements())} elements" + (f", {tabs} tab{'' if tabs == 1 else 's'}" if tabs else "")]
+        lines = [f"{self.name}: page of {self.entity or '?'}, {form}, {len(self.elements())} elements" + (f", {tabs} tab{'' if tabs == 1 else 's'}" if tabs else "")
+                 + (f"; a replacing copy of {self.replacing}: this layer only" if self.replacing else "")]
         for name, count, kinds in groups[:self.GROUPS]:
             label = f"tab {name[:-len('TabContainer')]}" if name.endswith("TabContainer") and name != "TabContainer" else name
             lines.append(f"  {label}: {count} element{'' if count == 1 else 's'} ({kinds})")
@@ -743,6 +944,52 @@ class PageSchema(Schema):
         page.save()
         return page
 
+    @classmethod
+    def create_replacing(cls, package: Path, name: str, parent_uid: str | None = None, caption: str | None = None,
+                         cultures: list[str] | None = None, env=None, version: str = "8.2.3.1351") -> "PageSchema":
+        """A replacing copy of the Freedom page `name` (D64): descriptor Parent = the page and ExtendParent, the diff metadata
+        (UId, A5, B6, B7, HD1), properties (Page, AngularSchema), resources with the caption, the empty replacing body. The
+        page's UId: given, a copy in another package of the workspace, the bundled catalog (catalog.BASE_PAGES), else the site (`env`)."""
+        from ..files import CRLF
+        from ..schema import Descriptor
+        from ..workspace import Package, Workspace
+        from .catalog import BASE_PAGES
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name):
+            raise ValueError(f"{name!r} is not a valid schema name")
+        package = Path(package)
+        sdir = package / "Schemas" / name
+        if sdir.exists():
+            raise FileExistsError(f"{sdir} exists")
+        others = [s for s in Workspace(package).find(name, MANAGER) if s["dir"].parent.parent != package]
+        parent_uid = parent_uid or (others[0]["base"] if others else BASE_PAGES.get(name)) or cls._site_uid(name, env)
+        caption = caption or (others[0].get("caption") if others else None) or name
+        pkg, uid = Package(package), new_uid()
+        write_text(sdir / "metadata.json", CRLF.join([f'= MetaData.Schema.UId "{uid}"', f'= MetaData.Schema.A5 "{pkg.created_in_uid()}"',
+                                                      f'= MetaData.Schema.B6 "{pkg.uid}"', "+ MetaData.Schema.B7 true",
+                                                      f'= MetaData.Schema.HD1 "{parent_uid}"']), False)
+        write_text(sdir / f"{name}.js", REPLACING_BODY.replace("@NAME@", name), False)
+        desc = Descriptor.new(sdir / "descriptor.json", {"UId": uid, "Name": name, "ModifiedOnUtc": "", "Parent": {"UId": parent_uid, "Name": name},
+                                                          "ExtendParent": True, "ManagerName": MANAGER, "Caption": caption, "DependsOn": []})
+        write_text(desc.path, desc.text, True)
+        write_text(sdir / "properties.json", dump_json({"Properties": {"CreatedInVersion": version, "Group": "Page", "SchemaType": "AngularSchema"}}), True)
+        page = cls(package, name)
+        known = sorted({p.name[len("resource."):-len(".xml")] for p in package.glob("Resources/*/resource.*.xml")})
+        page.resources = Resources.empty(page.resources.folder, cultures or known or ["en-US"])
+        page.resources.set("Caption", caption)
+        page.save()
+        return page
+
+    @staticmethod
+    def _site_uid(name: str, env) -> str:
+        if env is None:
+            raise ValueError(f"{name} is not in the workspace nor in catalog.BASE_PAGES: pass --parent-uid or --env")
+        from ..records import quote
+        rows = env.sql(f'select "UId"::text "uid" from "SysSchema" where "Name" = {quote(name)} and "ExtendParent" = false '
+                       f'and "ManagerName" = {quote(MANAGER)}')
+        if not rows:
+            raise ValueError(f"{name} is not a client schema on the site")
+        return rows[0]["uid"]
+
     def render_body(self) -> str:
         if getattr(self, "mobile", False):
             if any(s.changed for s in self.sections.values()):
@@ -754,9 +1001,39 @@ class PageSchema(Schema):
             if not sec.changed:
                 continue
             base, step = sec.style() or fallback
-            rendered = json.dumps(sec.value, indent=step, ensure_ascii=False).replace("\n", self.body_newline + base)
+            rendered = self._splice(sec, base, step) or \
+                json.dumps(sec.value, indent=step, ensure_ascii=False).replace("\n", self.body_newline + base)
             marker = f"/**{sec.name}*/"
             text = re.sub(re.escape(marker) + r".*?" + re.escape(marker), lambda m: marker + rendered + marker, text, count=1, flags=re.S)
+        return text
+
+    def _splice(self, sec: _Section, base: str, step: str) -> str | None:
+        """The section's text with only the changed items re-rendered and the new ones appended, every other byte kept;
+        None when the section is not an array the writers only appended to or changed in place (then it is rendered whole)."""
+        old, new, text = sec.original, sec.value, sec.inner
+        spans = object_spans(text)
+        if not isinstance(old, list) or not old or len(spans) != len(old) or len(new) < len(old):
+            return None
+        nl = self.body_newline
+
+        def dump(value, at: int) -> str:
+            line = text[text.rfind("\n", 0, at) + 1:at]
+            return json.dumps(value, indent=step, ensure_ascii=False).replace("\n", nl + (line if not line.strip() else base + step))
+        if len(new) > len(old):
+            head = text[:spans[-1][1]]
+            rest = text[spans[-1][1]:]
+            comma = re.match(r"\s*,", rest)  # a trailing comma the designer left stays where it was
+            if comma:
+                head, rest = head + comma.group(0), rest[comma.end():]
+            ind = text[text.rfind("\n", 0, spans[-1][0]) + 1:spans[-1][0]]
+            ind = ind if not ind.strip() else base + step
+            added = "".join(("," if k or not comma else "") + nl + ind +
+                            json.dumps(v, indent=step, ensure_ascii=False).replace("\n", nl + ind) for k, v in enumerate(new[len(old):]))
+            text = head + added + rest
+        for k in range(len(old) - 1, -1, -1):
+            if new[k] != old[k]:
+                s, e = spans[k]
+                text = text[:s] + dump(new[k], s) + text[e:]
         return text
 
     def files(self) -> dict[Path, tuple[str, bool]]:

@@ -6,6 +6,9 @@ namespace CreatioAutoTests.Execution;
 /// </summary>
 public sealed record CommandToken(string Value, bool IsQuoted)
 {
+    /// <summary>The token as written, quotes kept, when it had any: <c>UsrNumber="0008640"</c> (a quote may open mid-token).</summary>
+    public string? Raw { get; init; }
+
     /// <summary>Formats the token while preserving its literal quotation when present.</summary>
     public override string ToString() => IsQuoted ? "\"" + Value + "\"" : Value;
 }

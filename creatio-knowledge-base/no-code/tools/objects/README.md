@@ -31,6 +31,8 @@ python objects.py new      <package> <Object> --caption "Order" [--parent BaseEn
 python objects.py base     <package> <Object> --env dev                                fetch the base (replacing objects, other parents)
 python objects.py new      <package> <Object> --replace                                a replacing copy of a base object (after `base`)
 python objects.py column   <package> <Object> add <Name> --type ShortText [--ref Contact] [--caption ..] [--default ..] [--on required indexed ..] [--off ..]
+                                               [--refresh --env dev]                  fetch the base first
+python objects.py column   <package> <Object> ref <Name> Account [--env dev]           a lookup added here points at another object
 python objects.py column   <package> <Object> set <Name> [--on flag ..] [--off flag ..]
 python objects.py column   <package> <Object> default <Name> <value | ->
 python objects.py column   <package> <Object> type <Name> MediumText                  widen a text column only
@@ -76,6 +78,15 @@ reuse it (add that package to the workspace or reference the column); --force ad
 is a warning (it cannot be referenced). `new` stops the same way on a site-only schema of that name. Without a pass both say
 `no site pass yet - run index --env <name>` and go on. The scaffold (`scaffold.py`) does not ask; `describe.py precommit` stops
 its objects at commit time.
+
+Stale caches: a column the cached base (`.creatio-bases`) lists is refused with its date -
+`column Phone exists in the base cached 2026-11-06 from dev; objects.py base ... fetches it again`. `column ... add --refresh
+--env dev` fetches the base first and checks a stopping site-pass row against the table on the site (`information_schema`): a
+column the table no longer has is a note, not a stop. `base` itself always fetches.
+
+A lookup that points at the wrong object: `column UsrPkg UsrOrder ref UsrContact Account` changes `S4` of a column this package
+adds in place - same column UId, caption and flags (the target from the workspace, the stock catalogue or `--env`). The push
+rebuilds the foreign key; values already stored must exist in the new table. An inherited lookup is refused.
 
 ## Replacing objects and base columns
 

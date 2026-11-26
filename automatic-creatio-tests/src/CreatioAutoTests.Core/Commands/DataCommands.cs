@@ -35,8 +35,9 @@ public sealed class InsertCommand : ICommand
     /// <summary>
     /// Runs a write that must be refused. Passes when it fails with an error holding <paramref name="text"/> (case-blind;
     /// any error when null); a saved record fails the step naming its id (the session's cleanup deletes it).
+    /// <paramref name="outcome"/> names what the write did when it was not refused ("saved", "deleted").
     /// </summary>
-    internal static async Task ExpectRefusal(Func<Task<string>> write, string? text)
+    internal static async Task ExpectRefusal(Func<Task<string>> write, string? text, string outcome = "saved")
     {
         string saved;
         try
@@ -54,12 +55,12 @@ public sealed class InsertCommand : ICommand
             return;
         }
 
-        throw new CommandFailedException("expected an error" + (text is null ? string.Empty : " containing \"" + text + "\"") + " but the record was saved: " + saved);
+        throw new CommandFailedException("expected an error" + (text is null ? string.Empty : " containing \"" + text + "\"") + " but the record was " + outcome + ": " + saved);
     }
 
     /// <summary>A value naming a static value is written as that value, as in the filters.</summary>
     internal static IReadOnlyList<RecordAssignment> Resolve(CommandContext context, IReadOnlyList<RecordAssignment> values) =>
-        values.Select(v => context.Session.StaticValues.TryGetValue(v.Value, out var s) ? v with { Value = s } : v).ToArray();
+        values.Select(v => !v.Quoted && context.Session.StaticValues.TryGetValue(v.Value, out var s) ? v with { Value = s } : v).ToArray();
 }
 
 /// <summary>Changes columns of a record over OData: <c>update UsrOrder $Order set UsrAmount=5000</c>; <c>expect error "text"</c> makes a refusal the pass.</summary>
@@ -87,13 +88,31 @@ public sealed class UpdateCommand : ICommand
     }
 }
 
-/// <summary>Deletes a record over OData: <c>delete UsrOrder $Order</c>. The alias leaves the cleanup list.</summary>
-[Command("delete", Validator = typeof(DeleteValidator), Usage = "delete <object> $alias|<guid>")]
+/// <summary>
+/// Deletes a record over OData: <c>delete UsrOrder $Order</c>. The alias leaves the cleanup list.
+/// With <c>expect error "text"</c> the delete must be refused (a record a foreign key still references); the alias stays on the cleanup list.
+/// </summary>
+[Command("delete", Validator = typeof(DeleteValidator), Usage = "delete <object> $alias|<guid> [expect error \"<text>\"]")]
 public sealed class DeleteCommand : ICommand
 {
     /// <summary>Deletes the record.</summary>
-    public Task ExecuteAsync(CommandContext context, CancellationToken cancellationToken = default) =>
-        context.Session.DeleteRecordAsync(context.Command.ValueAt(0)!, context.Substitute(context.Command.ValueAt(1)!), cancellationToken);
+    public async Task ExecuteAsync(CommandContext context, CancellationToken cancellationToken = default)
+    {
+        var entity = context.Command.ValueAt(0)!;
+        var id = context.Substitute(context.Command.ValueAt(1)!);
+        var expect = DataShapes.ExpectError(context.Command);
+        if (!expect.Expected)
+        {
+            await context.Session.DeleteRecordAsync(entity, id, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await InsertCommand.ExpectRefusal(async () =>
+        {
+            await context.Session.DeleteRecordAsync(entity, id, cancellationToken).ConfigureAwait(false);
+            return id;
+        }, expect.Text, "deleted").ConfigureAwait(false);
+    }
 }
 
 /// <summary>
@@ -101,15 +120,17 @@ public sealed class DeleteCommand : ICommand
 /// has no alias for. Refuses a filter matching more than <see cref="DataShapes.DeleteLimit"/> records and one
 /// matching none.
 ///   delete-record UsrOrder UsrName=Bed 1
+/// With <c>expect error "text"</c> every matching delete must be refused.
 /// </summary>
-[Command("delete-record", Validator = typeof(DeleteRecordValidator), Usage = "delete-record <object> Column=Value;...")]
+[Command("delete-record", Validator = typeof(DeleteRecordValidator), Usage = "delete-record <object> Column=Value;... [expect error \"<text>\"]")]
 public sealed class DeleteRecordCommand : ICommand
 {
     /// <summary>Reads the matching Ids and deletes each.</summary>
     public async Task ExecuteAsync(CommandContext context, CancellationToken cancellationToken = default)
     {
         var entity = context.Command.ValueAt(0)!;
-        var filter = CheckRecordCommand.BuildFilter(context.Assignments(context.Command.Arguments.Skip(1)), context.Session.StaticValues);
+        var expect = DataShapes.ExpectError(context.Command);
+        var filter = CheckRecordCommand.BuildFilter(context.Assignments(context.Command.Arguments.Skip(1).Take(expect.Count - 1)), context.Session.StaticValues);
         var rows = await context.Session.QueryRecordsAsync(entity, new[] { "Id" }, filter, DataShapes.DeleteLimit + 1, cancellationToken)
             .ConfigureAwait(false);
 
@@ -127,7 +148,20 @@ public sealed class DeleteRecordCommand : ICommand
 
         foreach (var row in rows)
         {
-            await context.Session.DeleteRecordAsync(entity, row["Id"], cancellationToken).ConfigureAwait(false);
+            var id = row["Id"];
+            var delete = async () =>
+            {
+                await context.Session.DeleteRecordAsync(entity, id, cancellationToken).ConfigureAwait(false);
+                return id;
+            };
+            if (expect.Expected)
+            {
+                await InsertCommand.ExpectRefusal(delete, expect.Text, "deleted").ConfigureAwait(false);
+            }
+            else
+            {
+                await delete().ConfigureAwait(false);
+            }
         }
     }
 }

@@ -514,6 +514,271 @@ def test_new_mini_page_is_a_pre_configured_page_with_one_label():
         shutil.rmtree(pkg.parent, ignore_errors=True)
 
 
+# -- S48-T07: replace, add-grid --panel / --before, grid-caption, dotted set-value ------------------------------------ #
+
+def _two_packages() -> tuple[Path, Path]:
+    """UsrPkg (the fixture) and an empty UsrRepl beside it in one workspace."""
+    pkg = copy()
+    repl = pkg.parent / "UsrRepl"
+    repl.mkdir()
+    desc = read(pkg / "descriptor.json").replace("90ae4ed1-55f1-40c8-b1c1-c22f5beea180", "11111111-2222-4333-8444-555555555555")
+    (repl / "descriptor.json").write_text(desc.replace('"UsrPkg"', '"UsrRepl"'), encoding="utf-8")
+    return pkg, repl
+
+
+class FakeSite:
+    """The SQL answers of a site holding `bodies` ({package: body}) of one page and its base row `uid`."""
+
+    def __init__(self, uid: str, bodies: dict[str, str]):
+        self.uid, self.bodies, self.calls = uid, bodies, []
+
+    def sql(self, query: str) -> list[dict]:
+        import base64
+        import hashlib
+        self.calls.append(query)
+        if "generate_series" in query:
+            body = self.bodies[re.search(r'"Id" = \'([^\']+)\'', query).group(1)].encode("utf-8")
+            return [{"i": "0", "b64": base64.b64encode(body).decode(), "md5": hashlib.md5(body).hexdigest()}]
+        if "octet_length" in query:
+            return [{"id": pkg, "package": pkg, "manager": "ClientUnitSchemaManager", "modifiedOn": "", "size": "1", "md5": ""} for pkg in self.bodies]
+        return [{"uid": self.uid}] if self.uid else []
+
+
+def test_replace_writes_a_replacing_copy_with_the_base_uid_from_the_workspace_the_catalog_or_the_site():
+    from creatio_schemas.page import catalog
+    pkg, repl = _two_packages()
+    try:
+        base_uid = json.loads(read(pkg / "Schemas" / "UsrOrder_FormPage" / "descriptor.json").lstrip("﻿"))["Descriptor"]["UId"]
+        with __import__("contextlib").redirect_stdout(__import__("io").StringIO()):
+            assert main(["replace", str(repl), "UsrOrder_FormPage", "--cultures", "en-US,uk-UA"]) == 0
+        sdir = repl / "Schemas" / "UsrOrder_FormPage"
+        desc = json.loads(read(sdir / "descriptor.json").lstrip("﻿"))["Descriptor"]
+        assert desc["Parent"] == {"UId": base_uid, "Name": "UsrOrder_FormPage"} and desc["ExtendParent"] is True
+        meta = read(sdir / "metadata.json")
+        assert f'= MetaData.Schema.HD1 "{base_uid}"' in meta and '= MetaData.Schema.B6 "11111111-2222-4333-8444-555555555555"' in meta
+        assert "+ MetaData.Schema.B7 true" in meta
+        props = json.loads(read(sdir / "properties.json").lstrip("﻿"))["Properties"]
+        assert (props["Group"], props["SchemaType"]) == ("Page", "AngularSchema")
+        assert sorted(p.name for p in (repl / "Resources" / "UsrOrder_FormPage.ClientUnit").iterdir()) == ["resource.en-US.xml", "resource.uk-UA.xml"]
+        page = PageSchema(repl, "UsrOrder_FormPage")
+        assert page.replacing == "UsrOrder_FormPage" and page.validate() == []
+        assert set(page.sections) == {"SCHEMA_VIEW_CONFIG_DIFF", "SCHEMA_VIEW_MODEL_CONFIG_DIFF", "SCHEMA_MODEL_CONFIG_DIFF"}
+        assert "a replacing copy of UsrOrder_FormPage" in page.describe()
+        rc, lines = _audit(repl, "UsrOrder_FormPage")
+        assert rc == 0 and "# a replacing copy of UsrOrder_FormPage: the counts cover this layer only" in lines
+        # a string on the replacing copy: no `~ B2` order line, the entry goes in before B6 as the designer writes it
+        page.add_grid("UsrLines", "UsrOrder", ["UsrName"], master="UsrManager")
+        page.save()
+        meta = read(sdir / "metadata.json")
+        assert meta.index("+ MetaData.Schema.B2 ") < meta.index("= MetaData.Schema.B6") and "~ MetaData.Schema.B2" not in meta
+        assert PageSchema(repl, "UsrOrder_FormPage").validate() == []
+        # the catalog, then the site; neither: refused
+        catalog.BASE_PAGES["UsrAbcBase_FormPage"] = "aaaaaaaa-0000-4000-8000-000000000001"
+        try:
+            assert PageSchema.create_replacing(repl, "UsrAbcBase_FormPage").descriptor.data["Parent"]["UId"] == "aaaaaaaa-0000-4000-8000-000000000001"
+        finally:
+            catalog.BASE_PAGES.pop("UsrAbcBase_FormPage")
+        site = FakeSite("bbbbbbbb-0000-4000-8000-000000000002", {})
+        assert PageSchema.create_replacing(repl, "UsrSite_FormPage", env=site).descriptor.data["Parent"]["UId"] == site.uid
+        assert "'UsrSite_FormPage'" in site.calls[0] and '"ExtendParent" = false' in site.calls[0]
+        for env, said in ((None, "--env"), (FakeSite("", {}), "not a client schema")):
+            try:
+                PageSchema.create_replacing(repl, "UsrNowhere_FormPage", env=env)
+                raise AssertionError("an unknown page must be refused")
+            except ValueError as e:
+                assert said in str(e)
+        try:
+            PageSchema.create_replacing(repl, "UsrOrder_FormPage")
+            raise AssertionError("an existing copy must be refused")
+        except FileExistsError:
+            pass
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+DESIGNER_OPS = """[
+\t\t\t{
+\t\t\t\t"operation": "insert",
+\t\t\t\t"name": "UsrNotesPanel",
+\t\t\t\t"values": { "type": "crt.ExpansionPanel", "items": [], "tools": [] },
+\t\t\t\t"parentName": "GeneralInfoTab",
+\t\t\t\t"propertyName": "items",
+\t\t\t\t"index": 1
+\t\t\t},
+\t\t\t// a commented-out block the designer keeps
+\t\t\t{ "operation": "merge", "name": "CloseButton", "values": { "size": "large" } }
+\t\t]"""
+DESIGNER_ATTRS = """[
+\t\t\t{ "operation": "merge", "path": [ "attributes" ], "values": { "UsrName": { "modelConfig": { "path": "PDS.UsrName" } } } }
+\t\t]"""
+
+
+def _designer_page(pkg: Path) -> Path:
+    """UsrOrder_FormPage with compact ops in its sections, the way an editor or the designer may leave them (not json.dumps' layout)."""
+    path = pkg / "Schemas" / "UsrOrder_FormPage" / "UsrOrder_FormPage.js"
+    body = read(path).replace("/**SCHEMA_VIEW_CONFIG_DIFF*/[]", f"/**SCHEMA_VIEW_CONFIG_DIFF*/{DESIGNER_OPS}")
+    body = body.replace("/**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/[]", f"/**SCHEMA_VIEW_MODEL_CONFIG_DIFF*/{DESIGNER_ATTRS}")
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+    return path
+
+
+def test_add_grid_panel_is_the_designers_detail_and_keeps_every_other_byte():
+    import difflib
+    pkg = copy()
+    try:
+        path = _designer_page(pkg)
+        before = read(path)
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        page.add_grid("UsrLinesList", "UsrOrder", ["UsrName", "UsrStatus"], master="UsrManager", panel="Lines", before="UsrNotesPanel", add_button=True,
+                      editable=True)
+        page.save()
+        after = read(path)
+        ops = difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes()
+        assert {op[0] for op in ops} == {"equal", "insert"}, [op for op in ops if op[0] not in ("equal", "insert")]
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        panel = page.element("UsrLinesExpansionPanel")
+        assert (panel["parentName"], panel["index"], panel["values"]["type"]) == ("GeneralInfoTab", 1, "crt.ExpansionPanel")
+        assert panel["values"]["title"] == "#ResourceString(UsrLinesExpansionPanel_title)#"
+        assert page.resources.get("LocalizableStrings.UsrLinesExpansionPanel_title.Value", "en-US") == "Lines"
+        assert page.element("UsrLinesToolsContainer")["propertyName"] == "tools"
+        add, refresh = page.element("UsrLinesAddButton")["values"], page.element("UsrLinesRefreshButton")["values"]
+        assert add["clicked"] == {"request": "crt.CreateRecordRequest", "params": {"entityName": "UsrOrder",
+                                                                                    "defaultValues": [{"attributeName": "UsrManager", "value": "$Id"}]}}
+        assert refresh["clicked"]["params"] == {"config": {"loadType": "reload"}, "dataSourceName": "UsrLinesListDS"}
+        grid = page.element("UsrLinesList")
+        assert (grid["parentName"], grid["index"]) == ("UsrLinesListContainer", 0)
+        assert grid["values"]["features"] == {"editable": {"enable": True, "itemsCreation": False}}
+        status = grid["values"]["columns"][1]
+        assert status["path"] == "UsrStatus" and status["referenceSchemaName"] == "UsrOrderStatus"
+        assert page.dependencies["UsrLinesListDS"] == [{"attributePath": "UsrManager", "relationPath": "PDS.Id"}]
+        assert page.attributes["UsrName"] == {"modelConfig": {"path": "PDS.UsrName"}}  # the body's merge op untouched, still read
+        assert not [p for p in page.validate() if "ResourceString" in p]
+        # without the add button (the CLI: --no-add-button): the tools row has the refresh button only
+        page.add_grid("UsrMoreList", "UsrOrder", ["UsrName"], panel="More")
+        assert not page.has("UsrMoreAddButton") and page.element("UsrMoreRefreshButton")["index"] == 0
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_add_grid_before_an_element_of_the_replaced_page_reads_the_workspace_or_the_site():
+    pkg, repl = _two_packages()
+    try:
+        _designer_page(pkg)
+        PageSchema.create_replacing(repl, "UsrOrder_FormPage")
+        page = PageSchema(repl, "UsrOrder_FormPage")
+        assert page._place_of("UsrNotesPanel") == ("GeneralInfoTab", 1)  # the base copy in the workspace
+        shutil.rmtree(pkg / "Schemas" / "UsrOrder_FormPage")
+        page = PageSchema(repl, "UsrOrder_FormPage")
+        try:
+            page._place_of("UsrNotesPanel")
+            raise AssertionError("no copy and no env must be refused")
+        except KeyError as e:
+            assert "--env" in str(e)
+        base = "define(...) /**SCHEMA_VIEW_CONFIG_DIFF*/" + DESIGNER_OPS + "/**SCHEMA_VIEW_CONFIG_DIFF*/"
+        site = FakeSite("", {"CrtBase": base, "UsrRepl": "/**SCHEMA_VIEW_CONFIG_DIFF*/[]/**SCHEMA_VIEW_CONFIG_DIFF*/"})
+        assert page._place_of("UsrNotesPanel", site) == ("GeneralInfoTab", 1)
+        moved = base.replace('"index": 1', '"index": 4')
+        try:
+            page._place_of("UsrNotesPanel", FakeSite("", {"CrtBase": base, "CrtOther": moved}))
+            raise AssertionError("two places must be refused")
+        except KeyError as e:
+            assert "several places" in str(e) and "CrtOther: GeneralInfoTab[4]" in str(e)
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_grid_caption_writes_the_resource_string_in_each_culture():
+    import contextlib
+    import io
+    pkg = copy()
+    try:
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        page.add_grid("UsrLines", "UsrOrder", ["UsrName"], literal_captions=True)
+        page.save()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            assert main(["grid-caption", str(pkg), "UsrOrder_FormPage", "UsrLines", "UsrName", "en-US=Line name", "uk-UA=Line"]) == 0
+        assert "#ResourceString(UsrLinesDS_UsrName)#" in out.getvalue()
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        assert page.element("UsrLines")["values"]["columns"][0]["caption"] == "#ResourceString(UsrLinesDS_UsrName)#"
+        assert page.resources.get("LocalizableStrings.UsrLinesDS_UsrName.Value", "en-US") == "Line name"
+        assert page.resources.get("LocalizableStrings.UsrLinesDS_UsrName.Value", "uk-UA") == "Line"
+        assert "UsrLinesDS_UsrName" in page.own_string_keys() and page.validate() == []
+        try:
+            page.grid_caption("UsrLines", "UsrNope", {"en-US": "x"})
+            raise AssertionError("an unknown column must be refused")
+        except KeyError as e:
+            assert "UsrLinesDS_UsrName" in str(e)
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_set_value_walks_a_dotted_path_and_merges_into_an_element_of_the_replaced_page():
+    pkg, repl = _two_packages()
+    try:
+        page = PageSchema(pkg, "UsrOrder_FormPage")
+        page.add_field("UsrName")
+        page.set_value("UsrName", "layoutConfig.colSpan", "2")
+        page.set_value("UsrName", "a.b.c", "x")
+        values = page.element("UsrName")["values"]
+        assert values["layoutConfig"]["colSpan"] == 2 and values["a"] == {"b": {"c": "x"}} and "a.b.c" not in values
+        try:
+            page.set_value("UsrName", "label.x", "y")  # label is a string
+            raise AssertionError("a path through a non-object must be refused")
+        except ValueError as e:
+            assert "label" in str(e)
+        PageSchema.create_replacing(repl, "UsrOrder_FormPage")
+        copy_ = PageSchema(repl, "UsrOrder_FormPage")
+        copy_.set_value("CloseButton", "size", "large")
+        assert copy_.view_config_diff == [{"operation": "merge", "name": "CloseButton", "values": {"size": "large"}}]
+        try:
+            page.set_value("CloseButton", "size", "large")  # an own page: the element must be its own
+            raise AssertionError("an unknown element of an own page must be refused")
+        except KeyError:
+            pass
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
+def test_layout_folds_insert_merge_and_move_of_every_layer_into_the_grid():
+    pkg, repl = _two_packages()
+    try:
+        page = "UsrOrder_FormPage"
+
+        def cell(name, row, col, span=1, op="insert", parent="UsrGrid"):
+            return {"operation": op, "name": name, "parentName": parent, "propertyName": "items", "index": 0,
+                    "values": {"type": "crt.Input", "layoutConfig": {"column": col, "row": row, "colSpan": span, "rowSpan": 1}}}
+
+        base = [{"operation": "insert", "name": "UsrGrid", "parentName": "SideAreaProfileContainer", "propertyName": "items", "index": 0,
+                 "values": {"type": "crt.GridContainer", "columns": ["minmax(32px, 1fr)", "minmax(32px, 1fr)"]}},
+                cell("UsrName", 1, 1), cell("UsrAmount", 1, 2), cell("UsrDate", 2, 1)]
+        upper = [{"operation": "merge", "name": "UsrDate", "values": {"layoutConfig": {"column": 2, "row": 3}}},
+                 {"operation": "move", "name": "UsrAmount", "parentName": "SideAreaProfileContainer", "propertyName": "items", "index": 1},
+                 cell("UsrNote", 2, 1, 2)]
+        src = pkg / "Schemas" / page
+        body = read(src / f"{page}.js")
+        assert "/**SCHEMA_VIEW_CONFIG_DIFF*/[]" in body
+        (src / f"{page}.js").write_text(body.replace("/**SCHEMA_VIEW_CONFIG_DIFF*/[]", "/**SCHEMA_VIEW_CONFIG_DIFF*/" + json.dumps(base)), encoding="utf-8")
+        dst = repl / "Schemas" / page
+        shutil.copytree(src, dst)
+        desc = json.loads(read(dst / "descriptor.json").lstrip("﻿"))
+        desc["Descriptor"].update(ExtendParent=True, UId="22222222-3333-4444-8555-666666666666")
+        (dst / "descriptor.json").write_text(json.dumps(desc), encoding="utf-8")
+        (dst / f"{page}.js").write_text(body.replace("/**SCHEMA_VIEW_CONFIG_DIFF*/[]", "/**SCHEMA_VIEW_CONFIG_DIFF*/" + json.dumps(upper)), encoding="utf-8")
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["layout", str(repl), page, "--container", "UsrGrid"]) == 0
+        assert out.getvalue().splitlines() == [
+            f"{page}.UsrGrid over 2 layers (UsrPkg > UsrRepl), 2 columns, the last layer wins",
+            "  row 1: 1 UsrName | 2 free", "  row 2: 1-2 UsrNote", "  row 3: 1 free | 2 UsrDate",
+            "  UsrName  row 1 col 1 span 1x1  (placed last in UsrPkg)", "  UsrNote  row 2 col 1 span 2x1  (placed last in UsrRepl)",
+            "  UsrDate  row 3 col 2 span 1x1  (placed last in UsrRepl)"], out.getvalue()
+    finally:
+        shutil.rmtree(pkg.parent.parent, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_")]:
         fn()

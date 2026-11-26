@@ -7,6 +7,8 @@ Objects (entity schemas) stored in a package (library: ../creatio_schemas/entity
     python objects.py base     <package> <Object> --env dev                                fetch the base (replacing objects, other parents)
     python objects.py new      <package> <Object> --replace                                a replacing copy of a base object (after `base`)
     python objects.py column   <package> <Object> add <Name> --type ShortText [--ref Contact] [--caption ..] [--default ..] [--on required indexed ..] [--off ..]
+                                                   [--refresh --env dev]                  fetch the base first
+    python objects.py column   <package> <Object> ref <Name> Account [--env dev]           a lookup added here points at another object
     python objects.py column   <package> <Object> set <Name> [--on flag ..] [--off flag ..]
     python objects.py column   <package> <Object> default <Name> <value | ->
     python objects.py column   <package> <Object> type <Name> MediumText                  widen a text column only
@@ -90,10 +92,32 @@ def validate(ent, a):
 def column_add(ent, a):
     from creatio_schemas.describe.site import column_clash
 
-    if site_says(column_clash(ent.package, ent.name, a.name), a.force):
+    found = column_clash(ent.package, ent.name, a.name)
+    if a.refresh:
+        if not a.env:
+            raise ValueError("--refresh needs --env <env>")
+        base(None, a)
+        ent._parent = False  # read the base just fetched
+        if found and found[0] == "stop" and not in_table(Clio(a.env), ent.name, a.name):
+            print(f"note: the stored site pass says {found[1].split(': reuse it')[0]}; table {ent.name} on {a.env} has no such "
+                  "column now, going on", file=sys.stderr)
+            found = None
+    if site_says(found, a.force):
         raise SystemExit(1)  # before `finish` saves anything
     col = ent.add_column(a.name, a.type, a.caption or "", a.ref, a.default, **flags(a))
     print(f"added {a.name} ({col['UId']})")
+
+
+def in_table(clio, table: str, name: str) -> bool:
+    """Whether the table on the site has the column (a lookup is stored as <Name>Id)."""
+    from creatio_schemas.records import quote
+
+    return bool(clio.sql("select column_name::text c from information_schema.columns where table_schema = 'public' "
+                         f"and table_name = {quote(table)} and lower(column_name) in ({quote(name.lower())}, {quote(name.lower() + 'id')})"))
+
+
+def column_ref(ent, a):
+    print(f"{a.name} -> {a.schema} ({ent.set_ref(a.name, a.schema, a.env)})")
 
 
 def column_default(ent, a):
@@ -145,7 +169,13 @@ def build() -> CommandLine:
     p.add_argument("--caption")
     p.add_argument("--default", help="a constant default value")
     p.add_argument("--force", action="store_true", help="add it although the last `index --env` pass found it on the site in another package")
+    p.add_argument("--refresh", action="store_true", help="fetch the base from --env first; a stored site pass is checked against the table")
+    p.add_argument("--env", help="with --refresh: the environment")
     flag_options(p, COLUMN_FLAGS)
+    p = c("ref", column_ref, "point a lookup column added here at another object (same column UId, caption kept)", True, g)
+    p.add_argument("name")
+    p.add_argument("schema", help="the referenced object: workspace or stock name, or UId")
+    p.add_argument("--env", help="look the object up on this environment when it is neither in the workspace nor stock")
     p = c("set", lambda ent, a: ent.set_column(a.name, **flags(a)), "change column flags", True, g)
     p.add_argument("name")
     flag_options(p, COLUMN_FLAGS)

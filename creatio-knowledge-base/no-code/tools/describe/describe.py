@@ -27,7 +27,9 @@ Topics: every schema - files, resources [culture=], resource <key>, missing [cul
     python describe.py lookups <workspace|package>                      # every lookup object: parent chain, bindings, users
     python describe.py deps    <workspace|package> <Schema> [--in|--out] [--kind object] [--via lookup]  # typed graph
     python describe.py impact  <workspace|package> <Schema>... [--tasks <folder>] [--current <task>] [--md]  # dependents + locks
+    python describe.py columns-check <package> -e <env> [--schema X]  # column references the site does not have; exit 1 on a hit
     python describe.py layers  <Schema> -e <env> [--rule <UId>] [--json]  # the SysSchema copies on an environment, Custom detected
+    python describe.py body    <Schema> -e <env> [--package <Pkg>] [--out <file>]  # the text of one copy as the site holds it; several copies: the list
     python describe.py snapshot <Schema> [--workspace <ws>] [-e <env>] [--columns a,b] [--out <file>]  # an object as lines: effective columns on disk; table, rows, checksums, copies on a site
     python describe.py compare <before> <after>                    # two snapshot files: + - ~ lines; exit 1 on a difference
     python describe.py merge-plan <workspace> [<Schema>...] [-e <env>]  # collapsing replacing layers into one: target, conflicts; exit 1 on a conflict
@@ -72,6 +74,40 @@ def layers_command(args) -> int:
         return 2
     print(to_json(result) if args.json else render(result, env.clio_name or env.url))
     return 1 if result["custom"] else 0
+
+
+def columns_check_command(args) -> int:
+    from creatio_schemas.describe.columns_check import columns_check
+    from creatio_schemas.environment import open_environment
+    try:
+        text, code = columns_check(args.package, open_environment(args.env, args.project), args.schema)
+    except (ValueError, KeyError, OSError, RuntimeError) as e:
+        print(f"error: {_message(e)}", file=sys.stderr)
+        return 2
+    print(text)
+    return code
+
+
+def body_command(args) -> int:
+    from creatio_schemas.describe.body import schema_body
+    from creatio_schemas.environment import open_environment
+    try:
+        text = schema_body(open_environment(args.env, args.project), args.schema, args.package)
+    except LookupError as e:  # several copies, no --package: the list, exit 1
+        if isinstance(e, KeyError):
+            print(f"error: {_message(e)}", file=sys.stderr)
+            return 2
+        print(e)
+        return 1
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        print(f"error: {_message(e)}", file=sys.stderr)
+        return 2
+    if args.out:
+        Path(args.out).write_bytes(text.encode("utf-8"))  # the site's bytes, line endings and BOM kept
+        print(f"{args.out}: {len(text.encode('utf-8'))} bytes")
+    else:
+        print(text, end="" if text.endswith("\n") else "\n")
+    return 0
 
 
 def snapshot_command(args) -> int:
@@ -181,6 +217,17 @@ def main(argv=None) -> int:
     g.add_argument("--workspace", help="the workspace: a schema the site renamed is found by its UId and `name on site: X (workspace: Y)` is printed")
     g.add_argument("--custom-layer", help="the customisation package (default: project.json environment.customLayer, else Custom)")
     g.add_argument("--json", action="store_true", help="the result as JSON, for evidence")
+    cc = sub.add_parser("columns-check", help="the column references of a package (Freedom attributes, process filters and values, C# AddColumn paths) that the site lacks; read-only, exit 1 on a hit")
+    cc.add_argument("package")
+    cc.add_argument("-e", "--env", help="clio environment name")
+    cc.add_argument("--project", help="project.json holding the environment")
+    cc.add_argument("--schema", help="only this schema (or C# file stem)")
+    bd = sub.add_parser("body", help="the text of one copy of a schema as the site holds it (.js / .cs, or MetaData for an object or process); several copies and no --package: one line per copy, exit 1")
+    bd.add_argument("schema")
+    bd.add_argument("-e", "--env", help="clio environment name")
+    bd.add_argument("--project", help="project.json holding the environment")
+    bd.add_argument("--package", help="the package of the copy")
+    bd.add_argument("--out", help="write the body to this file, byte for byte, instead of printing it")
     sn = sub.add_parser("snapshot", help="an object as lines: effective columns over the workspace layers (disk), table columns / rows / checksums / copies (site)")
     sn.add_argument("schema")
     sn.add_argument("--workspace", help="the workspace: the effective columns over its layers (in the site's order with -e)")
@@ -264,6 +311,10 @@ def main(argv=None) -> int:
         return 1 if problems else 0
     if args.command == "layers":
         return layers_command(args)
+    if args.command == "body":
+        return body_command(args)
+    if args.command == "columns-check":
+        return columns_check_command(args)
     if args.command in ("snapshot", "compare"):
         return snapshot_command(args)
     if args.command == "merge-run":

@@ -326,6 +326,91 @@ def test_add_column_and_new_stop_on_what_the_site_already_has():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_column_ref_points_a_lookup_at_another_object_in_place():
+    from creatio_schemas.entity.catalog import STOCK_ENTITIES
+
+    tmp = copy()
+    try:
+        pkg = tmp / "UsrPkg"
+        e = EntitySchema(pkg, "UsrOrder")
+        before = e.column("UsrContact")
+        caption = e.resources.get("Columns.UsrContact.Caption")
+        assert e.set_ref("UsrContact", "Account") == STOCK_ENTITIES["Account"]
+        for bad, why in ((lambda: e.set_ref("CreatedBy", "Account"), "inherited"), (lambda: e.set_ref("UsrName", "Account"), "not a lookup")):
+            try:
+                bad()
+                raise AssertionError("must be refused")
+            except ValueError as err:
+                assert why in str(err), err
+        e.save()
+        e = EntitySchema(pkg, "UsrOrder")
+        col = e.column("UsrContact")
+        assert col["UId"] == before["UId"] and e.ref_name(col["S4"]) == "Account" and e.resources.get("Columns.UsrContact.Caption") == caption
+        assert col["E8"] is True and col["E9"] is True  # the flags stay
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_workspace_columns_name_a_platform_reference():
+    cols = Workspace(FIXTURES).columns("UsrOrder")  # Contact is not in the workspace: the stock catalogue names it
+    assert cols["UsrContact"] == ("Lookup", "Contact") and cols["UsrStatus"] == ("Lookup", "UsrOrderStatus"), cols
+
+
+def test_add_column_refused_by_the_cached_base_names_its_date():
+    tmp = copy()
+    try:
+        shutil.copytree(FIXTURES.parent / ".creatio-bases", tmp / ".creatio-bases")
+        try:
+            EntitySchema(tmp / "UsrPkg", "Account").add_column("Phone", "ShortText")
+            raise AssertionError("must be refused")
+        except ValueError as err:
+            assert "exists in the base cached 2026-11-06 from dev" in str(err) and "--refresh --env dev" in str(err), err
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_column_add_refresh_fetches_the_base_and_checks_the_table():
+    import objects as tool
+    from creatio_schemas.describe import store
+    from creatio_schemas.describe.index import index_path
+
+    tmp = Path(tempfile.mkdtemp())
+    calls = []
+
+    class FakeClio:
+        def __init__(self, env):
+            self.env = env
+
+        def sql(self, query):
+            calls.append(query)
+            return []  # the table has no such column now
+
+    def fake_fetch(clio, obj, package):
+        calls.append(f"fetch {obj}")
+        return {"object": obj, "package": package, "env": clio.env, "fetched": "2026-11-26 10:00:00", "uid": "u", "caption": obj,
+                "chain": ["Base"], "schema": {"D2": []}}
+
+    saved = tool.Clio, tool.fetch_base
+    tool.Clio, tool.fetch_base = FakeClio, fake_fetch
+    try:
+        pkg = tmp / "packages" / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        con = store.connect(index_path(pkg))
+        con.execute("insert into site_columns values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ("dev", "2026-11-21T08:00:00Z", "UsrPkg", "UsrOrder", "UsrArea", "Lookup", "UsrOtherPkg", "Area", 0))
+        con.commit()
+        con.close()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = tool.main(["column", str(pkg), "UsrOrder", "add", "UsrArea", "--type", "ShortText", "--refresh", "--env", "dev"])
+        assert code == 0 and "the stored site pass says UsrArea exists on the site (dev, 2026-11-21)" in err.getvalue(), err.getvalue()
+        assert calls[0] == "fetch BaseEntity" and "information_schema.columns" in calls[1]
+        assert "UsrArea" in (pkg / "Schemas" / "UsrOrder" / "metadata.json").read_text(encoding="utf-8-sig")
+    finally:
+        tool.Clio, tool.fetch_base = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

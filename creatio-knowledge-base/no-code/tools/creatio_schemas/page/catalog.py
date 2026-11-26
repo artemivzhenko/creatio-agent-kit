@@ -44,3 +44,12 @@ TEMPLATE_ELEMENTS: dict[str, list[dict]] = {
         {"code": "SaveButton", "label": "Save", "type": "Button"},
     ],
 }
+
+# UIds of base Freedom pages (SysSchema, ExtendParent false): the same row on every site; `pages.py replace` reads them when the
+# workspace has no copy. Read on 8.3.2 (S48-T07); a page not listed is looked up on the site (--env).
+BASE_PAGES: dict[str, str] = {
+    "Accounts_FormPage": "22cc919e-9774-4117-b32d-39e829f2f197",
+    "Contacts_FormPage": "e785a54d-7cc8-467f-9768-958ff8ad34d2",
+    "Leads_FormPage": "925f6863-2ffd-49b9-b3b8-f12232583dfe",
+    "Opportunities_FormPage": "d205e43b-228c-4725-aed2-d1c9dbef650e",
+}

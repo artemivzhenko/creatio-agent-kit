@@ -604,18 +604,32 @@ def _layer_body(props: str) -> str:
 
 
 class FakeLayersEnv:
+    """The layers query answers `rows`; a chunk read of body.py answers the `body` of the row whose id it names (S48-T04)."""
     clio_name, url = "dev", "https://dev.example/"
 
-    def __init__(self, rows):
-        self.rows, self.sql_text = rows, []
+    def __init__(self, rows, count="0"):
+        self.rows, self.sql_text, self.count = rows, [], count
+        self.bodies = {r["id"]: r.get("body", "").encode("utf-8") for r in rows if "id" in r}
 
     def sql(self, text):
+        import base64
+        import hashlib
+        import re
+
+        from creatio_schemas.describe.body import CHUNK
         self.sql_text.append(text)
+        if '"b64"' in text:
+            first, last = map(int, re.search(r"generate_series\((\d+), (\d+)\)", text).groups())
+            data = self.bodies[re.search(r'"Id" = \'([^\']*)\'', text).group(1)]
+            return [{"i": str(i), "b64": base64.encodebytes(data[i * CHUNK:(i + 1) * CHUNK]).decode(), "md5": hashlib.md5(data).hexdigest()}
+                    for i in range(first, last + 1) if i * CHUNK < len(data)]
+        if 'count(*)::text "n"' in text:
+            return [{"n": self.count}]
         return self.rows
 
 
 def _row(pkg, sl, pl, body="", ext="true"):
-    return {"package": pkg, "extendParent": ext, "modifiedOn": "2026-11-10 09:15:00.123", "modifiedBy": "Supervisor", "isChanged": "false",
+    return {"id": pkg, "package": pkg, "extendParent": ext, "modifiedOn": "2026-11-10 09:15:00.123", "modifiedBy": "Supervisor", "isChanged": "false",
             "manager": "ClientUnitSchemaManager", "size": str(len(body)), "md5": "0123456789abcdef0123456789abcdef", "body": body, "sl": sl, "pl": pl}
 
 
@@ -625,6 +639,7 @@ def test_layers_order_rule_states_and_the_custom_layer():
     import json
 
     sql = layers_sql("UsrO'Page", "Custom")
+    assert "body" not in sql and "convert_from" not in sql  # no body column: the bodies come one layer at a time, only for --rule (S48-T04)
     assert "where s.\"Name\" = 'UsrO''Page'" in sql and "\"SysSchemaContent\"" in sql and "md5(" in sql and "(select \"Id\" from \"SysPackage\" where \"Name\" = 'Custom')" in sql
     assert rule_state("", LAYER_RULE) == "no body" and rule_state(_layer_body(None), LAYER_RULE) == "absent"
     assert rule_state(_layer_body(""), LAYER_RULE) == "enabled" and rule_state(_layer_body(', "enabled": false'), LAYER_RULE) == "disabled"
@@ -634,7 +649,7 @@ def test_layers_order_rule_states_and_the_custom_layer():
             _row("UsrPkg", "0", "2", _layer_body(', "enabled": false')), _row("UsrOrphan", "-1", "-1")]
     env = FakeLayersEnv(rows)
     result = schema_layers(env, "UsrMyEntity1Page", LAYER_RULE)
-    assert len(env.sql_text) == 1 and "UsrMyEntity1Page" in env.sql_text[0]
+    assert "UsrMyEntity1Page" in env.sql_text[0] and sum('"b64"' in s for s in env.sql_text) == 4  # one read per layer
     # outside the hierarchy first, then farthest first: the base (schema level 1), package level descending; Custom last
     assert [x["package"] for x in result["layers"]] == ["UsrOrphan", "CrtBase", "UsrPkg", "Custom"]
     assert [x["rule"] for x in result["layers"]] == ["no body", "enabled", "disabled", "removed"] and result["custom"] == ["Custom"]
@@ -653,6 +668,11 @@ def test_layers_order_rule_states_and_the_custom_layer():
     assert [x["package"] for x in schema_layers(FakeLayersEnv(chain), "UsrMyEntity1Page")["layers"]] == ["CrtBase", "UsrA", "UsrB", "UsrC"]
     chain[3]["hl"] = ""  # a level missing: the function's order stays
     assert [x["package"] for x in schema_layers(FakeLayersEnv(chain), "UsrMyEntity1Page")["layers"]] == ["CrtBase", "UsrA", "UsrC", "UsrB"]
+    # 8.3.2 (S48-T08): the base copy levelled after replacing ones, copies outside the customisation package's hierarchy;
+    # the served body holds the base first, then every replacing copy by HierarchyLevel
+    site = [dict(_row("UsrC", "-1", "-1"), hl="363"), dict(_row("UsrA", "0", "2"), hl="107"), dict(_row("CrtBase", "0", "16", ext="false"), hl="81"),
+            dict(_row("UsrB", "-1", "-1"), hl="168")]
+    assert [x["package"] for x in schema_layers(FakeLayersEnv(site), "UsrMyEntity1Page")["layers"]] == ["CrtBase", "UsrA", "UsrB", "UsrC"]
     assert '"HierarchyLevel"::text "hl"' in layers_sql("UsrX", "Custom")
     # the customisation package named by project.json, not by the default
     assert schema_layers(FakeLayersEnv(rows), "UsrMyEntity1Page", custom_layer="UsrPkg")["custom"] == ["UsrPkg"]
@@ -714,6 +734,61 @@ def test_a_failed_layers_query_answers_why_never_no_copy():
     text = failure([(0, mssql, None), (0, "Msg 195, Level 15, State 10, Line 1\n'version' is not a recognized built-in function name.", None)])
     assert text == "dev is not PostgreSQL - the kit's site SQL is PostgreSQL\nthe layers query failed on dev: Msg 102, Level 15, State 1, Line 1", text
     assert "no SysSchema copy" not in text
+    # no rows while SysSchema counts copies of the name: clio's answer was lost, not "no copy" (S48-T04)
+    try:
+        schema_layers(FakeLayersEnv([], count="8"), "ActivityMiniPage")
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as e:
+        assert "clio's answer had no rows while SysSchema holds copies of that name" in str(e), e
+
+
+def test_body_reads_one_copy_in_chunks_and_lists_several():
+    from creatio_schemas.describe.body import CHUNK, PER_CALL, schema_body
+
+    big = "// UsrOrderPage\r\n" + "ä" * (CHUNK * PER_CALL)  # more than one call of chunks, a two-byte character across chunk edges
+    copies = [_row("UsrPkg", "0", "1", big), _row("CrtBase", "1", "5", "{}", ext="false")]
+
+    class BodyEnv(FakeLayersEnv):
+        def sql(self, text):
+            rows = super().sql(text)
+            return [dict(r, size=str(len(r["body"].encode()))) for r in rows] if rows is self.rows else rows
+    env = BodyEnv(copies)
+    assert schema_body(env, "UsrOrderPage", "usrpkg") == big and sum('"b64"' in s for s in env.sql_text) == 3  # 21 chunks: 10 + 10 + 1
+    assert "UsrOrderPage" in env.sql_text[0] and "'SourceCodeSchemaManager'" in env.sql_text[0] and '"MetaData"' in env.sql_text[0]
+    assert schema_body(BodyEnv(copies[1:]), "Contact") == "{}"
+    try:
+        schema_body(BodyEnv(copies), "UsrOrderPage")
+        raise AssertionError("expected LookupError")
+    except LookupError as e:
+        assert str(e).splitlines()[0] == "UsrOrderPage: 2 copies on the site - name one with --package:" and "  CrtBase  2 bytes  md5 01234567  2026-11-10 09:15:00" in str(e), e
+    try:
+        schema_body(BodyEnv(copies), "UsrOrderPage", "UsrNoSuchPkg")
+        raise AssertionError("expected KeyError")
+    except KeyError as e:
+        assert e.args[0] == "UsrOrderPage has no copy in package UsrNoSuchPkg on the site"
+    env = BodyEnv(copies)
+    env.bodies["UsrPkg"] = env.bodies["UsrPkg"][:-1] + b"x"  # a chunk lost or changed on the way: the md5 says so
+    env.sql = lambda text, sql=env.sql: [dict(r, md5="0" * 32) for r in sql(text)] if '"b64"' in text else sql(text)
+    try:
+        schema_body(env, "UsrOrderPage", "UsrPkg")
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as e:
+        assert "do not match the site's md5" in str(e), e
+    import creatio_schemas.environment as environment
+    import tempfile
+    original = environment.open_environment
+    try:
+        environment.open_environment = lambda env_name=None, project=None, **kw: BodyEnv(copies)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert main(["body", "UsrOrderPage", "-e", "dev"]) == 1  # several copies: the list
+                assert main(["body", "UsrOrderPage", "-e", "dev", "--package", "CrtBase"]) == 0
+                assert main(["body", "UsrOrderPage", "-e", "dev", "--package", "UsrPkg", "--out", str(Path(tmp) / "b.js")]) == 0
+            assert "  UsrPkg  " in out.getvalue() and "{}\n" in out.getvalue(), out.getvalue()
+            assert (Path(tmp) / "b.js").read_bytes() == big.encode("utf-8")
+    finally:
+        environment.open_environment = original
 
 
 def test_typed_dependencies_resolve_by_uid_and_context():
@@ -3034,6 +3109,32 @@ def test_find_in_processes_reads_the_lookup_rows_once_per_workspace():
         _rm_tree(root)
 
 
+def test_who_sets_opens_no_resource_file_and_reads_the_bindings_only_for_a_caption():
+    """Four packages, 29 s: the resources of every process (every culture), the bindings of every package and the columns of every
+    written entity were read before a single hit. Now a search with no hit opens none of them; a hit reads the bindings once."""
+    import tempfile
+    from creatio_schemas import schema as schema_module
+    from creatio_schemas.describe.writes import who_sets
+    from creatio_schemas.workspace import Workspace
+
+    root = Path(tempfile.mkdtemp())
+    try:
+        ws = _writes_workspace(root)
+        reads, resources = [], []
+        original_rows, original_res = Workspace.lookup_rows, schema_module.Resources.__init__
+        Workspace.lookup_rows = lambda self: (reads.append(1) if getattr(self, "_rows", None) is None else None) or original_rows(self)
+        schema_module.Resources.__init__ = lambda self, folder: resources.append(folder) or original_res(self, folder)
+        try:
+            assert "nothing sets Account.Name" in who_sets(ws, "Account.Name")
+            assert (reads, resources) == ([], []), (reads, resources)
+            assert who_sets(ws, "UsrOrder.UsrAmount").startswith("process  UsrPkg / UsrNotify_Process / SetStatus")
+            assert (len(reads), resources) == (1, []), (reads, resources)
+        finally:
+            Workspace.lookup_rows, schema_module.Resources.__init__ = original_rows, original_res
+    finally:
+        _rm_tree(root)
+
+
 def test_who_sets_and_who_reads_message_answer_across_kinds():
     import tempfile
     from creatio_schemas.describe.writes import who_reads_message, who_sets
@@ -3305,6 +3406,80 @@ def test_a_site_pass_with_zero_columns_is_a_pass_and_scaffold_says_no_duplicate(
         assert err.getvalue().strip() == f"site pass of {pass_date(index_path(pkg))}: no duplicate", err.getvalue()
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_merge_pages_read_single_quoted_deps_and_name_the_layer_of_a_bad_one():
+    import json
+    import shutil
+    import tempfile
+    from creatio_schemas.describe.merge import merge_schema
+
+    for deps_b, want in (("['@creatio-devkit/common',]", None), ("['@creatio-devkit/common'", "UsrB UsrPage_FormPage: SCHEMA_DEPS is not an array literal")):
+        root = Path(tempfile.mkdtemp())
+        try:
+            _layer_workspace(root, {"UsrA": (["CrtBase"], {}), "UsrB": (["UsrA"], {})})
+            for name, deps in (("UsrA", "[]"), ("UsrB", deps_b)):
+                view = json.dumps([{"operation": "merge", "name": "Base" + name, "values": {"visible": True}}])
+                _client_layer(root / "packages" / name, "UsrPage_FormPage", FREEDOM_BODY.format(deps=deps, args="sdk" if name == "UsrB" else "", view=view, vm="[]", handlers="", converters=""))
+            text, code = merge_schema(root, "UsrPage_FormPage", direction="down")
+            assert (code == 0) == (want is None) and (want is None or want in text), text
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def test_merge_deps_read_as_a_js_array_literal():
+    from creatio_schemas.describe.merge import js_string_list
+    assert js_string_list("['@creatio-devkit/common', \"UsrA\", ]") == ["@creatio-devkit/common", "UsrA"]
+    assert js_string_list(" [] ") == []
+    for bad, why in (("x", "is not an array literal"), ("[UsrA]", "not a quoted string"), ("['a' 'b']", "no comma after 'a'"), ("['a", "is not an array")):
+        try:
+            js_string_list(bad)
+        except ValueError as e:
+            assert why in str(e), (bad, str(e))
+        else:
+            assert False, bad
+
+
+def test_data_sources_answer_attributes_that_are_dicts():
+    from types import SimpleNamespace
+    from creatio_schemas.describe.queries import q_pg_sources
+    pg = SimpleNamespace(data_sources={"DS": {"scope": "page", "config": {"entitySchemaName": "UsrOrder", "attributes": [{"name": "UsrName"}, "UsrNote"]}}})
+    assert q_pg_sources(pg, None, {}).endswith('attributes={"name": "UsrName"}, UsrNote'), q_pg_sources(pg, None, {})
+
+
+def test_columns_check_names_a_missing_column_and_follows_a_lookup_path():
+    from creatio_schemas.describe.columns_check import columns_check, references
+    site = {"UsrPkg": ["Id", "UsrName", "UsrContactId"], "Contact": ["Id", "Name"]}  # UsrAmount is planted missing
+
+    class Env:
+        def sql(self, text):
+            name = text.split("relname = '")[1].split("'")[0] if "pg_constraint" in text else text.split("table_name in ('")[1].split("'")[0]
+            if "pg_constraint" in text:
+                return [{"column": "UsrContactId", "ref": "Contact"}] if name == "UsrPkg" else []
+            return [{"object": name, "column": c} for c in site.get(name, [])]
+
+    env = Env()
+    text, code = columns_check(PAGES, env, "UsrTests_FormPage")
+    assert code == 1 and "UsrTests_FormPage: attribute UsrAmount: UsrPkg.UsrAmount is missing on the site" in text, text
+    assert "UsrPkg.UsrName" not in text
+    from creatio_schemas.describe.columns_check import SiteColumns
+    s = SiteColumns(env)
+    assert s.missing("UsrPkg", "UsrContact.Name") is None and s.missing("UsrPkg", "UsrContact.Nope") == "Contact.Nope"
+    assert s.missing("UsrNo", "Id") == "UsrNo (object)"
+    cs = Path(__import__("tempfile").mkdtemp()) / "UsrPkg"
+    (cs / "Files" / "cs").mkdir(parents=True)
+    (cs / "Files" / "cs" / "UsrQ.cs").write_text('var q = new EntitySchemaQuery(m, "UsrPkg"); q.AddColumn("UsrName"); q.AddColumn("UsrContact.Name");', encoding="utf-8")
+    assert references(cs) == [("UsrQ", "AddColumn", "UsrPkg", "UsrName"), ("UsrQ", "AddColumn", "UsrPkg", "UsrContact.Name")]
+    shutil.rmtree(cs.parent, ignore_errors=True)
+
+
+def test_descriptor_touch_keeps_the_date_form_the_file_has():
+    from creatio_schemas.schema import Descriptor
+    for old in ('\/Date(1)\/', "/Date(1)/"):
+        d = Descriptor(Path("x"), '{"Descriptor": {"ModifiedOnUtc": "' + old + '"}}')
+        d.touch()
+        new = d.text.split('"ModifiedOnUtc": "')[1].split('"')[0]
+        assert new != old and new.startswith("\/" if old.startswith("\\") else "/") and new.endswith(")\/" if old.startswith("\\") else ")/"), (old, new)
 
 
 if __name__ == "__main__":

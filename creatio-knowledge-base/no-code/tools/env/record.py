@@ -5,12 +5,15 @@
     python record.py context -e <env> <Entity> <id> [--columns "Name,*Id"] [--depth 1|2]
     python record.py history -e <env> <Entity>:<id> [--column UsrStatus] [--clusters 500]
     python record.py transitions -e <env> <Entity>.<Column> [--from "A"] [--to "B"] [--since 2026-11-01] [--out file.csv]
+    python record.py merge   -e <env> <Object> --keep <Id> --drop <Id>[,<Id>..] [--apply --project project.json] [--backup <folder>]
 
 `find` scans the base tables that have a uuid `Id` (the workspace's objects first) in unions of 50 and stops at the first
 batch that holds the Id; `--everywhere` goes on. Times are UTC and the zone `environment.timeZone` of --project names.
 `history` reads the change log of the object (`Sys<Entity>Log`, one snapshot row per change): when, who, `was -> became` per
 column; `--clusters <ms>` adds the other records the same user changed within that many milliseconds of each change.
 `transitions` lists every change of one column over all records, oldest first; `--out` writes a CSV (UTF-8 with a BOM, `;`).
+`merge` folds duplicate rows of a lookup into one: the plan (read only, the default) lists every table and column that points at the dropped
+ids with counts and the SQL; `--apply` (a dev site only: `--project` with `kind: dev`, `mayBreak: true`) writes a backup first, then runs it.
 Without the log table: `change tracking is off for <Entity>` (exit 2).
 Exit 1 when nothing is found; 2 on a usage error.
 """
@@ -23,8 +26,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas.environment import open_environment  # noqa: E402
-from creatio_schemas.records import (column_transitions, find_record, record_context, record_history, render_context, render_hits,  # noqa: E402
-                                     render_history, render_transitions, transitions_csv, zone_of)
+from creatio_schemas.records import (column_transitions, find_record, merge_apply, merge_plan, record_context, record_history, render_context,  # noqa: E402
+                                     render_hits, render_history, render_plan, render_transitions, require_dev, transitions_csv, zone_of)
 
 
 def objects_of(workspace: str | None) -> list[str]:
@@ -70,12 +73,26 @@ def main(argv=None, **env_kw) -> int:
     transitions.add_argument("--since", help="only changes at or after (2026-11-01, 2026-11-01T08:00, UTC)")
     transitions.add_argument("--out", help="write every transition to this CSV file")
     transitions.add_argument("--limit", type=int, default=40, help="lines shown (0 = all)")
-    for sub in (find, context, history, transitions):
+    merge = commands.add_parser("merge", help="duplicate rows of a lookup folded into one: foreign keys moved, backup, delete (a plan unless --apply)")
+    merge.add_argument("entity")
+    merge.add_argument("--keep", required=True, help="the Id that stays")
+    merge.add_argument("--drop", required=True, help="the Ids that go, comma separated")
+    merge.add_argument("--apply", action="store_true", help="write (dev site only: needs --project with kind dev and mayBreak)")
+    merge.add_argument("--backup", default="merge-backups", help="folder of the backup file written before the first write")
+    for sub in (find, context, history, transitions, merge):
         sub.add_argument("-e", "--env", help="clio environment name")
         sub.add_argument("--project", help="project.json")
     a = p.parse_args(argv)
     try:
         env, zone = open_environment(a.env, a.project, **env_kw), zone_of(a.project)
+        if a.command == "merge":
+            if a.apply:
+                require_dev(a.project)
+            plan = merge_plan(env, a.entity, a.keep, [d.strip() for d in a.drop.split(",") if d.strip()])
+            print(render_plan(plan))
+            if a.apply:
+                merge_apply(env, plan, a.backup)
+            return 0
         if a.command == "find":
             workspace = a.workspace or workspace_of(a.project)
             hits = find_record(env, a.id, objects_of(workspace), a.everywhere, zone)

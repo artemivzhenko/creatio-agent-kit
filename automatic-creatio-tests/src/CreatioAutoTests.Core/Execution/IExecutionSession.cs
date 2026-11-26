@@ -59,6 +59,12 @@ public interface IExecutionSession
     /// </summary>
     Task OpenProcessTaskAsync(string process, string pageName, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Waits up to <paramref name="budgetMs"/> (the page check timeout when null) for a running pre-configured page task of the process that a UI
+    /// line started, opens its page only when the application has not shown it, and binds the page scoped to its dialog (S48-T11).
+    /// </summary>
+    Task WaitProcessTaskAsync(string process, string pageName, int? budgetMs, CancellationToken cancellationToken = default);
+
     /// <summary>Moves the current tab to a configured page through the Shell address, without loading the application again.</summary>
     Task NavigatePageAsync(string pageName, string? recordId, CancellationToken cancellationToken = default);
 

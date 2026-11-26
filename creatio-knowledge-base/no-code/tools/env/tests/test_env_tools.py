@@ -268,6 +268,19 @@ def test_sql_cli():
         assert run_cli("sql", ["select 1"], settings=s)[0] == 2 and run_cli("sql", ["-e", "dev"], settings=s)[0] == 2
 
 
+def test_call_get_of_a_served_file_sends_accept_any_and_names_a_406():
+    """S48-T05: GET conf/content/... goes through fetch: `Accept: */*`, `0/` on .NET Framework; a 406 names the header."""
+    with tempfile.TemporaryDirectory() as tmp:
+        s = settings_file(Path(tmp))
+        json.dump({"Environments": {"dev": {"Uri": "https://dev.example", "Login": "u", "Password": SECRET, "IsNetCore": False}}}, s.open("w"))
+        opener = FakeOpener({("GET", "/0/conf/content/UsrP.js"): (200, "define(1)"), ("GET", "/0/conf/content/UsrNo.js"): (406, "")})
+        code, out = run_cli("call", ["-e", "dev", "GET", "conf/content/UsrP.js"], settings=s, opener=opener)
+        assert code == 0 and "status: 200" in out and "define(1)" in out, out
+        assert opener.requests[-1]["headers"]["Accept"] == "*/*", opener.requests[-1]
+        code, out = run_cli("call", ["-e", "dev", "GET", "conf/content/UsrNo.js"], settings=s, opener=opener)
+        assert code == 1 and "status: 406" in out and "Accept" in out, out
+
+
 def test_call_and_proc_run_cli():
     with tempfile.TemporaryDirectory() as tmp:
         s = settings_file(Path(tmp))
@@ -518,6 +531,43 @@ def test_site_process_off_and_on_post_the_service_and_read_the_table_back():
     e._clio_run = FakeClio([[{"Id": sid, "Package": "UsrA"}, {"Id": sid[::-1], "Package": "UsrB"}]])
     raises(lambda: site.switch(e, "UsrP", True), ValueError, "UsrA, UsrB")
     raises(lambda: site.switch(e, "x'; drop", True), ValueError, "letters")
+
+
+def test_cancel_runs_posts_cancel_execution_on_a_dev_project_and_reads_the_log_back():
+    # S48-T13 (D14): stuck page tasks are cancelled by their runs; a project that is not `kind: dev` is refused before any call
+    from creatio_schemas import runs
+    one, two = "aaaaaaaa-0000-4000-8000-000000000001", "aaaaaaaa-0000-4000-8000-000000000002"
+    route = ("POST", "/0/ServiceModel/ProcessEngineService.svc/CancelExecution")
+    folder = Path(tempfile.mkdtemp())
+    try:
+        project = folder / "project.json"
+        project.write_text(json.dumps({"environment": {"clioName": "dev", "kind": "test"}}), encoding="utf-8")
+        e, opener = env({route: (200, "")}, clio_name="dev", clio_run=FakeClio())
+        raises(lambda: runs.cancel_runs(e, [one], str(project), "dev"), PermissionError, "refused: dev is not a dev environment")
+        assert not [r for r in opener.requests if "CancelExecution" in r["path"]]
+        project.write_text(json.dumps({"environment": {"clioName": "dev", "kind": "dev"}}), encoding="utf-8")
+        row = {"Name": "UsrP", "Process": "UsrP", "StartDate": "2026-11-26T10:00:00", "OwnerId": None}
+        polls = [[dict(row, Id=one, Status="Running", CompleteDate=None)], [dict(row, Id=two, Status="Canceled", CompleteDate="2026-11-26T10:05:00")],
+                 [dict(row, Id=one, Status="Canceled", CompleteDate="2026-11-26T10:05:01")], [dict(row, Id=two, Status="Canceled", CompleteDate="2026-11-26T10:05:00")]]
+        slept = []
+        e, opener = env({route: (200, "")}, clio_name="dev", clio_run=FakeClio(polls))
+        logs = runs.cancel_runs(e, [one, two.upper()], str(project), "dev", sleep=slept.append)
+        post = [r for r in opener.requests if "CancelExecution" in r["path"]]
+        assert len(post) == 1 and post[0]["body"] == {"processDataIds": f"{one};{two}"}, post
+        assert slept == [1] and [x["status"] for x in logs] == ["Canceled", "Canceled"]
+        assert runs.render_cancel(logs).splitlines()[0].startswith(f"{one}  UsrP  Canceled (failed), ended 2026-11-26 10:05:01")
+        # the command line: a run still running after --wait is exit 1
+        project.write_text(json.dumps({"environment": {"clioName": "dev", "kind": "dev", "url": "https://site.example", "login": "u",
+                                                       "password": "p"}}), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = load("proc-runs").main(["cancel", "--project", str(project), one, "--wait", "2"], opener=FakeOpener({route: (200, "")}),
+                                          clio_run=FakeClio([[dict(row, Id=one, Status="Running", CompleteDate=None)]] * 2), sleep=lambda s: None)
+        assert code == 1 and out.getvalue().startswith(f"{one}  UsrP  Running (running)"), (code, out.getvalue())
+    finally:
+        for f in folder.iterdir():
+            f.unlink()
+        folder.rmdir()
 
 
 if __name__ == "__main__":

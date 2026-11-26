@@ -12,12 +12,13 @@ import re
 from pathlib import Path
 
 from .. import filters
-from ..files import ALL_DATA_VALUE_TYPES, DVT_OF, DATA_VALUE_TYPES, EMPTY_GUID, dump_json, is_uid, new_uid, write_text
+from ..files import ALL_DATA_VALUE_TYPES, DVT_OF, DATA_VALUE_TYPES, EMPTY_GUID, dump_json, is_uid, new_uid, read_text, write_text
 from ..resources import Resources
 from ..schema import WARNING, Descriptor, Schema
 from ..workspace import Package
 from .catalog import (CONDITIONAL_FLOW_MANAGER, DIRECTION, DIRECTION_OF, FLOW_CLASSES, FLOW_MANAGER, KEYMAP, KIND_BY_CLASS,
-                      LANE_MANAGER, LANESET_MANAGER, NS, USER_TASK_BY_UID, VALUE_SOURCE, element_kind, new_param, short_type)
+                      LANE_MANAGER, LANESET_MANAGER, NS, TASK_ALIASES, USER_TASK_BY_UID, USER_TASKS, VALUE_SOURCE, add_task_param,
+                      element_kind, new_param, short_type)
 from .expressions import SUGAR_RE, ExpressionCodec
 
 SIGNAL_MODES = {"added": 1, "modified": 2, "deleted": 4}  # EntitySignal is a bit mask
@@ -660,6 +661,62 @@ class ProcessSchema(Schema):
         given = [f"{p['A2']} = {self.expressions.decode(p['L8']['GS2'])}" for p in element.get("BP2", []) if (p.get("L8") or {}).get("GS2") not in (None, "")]
         return f"calls {self.workspace.name_of(uid) or uid}" + (" with " + ", ".join(given) if given else "")
 
+    def _task_spec(self, task: str) -> tuple[str, dict]:
+        """(name, {uid, parameters, captions}) of a user task schema, in the catalogue's form: the catalogue (assets/user_tasks.json,
+        an alias of TASK_ALIASES too), the workspace (its FJ1), else the site's SysSchema when `rows_of` is set."""
+        task = TASK_ALIASES.get(task, task)
+        if task in USER_TASKS:
+            return task, USER_TASKS[task]
+        hits = self.workspace.find(task, "ProcessUserTaskSchemaManager")
+        if hits:
+            own = next((h for h in hits if h["uid"] == h["base"]), hits[0])
+            schema = json.loads(read_text(own["dir"] / "metadata.json")[0])["MetaData"]["Schema"]
+        elif self.rows_of is not None:
+            column, value = ("UId", task.lower()) if is_uid(task) else ("Name", task.replace("'", "''"))
+            rows = self.rows_of(f"""select convert_from("MetaData", 'UTF8') as "meta" from "SysSchema" where "{column}" = '{value}' """
+                                """and "ManagerName" = 'ProcessUserTaskSchemaManager' and "ExtendParent" = false""")
+            if not rows:
+                raise KeyError(f"user task {task} is neither in the catalogue, the workspace nor on the site")
+            schema = json.loads(str(rows[0]["meta"]).lstrip("\ufeff"))["MetaData"]["Schema"]
+        else:
+            raise KeyError(f"user task {task} is neither in the catalogue nor in the workspace; or give --env <env> to read it from the site")
+        params = [{"name": q["A2"], "uid": q["UId"], "type": q.get("L1"), "default": q.get("L8") or {}, "refSchemaUId": q.get("L9"),
+                   "refSchemaName": q.get("L16"), "direction": q.get("L12")} for q in schema.get("FJ1", [])]
+        return schema.get("A2", task), {"uid": schema["UId"].lower(), "parameters": params, "captions": {}}
+
+    def retask(self, element: dict, task: str) -> dict:
+        """Point a user-task element at another user task schema (D81): the element's `J6` (and `BL7`), each parameter's owner
+        (`A3`/`A4`) and its mapping (`GT4` the task, `GT5` the task's parameter, matched by name). The values are kept; a parameter
+        the new task lacks is removed with its mapping and captions, one it has that the element lacks is added with its default.
+        Answers {old, new, kept, removed, added} (parameter names)."""
+        self._require(element, "ProcessSchemaUserTask", "a user task")
+        name, spec = self._task_spec(task)
+        old, new = element.get("J6"), spec["uid"]
+        by_name = {tp["name"]: tp for tp in spec["parameters"]}
+        params = element.setdefault("BP2", [])
+        kept, removed = [], []
+        for p in list(params):
+            tp = by_name.get(p["A2"])
+            if tp is None:
+                params.remove(p)
+                if "BK15" in self.schema:
+                    self.schema["BK15"] = [m for m in self.mappings if m.get("GT3") != p["UId"]]
+                self.resources.remove_prefix(f"BaseElements.{element['A2']}.Parameters.{p['A2']}")
+                removed.append(p["A2"])
+                continue
+            for k in ("A3", "A4"):
+                if p.get(k) == old:
+                    p[k] = new
+            for m in self.mappings:
+                if m.get("GT3") == p["UId"]:
+                    m["GT4"], m["GT5"] = new, tp["uid"]
+            kept.append(p["A2"])
+        added = [tp["name"] for tp in spec["parameters"] if tp["name"] not in kept and add_task_param(self, element, spec, tp)]
+        if element.get("BL7") == old:
+            element["BL7"] = new
+        element["J6"] = new
+        return {"old": USER_TASK_BY_UID.get(old) or self.workspace.name_of(old) or old, "new": name, "kept": kept, "removed": removed, "added": added}
+
     def set_message(self, element: dict, message: str) -> None:
         """Message / signal name of a message or signal event. A start or catch signal given a name waits for that named
         signal (a `throwSignal` element or `ProcessEngine.ThrowSignal` in C#) instead of a record change."""
@@ -896,7 +953,7 @@ class ProcessSchema(Schema):
         for e in self.nodes():
             t = short_type(e).replace("ProcessSchema", "")
             if t == "UserTask":
-                t = USER_TASK_BY_UID.get(e.get("J6"), e.get("J6", "?"))
+                t = USER_TASK_BY_UID.get(e.get("J6")) or self.workspace.name_of(e.get("J6")) or e.get("J6", "?")
             lines.append(f"    {e['A2']} [{t}] caption={r.get(f'BaseElements.{e['A2']}.Caption')!r} at {e.get('BL3')}")
             cls = short_type(e)
             values_param = (RECORD_VALUES.get(e.get("J6")) or ("",))[0]

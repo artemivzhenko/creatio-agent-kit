@@ -73,10 +73,16 @@ public sealed class FreedomUiRuntime : IPageRuntime
 /// <summary>What both generations share because both live inside the 8.x Shell.</summary>
 internal static class ShellAddress
 {
-    /// <summary>Appends <c>/edit/{id}</c> to a page template and makes the path base-relative.</summary>
+    /// <summary>
+    /// Appends <c>/edit/{id}</c> to a page template and makes the path base-relative. Without a record a Freedom UI card address
+    /// (<c>#Card/&lt;Page&gt;</c>, no mode) gets <c>/add</c>: the bare address shows the form with no record id, and its Save fails
+    /// with "Field: Id. Enter a value" (S48-T11, 8.3.2).
+    /// </summary>
     public static string WithRecord(string pageUrl, string? recordId)
     {
-        var url = string.IsNullOrWhiteSpace(recordId) ? pageUrl : pageUrl.TrimEnd('/') + "/edit/" + recordId;
+        var url = !string.IsNullOrWhiteSpace(recordId) ? pageUrl.TrimEnd('/') + "/edit/" + recordId
+            : System.Text.RegularExpressions.Regex.IsMatch(pageUrl, @"#Card/[^/]+/?$") ? pageUrl.TrimEnd('/') + "/add"
+            : pageUrl;
         return url.StartsWith('/') ? url : "/" + url;
     }
 

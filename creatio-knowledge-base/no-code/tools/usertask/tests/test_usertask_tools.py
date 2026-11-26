@@ -83,6 +83,30 @@ def test_edit_and_create():
         shutil.rmtree(tmp.parent, ignore_errors=True)
 
 
+def test_lookup_param_writes_the_reference_uid_and_name():
+    from creatio_schemas.entity.catalog import STOCK_ENTITIES
+
+    tmp = Path(tempfile.mkdtemp()) / "packages"
+    shutil.copytree(FIXTURES, tmp / "UsrPkg")
+    try:
+        task = UserTaskSchema(tmp / "UsrPkg", "UsrRunCase_UserTask")
+        p = task.add_param("Owner", "Lookup", "In", "Owner", ref_schema="Contact")
+        assert p["L9"] == STOCK_ENTITIES["Contact"] and p["L16"] == "Contact"
+        assert list(p).index("L9") == list(p).index("L8") + 1  # the platform's key order
+        by_uid = task.add_param("Company", "Lookup", "In", "Company", ref_schema=STOCK_ENTITIES["Account"].upper())
+        assert by_uid["L16"] == "Account" and by_uid["L9"] == STOCK_ENTITIES["Account"]
+        try:
+            task.add_param("Other", "Lookup", ref_schema="UsrNowhere")
+            raise AssertionError("must be refused")
+        except KeyError as err:
+            assert "--env" in str(err)
+        task.save()
+        text = UserTaskSchema(tmp / "UsrPkg", "UsrRunCase_UserTask").describe()
+        assert f"-> Contact ({STOCK_ENTITIES['Contact']})" in text, text
+    finally:
+        shutil.rmtree(tmp.parent, ignore_errors=True)
+
+
 def test_cli():
     out = io.StringIO()
     with contextlib.redirect_stdout(out):

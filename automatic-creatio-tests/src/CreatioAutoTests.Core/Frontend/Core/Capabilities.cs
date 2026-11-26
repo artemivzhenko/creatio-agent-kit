@@ -200,6 +200,30 @@ public interface IRowed : IUiElement
     Task DeleteRowAsync(IReadOnlyList<Execution.RecordAssignment> cells, CancellationToken cancellationToken = default);
 }
 
+/// <summary>One rendered row of a grid: the text of the cell asked for and the row's CSS classes.</summary>
+/// <param name="Text">Text of the first non-empty cell, or of the named column's cell.</param>
+/// <param name="Classes">The <c>class</c> list of the row element.</param>
+public sealed record GridRowSnapshot(string Text, IReadOnlyList<string> Classes);
+
+/// <summary>
+/// The element renders rows in an order a test can assert, with the classes of each row.
+/// Used by <c>check X rows are ...</c>, <c>row N is ...</c>, <c>row N has [not] class ...</c> and <c>active row is N</c>.
+/// </summary>
+public interface IGridRowsReadable : IUiElement
+{
+    /// <summary>Reads the rows in display order, in one call.</summary>
+    /// <param name="column">Caption of the column whose cell is the row's text, or null for the first non-empty cell.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<IReadOnlyList<GridRowSnapshot>> ReadGridRowsAsync(string? column, CancellationToken cancellationToken = default);
+}
+
+/// <summary>The element has a place in the page's DOM that can be compared with another element's. Used by <c>check A is before B</c>.</summary>
+public interface IPositioned : IUiElement
+{
+    /// <summary>Whether this element comes before <paramref name="other"/> in document order (false when either is absent).</summary>
+    Task<bool> IsBeforeAsync(IUiElement other, CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// The element can gain a new record from inside the page, without navigating away.
 ///

@@ -94,6 +94,6 @@ GUID is - `resolve_uid`, which lookup holds a status - `list_lookups`; the rows 
 `lookup_values`; records of an object with their lookups named - `sample_records`, its columns - `describe_table`;
 text inside schemas - `find_text`; a column's writers - `who_sets`. SQL is for what no tool answers.
 
-No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it. A gap that is not
-recorded does not become a tool. A tool a subagent reports as missing or wrong is your gap line too if it is not in
+No tool answers? Call `report_gap(kind, need, instead, script=, text=, task=)` before you go around it. A gap that is not
+recorded does not become a tool. A script written for the task is saved under `<task folder>/scripts/<name>` (never a scratchpad) and `report_gap` gets its path; a one-line query or command with no file goes as `text=`. A tool a subagent reports as missing or wrong is your gap line too if it is not in
 `gaps.jsonl` already.

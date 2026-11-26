@@ -452,7 +452,7 @@ def test_report_gap_records_the_line_and_keeps_the_script():
             assert second.endswith(f"line 2; script kept as {folder / 'gaps' / 'scripts' / (today + '-2-probe.sql')}"), second
             third = server.report_gap("by-hand", "the caption of a status", "read it in the designer", str(kept))
             assert third.endswith(f"line 3; script kept as {kept}") and len(list((folder / "gaps" / "scripts").iterdir())) == 2, third
-            assert server.report_gap("missing", "a value", "typed it").endswith("line 4"), "no script is fine"
+            assert server.report_gap("missing", "a value", "typed it").endswith("line 4; no script, no text: the workaround is lost"), "no script is fine, with a warning"
             # refusals write nothing
             before = (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8")
             assert server.report_gap("other", "x", "y") == "refused: kind must be one of missing, misbehaved, by-hand"
@@ -471,6 +471,32 @@ def test_report_gap_records_the_line_and_keeps_the_script():
             last = server.tool_stats(1).splitlines()[-2]  # the gaps line; the errors line follows it
             assert last.startswith("gaps: 4 (missing 2, misbehaved 1, by-hand 1); last: ") and last.endswith(" missing a value"), last
             assert tool_stats.summarise([], []) == "(no tool calls logged)\ngaps: 0"
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_report_gap_keeps_a_typed_text_as_a_script_file():
+    import json
+    folder = Path(tempfile.mkdtemp())
+    try:
+        with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder / "stats"), "CREATIO_KB_GAPS_DIR": str(folder / "gaps")}):
+            first = server.report_gap("missing", "a count", "typed a query", text="select count(*) from \"Contact\"", task="013-x")
+            second = server.report_gap("by-hand", "a count", "typed again", text="select 2")
+            scripts = folder / "gaps" / "scripts"
+            names = sorted(p.name for p in scripts.iterdir())
+            assert len(names) == 2 and names[0].endswith("-1.txt") and names[1].endswith("-2.txt"), names
+            assert first.endswith(f"line 1; script kept as {scripts / names[0]}") and second.endswith(f"line 2; script kept as {scripts / names[1]}"), (first, second)
+            assert (scripts / names[0]).read_text(encoding="utf-8") == 'select count(*) from "Contact"\n'
+            lines = [json.loads(x) for x in (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8").splitlines()]
+            assert lines[0]["script"] == str(scripts / names[0]) and lines[0]["task"] == "013-x"
+            # a refused call leaves no file; a secret in the text is refused; a script wins over the text
+            assert server.report_gap("other", "x", "y", text="select 1").startswith("refused:")
+            assert server.report_gap("missing", "x", "y", text="login with password=abc").startswith("refused: the log is read")
+            assert sorted(p.name for p in scripts.iterdir()) == names
+            own = folder / "own.sql"
+            own.write_text("select 3", encoding="utf-8")
+            server.report_gap("missing", "x", "y", script=str(own), text="select 4")
+            assert len(list(scripts.iterdir())) == 3 and not any("select 4" in p.read_text(encoding="utf-8") for p in scripts.iterdir())
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 

@@ -7,7 +7,8 @@
     python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf
     python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf --field content '{"kind": "invoice"}'
 
-`0/` is added on .NET Framework and dropped on .NET Core for odata/, ServiceModel/, rest/, DataService/.
+A GET of `conf/content/<Schema>.js` is a served file, not JSON: it goes with `Accept: */*` (the JSON accept gets a 406) and `0/`.
+`0/` is added on .NET Framework and dropped on .NET Core for odata/, ServiceModel/, rest/, DataService/, conf/.
 `--upload <path>` sends the file as multipart form data (part `file`, the file's name kept); with `--field <name>` it goes
 as base64 in that field of the JSON body instead (the body argument, if any, supplies the other fields).
 Exit 1 on a non-2xx answer; 2 on a usage error.
@@ -56,13 +57,16 @@ def main(argv=None, **env_kw) -> int:
         env = open_environment(a.env, a.project, **env_kw)
         path, _, query = a.path.partition("?")
         params = dict(urllib.parse.parse_qsl(query, keep_blank_values=True)) or None
-        r = env.request(a.method, path, body if a.method != "GET" else None, params, content_type)
+        if a.method == "GET" and path.lstrip("/").startswith(("conf/", "0/conf/")):  # a served file: `0/` and `Accept: */*` (the JSON accept gets a 406)
+            r = env.fetch(path)
+        else:
+            r = env.request(a.method, path, body if a.method != "GET" else None, params, content_type)
     except (ValueError, KeyError, FileNotFoundError, RuntimeError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2
     print(f"status: {r.status}")
     if r.error:
-        print(f"error: {r.error}")
+        print(f"error: {r.error}" + (" (the site refuses this Accept header; GET of conf/ sends `*/*`)" if r.status == 406 else ""))
         return 1
     data = r.json()
     print(json.dumps(data, ensure_ascii=False, indent=2) if data is not None else (r.text or "(empty body)"))

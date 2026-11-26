@@ -6,10 +6,16 @@
     python classicui.py methods  <package> <Schema>
     python classicui.py method   <package> <Schema> <name>
     python classicui.py diff     <package> <Schema> [--op insert] [--parent Header]
+    python classicui.py layout   <package> <Schema> [--container Header] [-e env]
+    python classicui.py rules    <package> <Schema> [--rule <UId>] [-e env]
+    python classicui.py diff add <package> <Schema> --op insert|merge|remove|move --name X [--parent Header] [--bind-to X]
+                                 [--row 1 --col 0 --col-span 12] [--index N] [--values key=value ..]   [--dry-run]
 
-    python classicui.py replace     <package> <Schema> [--parent-uid U] [--entity Contact] [--caption ..] [--cultures en-US,ru-RU]
+    python classicui.py new         <package> <Schema> --parent BaseGridDetailV2|BasePageV2|<Name> [--entity UsrOrder] [--caption ..] [-e env]
+
+    python classicui.py replace     <package> <Schema> [--parent-uid U | -e env] [--entity Contact] [--caption ..] [--cultures en-US,ru-RU]
     python classicui.py adopt       <package> <Schema> --from <pulled package or schema folder>
-    python classicui.py add-string  <package> <Schema> <Key> en-US="Text" [ru-RU="..."]          [--dry-run]
+    python classicui.py add-string  <package> <Schema> <Key> en-US="Text" [ru-RU="..."] [-e env] [--dry-run]
     python classicui.py set-rule    <package> <Schema> <RuleUId> [--enabled false] [--removed true] [--column Owner]
     python classicui.py add-mixin   <package> <Schema> <Name> [--class Terrasoft.<Name>] [--module <Name>]
     python classicui.py add-method  <package> <Schema> <name> --file method.js [--replace]
@@ -22,21 +28,31 @@ parentNames and handler methods this file cannot prove (they usually come from t
 Freedom UI pages are read by ../pages.
 """
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from creatio_schemas.classicui import ClassicSchema  # noqa: E402
+from creatio_schemas.classicui.write import DIFF_OPS  # noqa: E402
 from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
+from creatio_schemas.environment import open_environment  # noqa: E402
+from creatio_schemas import jscheck  # noqa: E402
 from creatio_schemas.files import read_text  # noqa: E402
 
-CREATE = {"replace", "adopt"}
+CREATE = {"replace", "adopt", "new"}
+OVER_LAYERS = {"layout", "rules"}  # read every copy in the workspace (and the site's): the package names the workspace only
+
+
+def env_of(a):
+    return open_environment(a.env) if a.env else None
 
 
 def validate(s, a):
     problems = s.validate()
     print("\n".join(problems) if problems else "ok")
+    print("\n".join(jscheck.lines(s.body_path)))
     return 1 if s.errors() else 0
 
 
@@ -54,6 +70,30 @@ def diff(s, a):
         print(f"{op['operation'] or '?':<7} {op['name'] or '(no name)'}{where}{index}  line {op['line']}  values: {', '.join(op['values']) or '-'}")
 
 
+def layout(_, a):
+    from creatio_schemas.classicui.layout import layout_lines
+    print("\n".join(layout_lines(Path(a.package), a.schema, a.container, env_of(a))))
+
+
+def rules(_, a):
+    from creatio_schemas.classicui.layout import rule_lines
+    print("\n".join(rule_lines(Path(a.package), a.schema, env_of(a), a.rule)))
+
+
+def diff_add(s, a):
+    values = {}
+    for k, v in parse_assignments(a.values or []).items():
+        try:
+            values[k] = json.loads(v)
+        except ValueError:
+            values[k] = v  # plain text
+    if a.bind_to:
+        values["bindTo"] = a.bind_to
+    if a.row is not None or a.col is not None:
+        values["layout"] = {"colSpan": a.col_span, "rowSpan": a.row_span, "column": a.col or 0, "row": a.row or 0}
+    print(s.add_diff(a.op, a.name, a.parent, a.property, a.index, values))
+
+
 def files_of(s) -> None:
     for path in sorted(s.files()):
         print(f"  {path.relative_to(s.package).as_posix()}")
@@ -61,8 +101,15 @@ def files_of(s) -> None:
 
 def replace(_, a):
     s = ClassicSchema.create_replacing(Path(a.package), a.schema, a.cultures.split(",") if a.cultures else None, a.parent_uid,
-                                       a.caption, a.entity or "", a.version)
+                                       a.caption, a.entity or "", a.version, env_of(a))
     print(f"created {s.name} replacing {s.parent} ({s.descriptor.data['Parent']['UId']}):")
+    files_of(s)
+
+
+def new(_, a):
+    s = ClassicSchema.create_new(Path(a.package), a.schema, a.parent, a.entity or "", a.caption, a.cultures.split(",") if a.cultures else None,
+                                 a.parent_uid, env_of(a), a.version)
+    print(f"created {s.name} ({s.kind}) with parent {s.parent} ({s.descriptor.data['Parent']['UId']}):")
     files_of(s)
 
 
@@ -78,7 +125,7 @@ def add_string(s, a):
     values = parse_assignments(a.values) if all("=" in v for v in a.values) else None
     if not values:
         raise ValueError("expected culture=value, e.g. en-US=\"Print\"")
-    s.add_string(a.key, values)
+    print(s.add_string(a.key, values, env_of(a)))
 
 
 def flag(text: str | None) -> bool | None:
@@ -104,18 +151,47 @@ def build() -> CommandLine:
     p = c.command("diff", diff, "one line per diff operation")
     p.add_argument("--op", choices=["insert", "merge", "remove", "move"])
     p.add_argument("--parent", help="only operations under this parentName")
+    p = c.command("layout", layout, "a container's grid over every layer (site copies with -e): the element in each cell, free cells")
+    p.add_argument("--container", default="Header")
+    p.add_argument("-e", "--env", help="clio environment: the site's copies too, each body read from the site")
+    p = c.command("rules", rules, "every business rule over the layers: column, UId, kind, state, conditions, filter, layers")
+    p.add_argument("--rule", help="one rule by its UId or key")
+    p.add_argument("-e", "--env", help="clio environment: the site's copies too, each body read from the site")
+    p = c.command("diff-add", diff_add, "`diff add`: append an operation to diff (CRLF, BOM and indent kept); prints it", writes=True)
+    p.add_argument("--op", required=True, choices=DIFF_OPS)
+    p.add_argument("--name", required=True)
+    p.add_argument("--parent", help="parentName (insert, move, merge)")
+    p.add_argument("--property", default="items", help="propertyName (default items)")
+    p.add_argument("--bind-to")
+    p.add_argument("--row", type=int)
+    p.add_argument("--col", type=int)
+    p.add_argument("--col-span", type=int, default=12)
+    p.add_argument("--row-span", type=int, default=1)
+    p.add_argument("--index", type=int)
+    p.add_argument("--values", nargs="*", metavar="key=value", help="more values; a JSON value is parsed (false, 3, {...}), else text")
+
+    p = c.command("new", new, "a new client schema with a parent: descriptor, diff metadata, properties, empty body, resources")
+    p.add_argument("--parent", required=True, help="BaseGridDetailV2, BasePageV2, BaseModulePageV2 or any client schema")
+    p.add_argument("--parent-uid", help="the parent's UId when neither the workspace nor the built-in list has it")
+    p.add_argument("-e", "--env", help="clio environment: the parent's UId from its SysSchema row")
+    p.add_argument("--entity", help="entitySchemaName of the body")
+    p.add_argument("--caption")
+    p.add_argument("--cultures", help="comma-separated; default the package's")
+    p.add_argument("--version", default="8.2.3.1351")
 
     p = c.command("replace", replace, "a replacing schema of a client schema: descriptor, diff metadata, empty body, resources")
     p.add_argument("--parent-uid", help="the parent's UId when the workspace does not hold it")
+    p.add_argument("-e", "--env", help="clio environment: the parent's UId from its SysSchema row")
     p.add_argument("--entity", help="entitySchemaName of the new body (default: the parent's)")
     p.add_argument("--caption")
     p.add_argument("--cultures", help="comma-separated; default the package's")
     p.add_argument("--version", default="8.2.3.1351")
     p = c.command("adopt", adopt, "move a client schema pulled from another package into this one (new UId, A5, B6)")
     p.add_argument("--from", dest="source", required=True, help="the pulled package folder or the schema folder")
-    p = c.command("add-string", add_string, "a localizable string: B2 metadata + resources", writes=True)
+    p = c.command("add-string", add_string, "a localizable string: B2 metadata + resources; a key of the parent chain is overridden", writes=True)
     p.add_argument("key")
     p.add_argument("values", nargs="+", metavar="culture=value")
+    p.add_argument("-e", "--env", help="clio environment: look for the key in the parent chain's SysSchema.MetaData too")
     p = c.command("set-rule", lambda s, a: s.set_rule(a.uid, flag(a.enabled), flag(a.removed), a.column),
                   "override a business rule by UId in businessRules (enabled / removed)", writes=True)
     p.add_argument("uid")
@@ -138,8 +214,11 @@ def build() -> CommandLine:
 
 
 def main(argv=None) -> int:
-    return build().run(sys.argv[1:] if argv is None else argv,
-                       lambda a: None if a.command in CREATE else ClassicSchema(Path(a.package), a.schema))
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:2] == ["diff", "add"]:
+        argv = ["diff-add", *argv[2:]]
+    return build().run(argv,
+                       lambda a: None if a.command in CREATE | OVER_LAYERS else ClassicSchema(Path(a.package), a.schema))
 
 
 if __name__ == "__main__":

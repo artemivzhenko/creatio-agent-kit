@@ -11,7 +11,7 @@ import json
 import re
 from pathlib import Path
 
-from ..files import DATA_VALUE_TYPES, dump_json, new_uid, read_text, write_text
+from ..files import DATA_VALUE_TYPES, dump_json, is_uid, new_uid, read_text, write_text
 from ..process.catalog import DIRECTION, new_param
 from ..resources import Resources
 from ..schema import WARNING, Descriptor, Schema
@@ -263,7 +263,7 @@ class UserTaskSchema(Schema):
         t = DATA_VALUE_TYPES.get(p.get("L1"), p.get("L1"))
         d = DIRECTION.get(p.get("L12", 0))
         return (f"{p['A2']:<28} {t:<12} {d:<9}" + (" required" if p.get("L6") else "         ")
-                + (f" -> {p['L16']}" if p.get("L16") else "") + f"  caption={self.resources.get(f'Parameters.{p['A2']}.Caption')!r}")
+                + (f" -> {p.get('L16') or '?'} ({p.get('L9') or 'no L9'})" if p.get("L16") or p.get("L9") else "") + f"  caption={self.resources.get(f'Parameters.{p['A2']}.Caption')!r}")
 
     def describe(self) -> str:
         r = self.resources
@@ -303,10 +303,19 @@ class UserTaskSchema(Schema):
     # ======================================================================= #
 
     def add_param(self, name: str, type_name: str, direction: str = "In", caption: str = "", required: bool = False,
-                  ref_schema: str | None = None, cultures: list[str] | None = None) -> dict:
+                  ref_schema: str | None = None, cultures: list[str] | None = None, env: str | None = None) -> dict:
         if any(p["A2"].lower() == name.lower() for p in self.params):
             raise ValueError(f"parameter {name} exists")
         p = new_param(self.uid, self.package_uid, name, type_name, direction, None, ref_schema)
+        if "L16" in p:  # D80: the platform writes ReferenceSchemaUId (L9, after L8) next to the name (L16)
+            from ..entity.schema import STOCK_ENTITIES, entity_uid
+            uid = entity_uid(self.workspace, ref_schema, env)
+            ref_name = ref_schema if not is_uid(ref_schema) else (
+                self.workspace.name_of(uid) or next((n for n, u in STOCK_ENTITIES.items() if u == uid), None))
+            if not ref_name:
+                raise ValueError(f"no object with UId {ref_schema} in the workspace or the stock catalogue; give its name")
+            p = {k2: v2 for k, v in p.items() for k2, v2 in ([(k, v), ("L9", uid)] if k == "L8" else [(k, v)])}
+            p["L16"] = ref_name
         if required:
             p["L6"] = True
         p["L11"] = False

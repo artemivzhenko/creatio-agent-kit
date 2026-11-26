@@ -70,11 +70,11 @@ package or in Custom, or a push whose changes are not visible - `schema_layers`;
 `resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
 records of an object with their lookups named - `sample_records`, its columns - `describe_table`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
-the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`.
+the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`. One record written or changed from a tool is `env_call POST|PATCH|DELETE odata/<Object>` (`env/call.py` on the CLI); `env_odata` reads; a table with no object is read with `env_sql`; a backend case's `seed` line (dev-only) writes a fixture row, `make_fixture` gives its shape.
 
-No tool answers? Call `report_gap(kind, need, instead, script=, task=)` before you go around it: `missing` before
+No tool answers? Call `report_gap(kind, need, instead, script=, text=, task=)` before you go around it: `missing` before
 your own script or query, `by-hand` after a value found by trial, `misbehaved` after a tool you worked around. Pass
-the script's path (the kit keeps a copy; never delete it). No password or token in the text. A gap that is not
+the script's path (the kit keeps a copy; never delete it). A script written for the task is saved under `<task folder>/scripts/<name>` (never a scratchpad) and `report_gap` gets its path; a one-line query or command with no file goes as `text=`. No password or token in the text. A gap that is not
 recorded does not become a tool.
 
 clio's `core-rules` guide (its server asks you to read it) assumes an interactive DB-first session. In the loop the

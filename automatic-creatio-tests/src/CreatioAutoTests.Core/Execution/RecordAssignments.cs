@@ -3,7 +3,8 @@ namespace CreatioAutoTests.Execution;
 /// <summary>One column of a new record and the value to put in it.</summary>
 /// <param name="Column">Column caption as it is rendered in the grid header.</param>
 /// <param name="Value">Text to enter, in the same form the matching field type accepts.</param>
-public readonly record struct RecordAssignment(string Column, string Value)
+/// <param name="Quoted">The value was written in double quotes: it is text whatever it looks like (<c>"0008640"</c>, <c>"null"</c>).</param>
+public readonly record struct RecordAssignment(string Column, string Value, bool Quoted = false)
 {
     /// <summary>Formats the pair the way it is written in a script.</summary>
     public override string ToString() => Column + "=" + Value;
@@ -51,17 +52,19 @@ public static class RecordAssignments
         var result = new List<RecordAssignment>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var pair in text.Split(PairSeparator, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        foreach (var pair in SplitOutsideQuotes(text, PairSeparator).Select(p => p.Trim()).Where(p => p.Length > 0))
         {
-            var separator = pair.IndexOf(ValueSeparator);
-            if (separator < 0)
+            var halves = SplitOutsideQuotes(pair, ValueSeparator, 2);
+            if (halves.Count < 2)
             {
                 error = "'" + pair + "' is not a 'Column=Value' pair";
                 return false;
             }
 
-            var column = pair[..separator].Trim();
-            var value = pair[(separator + 1)..].Trim();
+            var column = halves[0].Replace("\"", string.Empty).Trim();
+            var written = halves[1].Trim();
+            var quoted = written.Contains('"');
+            var value = written.Replace("\"", string.Empty);
 
             if (column.Length == 0)
             {
@@ -75,7 +78,7 @@ public static class RecordAssignments
                 return false;
             }
 
-            result.Add(new RecordAssignment(column, value));
+            result.Add(new RecordAssignment(column, value, quoted));
         }
 
         if (result.Count == 0)
@@ -99,4 +102,30 @@ public static class RecordAssignments
     /// <param name="tokens">Every token after the 'set' keyword.</param>
     public static string Rejoin(IEnumerable<CommandToken> tokens) =>
         string.Join(' ', tokens.Select(t => t.Value));
+
+    /// <summary>
+    /// Rebuilds the list with the quotes as written, so <see cref="TryParse"/> can tell a quoted value (text) from a bare one
+    /// and a <c>;</c> or <c>=</c> inside quotes does not split. A quote may open mid-token: <c>UsrNumber="";UsrProject=$P</c>.
+    /// </summary>
+    public static string RejoinRaw(IEnumerable<CommandToken> tokens) =>
+        string.Join(' ', tokens.Select(t => t.Raw ?? t.ToString()));
+
+    private static List<string> SplitOutsideQuotes(string text, char separator, int max = int.MaxValue)
+    {
+        var parts = new List<string>();
+        var start = 0;
+        var inQuotes = false;
+        for (var i = 0; i < text.Length && parts.Count < max - 1; i++)
+        {
+            inQuotes ^= text[i] == '"';
+            if (text[i] == separator && !inQuotes)
+            {
+                parts.Add(text[start..i]);
+                start = i + 1;
+            }
+        }
+
+        parts.Add(text[start..]);
+        return parts;
+    }
 }

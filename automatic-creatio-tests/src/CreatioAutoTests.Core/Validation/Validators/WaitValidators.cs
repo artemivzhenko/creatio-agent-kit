@@ -24,6 +24,31 @@ public sealed class WaitCountValidator : ICommandValidator
         WaitShapes.Validate(command, context, "check-count", new CountCheckValidator());
 }
 
+/// <summary>
+/// Shape of 'wait-process-task' (S48-T11): the 'open process-task' line with an optional budget.
+///   wait-process-task UsrOrder_Process on UsrOrderTaskPage [within 30 second]
+/// </summary>
+public sealed class WaitProcessTaskValidator : ICommandValidator
+{
+    /// <summary>Process, 'on', a configured page, then an optional budget; moves the virtual page to that page.</summary>
+    public ValidationResult Validate(ParsedCommand command, ValidationContext context)
+    {
+        var line = command;
+        if (command.ArgumentCount > 3)
+        {
+            if (!WaitShapes.TrySplit(command, command.Keyword, out line, out _, out var error))
+            {
+                return ValidationResult.Fail(error);
+            }
+        }
+
+        var open = line with { Keyword = "open", Arguments = new[] { new CommandToken("process-task", false) }.Concat(line.Arguments).ToArray() };
+        var result = new PageValidator().Validate(open, context);
+        return result.IsValid ? result : ValidationResult.Fail(result.Error!.Replace("'open process-task' takes", "'wait-process-task' takes")
+            .Replace("'open process-task <process> on <page>'", "'wait-process-task <process> on <page> [within <n> second|minute]'"));
+    }
+}
+
 /// <summary>Splitting a wait line into the check it repeats and the time it may take.</summary>
 public static class WaitShapes
 {

@@ -85,6 +85,22 @@ public sealed class ClassicUiRuntime : IPageRuntime
             await browserPage.WaitForTimeoutAsync(PollMs).ConfigureAwait(false);
         }
 
+        if (RedirectedToFreedom(browserPage.Url) is { } card)
+        {
+            throw new Execution.CommandFailedException("the Shell opened the Freedom UI page " + card + " instead of the Classic page " + schema +
+                ": the section has a Freedom UI page, so no Classic control is on screen. Describe and test that page instead.");
+        }
+
         logger.LogWarning("Classic page was still rendering after {Timeout} ms; continuing anyway.", MaxRenderWaitMs);
+    }
+
+    /// <summary>
+    /// The Freedom UI card the Shell went to instead of a Classic one, or null. On 8.3.2 <c>#CardModuleV2/&lt;Page&gt;</c> of an object whose
+    /// section has a Freedom UI page lands on <c>#Card/&lt;Freedom page&gt;/...</c> (OrderPageV2, ProductPageV2, KnowledgeBasePageV2; S48-T11, D77).
+    /// </summary>
+    internal static string? RedirectedToFreedom(string url)
+    {
+        var at = url.IndexOf("#Card/", StringComparison.Ordinal);
+        return at < 0 ? null : url[(at + 1)..];
     }
 }

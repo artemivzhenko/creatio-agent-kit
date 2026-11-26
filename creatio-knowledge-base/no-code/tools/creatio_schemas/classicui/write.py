@@ -29,6 +29,18 @@ MESSAGE_DIRECTIONS = ("SUBSCRIBE", "PUBLISH", "BIDIRECTIONAL")
 _EMPTY = {"businessRules": "/**SCHEMA_BUSINESS_RULES*/{}/**SCHEMA_BUSINESS_RULES*/", "details": "/**SCHEMA_DETAILS*/{}/**SCHEMA_DETAILS*/",
           "diff": "/**SCHEMA_DIFF*/[]/**SCHEMA_DIFF*/"}
 _QUOTED = {"businessRules", "messages", "details", "attributes"}  # sections whose member names the designer quotes
+DIFF_OPS = ("insert", "merge", "remove", "move")
+# UIds of the platform's base client schemas: the same row on every site (SysSchema, ExtendParent false; read on 8.3.2)
+PLATFORM_PARENTS = {"BaseGridDetailV2": "01eb38ee-668a-42f0-999d-c2534f979089", "BasePageV2": "d3cc497c-f286-4f13-99c1-751c468733c0",
+                    "BaseModulePageV2": "d62293c0-7f14-44b1-b547-735fb40499cd"}
+_TYPES = ((("DetailV2", "Detail"), "GridDetailViewModelSchema"), (("SectionV2", "Section"), "ModuleViewModelSchema"),
+          (("PageV2", "Page"), "EditViewModelSchema"))
+# the B2 item of a string named {key} in the parent chain on the site (a replacing copy of a parent included)
+_PARENT_STRING_SQL = """with recursive c as (
+  select s."Id", s."ParentId" from "SysSchema" s where s."UId" = {uid} and s."ExtendParent" = false
+  union all select p."Id", p."ParentId" from "SysSchema" p join c on p."Id" = c."ParentId")
+select s."Name"::text "name", substring(convert_from(s."MetaData", 'UTF8') from {pattern}) "uid"
+from c join "SysSchema" s on s."Id" = c."Id" or (s."ParentId" = c."Id" and s."ExtendParent")"""
 
 REPLACING_BODY = """define("@NAME@", [], function() {
 \treturn {
@@ -89,6 +101,34 @@ def _name_ok(name: str) -> None:
 def _sql_hint(name: str) -> str:
     return (f"python env/sql.py -e <env> \"select \\\"UId\\\" from \\\"SysSchema\\\" where \\\"Name\\\" = '{name}' "
             f"and \\\"ExtendParent\\\" = false\"")
+
+
+def _parent_uid(package: Path, parent: str, parent_uid: str | None = None, env=None) -> str:
+    """The parent's UId: given, a workspace copy in another package, the platform's base schemas, else the site's row."""
+    if parent_uid:
+        return parent_uid
+    own = [s for s in Workspace(package).find(parent, MANAGER) if s["dir"].parent.parent != Path(package)]
+    if own:
+        return own[0]["base"]
+    if parent in PLATFORM_PARENTS:
+        return PLATFORM_PARENTS[parent]
+    if env is None:
+        raise ValueError(f"{parent} is not in the workspace: pass its UId (parent_uid / --parent-uid) or --env; {_sql_hint(parent)}")
+    from ..records import quote
+    rows = env.sql(f'select "UId"::text "uid" from "SysSchema" where "Name" = {quote(parent)} and "ExtendParent" = false '
+                   f'and "ManagerName" = {quote(MANAGER)}')
+    if not rows:
+        raise ValueError(f"{parent} is not a client schema on the site")
+    return rows[0]["uid"]
+
+
+def _insert_b2_line(diff: SchemaDiff, line: list) -> None:
+    """Before the `~ B2` order line when there is one, else after the UId/A2/A5/B2 lines (the designer's place)."""
+    at = next((i for i, ln in enumerate(diff.lines) if ln[0] == "~" and ln[1] == "MetaData.Schema.B2"), None)
+    if at is None:
+        tops = [i for i, ln in enumerate(diff.lines) if ln[1].split(".")[2] in ("UId", "A2", "A5", "B2")]
+        at = tops[-1] + 1 if tops else 0
+    diff.lines.insert(at, line)
 
 
 class ClassicWriter:
@@ -240,6 +280,45 @@ class ClassicWriter:
         self._set_member(self._section("messages"), name, self._block([f"mode: Terrasoft.MessageMode.{mode}",
                                                                        f"direction: Terrasoft.MessageDirectionType.{direction}"]), quoted=True)
 
+    def add_diff(self, op: str, name: str, parent: str | None = None, prop: str = "items", index: int | None = None,
+                 values: dict | None = None) -> str:
+        """Append an operation to `diff` in the designer's key order (operation, name, values, parentName, propertyName,
+        index); a `layout` value gets `layoutName` = parent. Returns the item as written."""
+        if op not in DIFF_OPS:
+            raise ValueError(f"op is one of {DIFF_OPS}")
+        if not re.fullmatch(r"[A-Za-z_$][\w$]*", name):
+            raise ValueError(f"{name!r} is not a valid element name")
+        if op in ("insert", "move") and not parent:
+            raise ValueError(f"{op} needs a parent (--parent Header)")
+        if op == "remove" and (parent or values or index is not None):
+            raise ValueError("remove takes only the name")
+        if op == "insert" and any(o["operation"] == "insert" and o["name"] == name for o in self.diff_operations()):
+            raise ValueError(f"{name} is inserted in {self.name} already: merge or move it")
+        item: dict = {"operation": op, "name": name}
+        values = dict(values or {})
+        if isinstance(values.get("layout"), dict) and parent:
+            values["layout"].setdefault("layoutName", parent)
+        if values or op == "insert":
+            item["values"] = values
+        if parent:
+            item.update(parentName=parent, propertyName=prop)
+        if index is not None:
+            item["index"] = index
+        text = json.dumps(item, indent=self._unit, ensure_ascii=False)
+        at = self._section("diff")
+        if self.masked[at] != "[":
+            raise ValueError(f"{self.name}: diff is not an array")
+        ops = self.diff_operations()
+        if ops:
+            last = ops[-1]
+            end, indent = last["at"] + len(last["source"]), self._indent_at(last["at"])
+            self._splice(end, end, f",{self._nl}{indent}{self._reindent(text, indent)}")
+        else:
+            close, outer = _pairs_close(self.masked, at) - 1, self._indent_at(at)
+            indent = outer + self._unit
+            self._splice(at + 1, close, f"{self._nl}{indent}{self._reindent(text, indent)}{self._nl}{outer}")
+        return text
+
     # -- metadata and resources -------------------------------------------------------- #
 
     def _diff(self) -> SchemaDiff:
@@ -247,33 +326,60 @@ class ClassicWriter:
             raise ValueError(f"{self.name}: metadata is not in the diff form; strings of a full-form schema are not written here")
         return SchemaDiff(self.metadata_text, CRLF)
 
-    def add_string(self, key: str, values: dict[str, str]) -> None:
-        """A localizable string: the B2 item in the diff metadata (once) and `LocalizableStrings.<key>.Value` per culture."""
+    def _parent_string(self, key: str, env=None) -> tuple[str, str] | None:
+        """(UId, where) of the string `key` in the parent chain: the workspace copies first, then the site's SysSchema.MetaData."""
+        item = re.compile(r'\{[^{}]*"A2"\s*:\s*' + re.escape(json.dumps(key)) + r'\s*[,}][^{}]*')
+        for anc in self._ancestors():
+            for m in item.finditer(anc.metadata_text):
+                uid = re.search(r'"UId"\s*:\s*"([0-9a-fA-F-]{36})"', m.group(0))
+                if uid:
+                    return uid.group(1), f"{anc.package.name}/{anc.name}"
+        parent_uid = (self.descriptor.data.get("Parent") or {}).get("UId")
+        if env is None or not parent_uid:
+            return None
+        from ..records import quote
+        pattern = quote(r'"UId"\s*:\s*"([0-9a-fA-F-]{36})"\s*,\s*"A2"\s*:\s*' + json.dumps(key) + r'\s*[,}]')
+        hit = next((r for r in env.sql(_PARENT_STRING_SQL.format(uid=quote(parent_uid), pattern=pattern)) if r.get("uid")), None)
+        return (hit["uid"], f"{hit['name']} on the site") if hit else None
+
+    def add_string(self, key: str, values: dict[str, str], env=None) -> str:
+        """A localizable string: the B2 item in the diff metadata (once) and `LocalizableStrings.<key>.Value` per culture. A key
+        the parent chain has (workspace copies, else `env`'s SysSchema.MetaData) is overridden: `= B2.["<its UId>"].A4 / .A5`."""
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
             raise ValueError(f"{key!r} is not a valid string name")
         if not values:
             raise ValueError("add_string needs at least one culture=value")
         diff = self._diff()
-        if not any(i.get("A2") == key for i in diff.added_items("MetaData.Schema.B2")):
-            uid = self.descriptor.data["UId"]
-            a5 = diff.value("MetaData.Schema.A5") or Package(self.package).created_in_uid()
+        uid = self.descriptor.data["UId"]
+        a5 = diff.value("MetaData.Schema.A5") or Package(self.package).created_in_uid()
+        if any(i.get("A2") == key for i in diff.added_items("MetaData.Schema.B2")):
+            said = f"{key}: a string of {self.name} already"
+        elif (inherited := self._parent_string(key, env)):
+            path = f'MetaData.Schema.B2.["{inherited[0]}"]'
+            for k, v in (("A4", uid), ("A5", a5)):
+                if not diff.find(f"{path}.{k}"):
+                    _insert_b2_line(diff, ["=", f"{path}.{k}", None, v])
+            said = f"{key}: overrides the string {inherited[0]} of {inherited[1]} (= {path}.A4 / .A5)"
+        else:
             item = {"UId": new_uid(), "A2": key, "A3": uid, "A4": uid, "A5": a5}
             if diff.find("MetaData.Schema.B2", "~"):
                 diff.add_item("MetaData.Schema.B2", item)
             else:
-                tops = [i for i, ln in enumerate(diff.lines) if ln[1].split(".")[2] in ("UId", "A2", "A5", "B2")]
-                diff.lines.insert(tops[-1] + 1 if tops else 0, ["+", "MetaData.Schema.B2", None, item])
+                _insert_b2_line(diff, ["+", "MetaData.Schema.B2", None, item])
+            said = f"{key}: a new string of {self.name} (+ MetaData.Schema.B2 {item['UId']})"
+        if not said.endswith("already"):
             self.metadata_text = diff.render()
         for culture, value in values.items():
             self.resources.set(f"LocalizableStrings.{key}.Value", value, [culture])
+        return said
 
     # -- new schemas ------------------------------------------------------------------- #
 
     @classmethod
     def create_replacing(cls, package: Path, parent_name: str, cultures: list[str] | None = None, parent_uid: str | None = None,
-                         caption: str | None = None, entity: str = "", version: str = "8.2.3.1351"):
+                         caption: str | None = None, entity: str = "", version: str = "8.2.3.1351", env=None):
         """A replacing schema of `parent_name` in `package`: descriptor (Parent, ExtendParent), the diff metadata, the
-        designer's empty replacing body, resources with the caption."""
+        designer's empty replacing body, resources with the caption. The parent's UId: see _parent_uid."""
         _name_ok(parent_name)
         package = Path(package)
         sdir = package / "Schemas" / parent_name
@@ -281,10 +387,7 @@ class ClassicWriter:
             raise FileExistsError(f"{sdir} exists")
         ws = Workspace(package)
         own = [s for s in ws.find(parent_name, MANAGER) if s["dir"].parent.parent != package]
-        if not parent_uid:
-            if not own:
-                raise ValueError(f"{parent_name} is not in the workspace: pass its UId (parent_uid / --parent-uid); {_sql_hint(parent_name)}")
-            parent_uid = own[0]["base"]
+        parent_uid = _parent_uid(package, parent_name, parent_uid, env)
         caption = caption or (own[0]["caption"] if own else parent_name)
         pkg, uid = Package(package), new_uid()
         meta = CRLF.join([f'= MetaData.Schema.UId "{uid}"', f'= MetaData.Schema.A5 "{pkg.created_in_uid()}"', f'= MetaData.Schema.B6 "{pkg.uid}"',
@@ -298,6 +401,35 @@ class ClassicWriter:
         write_text(desc.path, desc.text, True)
         write_text(sdir / "properties.json", dump_json({"Properties": {"CreatedInVersion": version}}), True)
         return cls._with_caption(package, parent_name, caption, cultures)
+
+    @classmethod
+    def create_new(cls, package: Path, name: str, parent: str, entity: str = "", caption: str | None = None, cultures: list[str] | None = None,
+                   parent_uid: str | None = None, env=None, version: str = "8.2.3.1351"):
+        """A new client schema with a parent (a grid detail, an edit page): descriptor `Parent`, the designer's diff metadata
+        (UId, A2, A5, B6, B8, `- B7` / `+ B7 false`, HD1), SchemaType by the parent, the empty body, resources with the caption."""
+        _name_ok(name)
+        _name_ok(parent)
+        package = Path(package)
+        sdir = package / "Schemas" / name
+        ws = Workspace(package)
+        if sdir.exists() or ws.find(name, MANAGER):
+            raise FileExistsError(f"client schema {name} exists in the workspace")
+        parent_uid = _parent_uid(package, parent, parent_uid, env)
+        props = next((s["dir"] / "properties.json" for s in ws.find(parent, MANAGER) if (s["dir"] / "properties.json").is_file()), None)
+        schema_type = (json.loads(read_text(props)[0]).get("Properties", {}).get("SchemaType") if props else None) or \
+            next((t for ends, t in _TYPES if parent.endswith(ends)), None)
+        pkg, uid = Package(package), new_uid()
+        meta = CRLF.join([f'= MetaData.Schema.UId "{uid}"', f'= MetaData.Schema.A2 "{name}"', f'= MetaData.Schema.A5 "{pkg.created_in_uid()}"',
+                          f'= MetaData.Schema.B6 "{pkg.uid}"', f'= MetaData.Schema.B8 "{version}"', "- MetaData.Schema.B7",
+                          "+ MetaData.Schema.B7 false", f'= MetaData.Schema.HD1 "{parent_uid}"'])
+        write_text(sdir / "metadata.json", meta, False)
+        entity_line = f"\t\tentitySchemaName: {json.dumps(entity)},\n" if entity else ""
+        write_text(sdir / f"{name}.js", REPLACING_BODY.replace("@NAME@", name).replace("@ENTITY_LINE@", entity_line), False)
+        desc = Descriptor.new(sdir / "descriptor.json", {"UId": uid, "Name": name, "ModifiedOnUtc": "", "Parent": {"UId": parent_uid, "Name": parent},
+                                                         "ManagerName": MANAGER, "Caption": caption or name, "DependsOn": []})
+        write_text(desc.path, desc.text, True)
+        write_text(sdir / "properties.json", dump_json({"Properties": {"CreatedInVersion": version, **({"SchemaType": schema_type} if schema_type else {})}}), True)
+        return cls._with_caption(package, name, caption or name, cultures)
 
     @classmethod
     def create_module(cls, package: Path, name: str, caption: str | None = None, mixin: bool = False, cultures: list[str] | None = None,

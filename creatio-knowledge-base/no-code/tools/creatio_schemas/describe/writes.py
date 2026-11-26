@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from pathlib import Path
@@ -20,20 +19,21 @@ from pathlib import Path
 from ..files import read_text
 from ..process import ProcessSchema, short_type
 from ..process.schema import RECORD_VALUES, USER_TASK_BY_UID
+from ..workspace import Workspace
 from .core import DEFAULT_LIMIT, QueryError, cut
 from .index import packages_of
 
 UNREADABLE = (OSError, ValueError, KeyError)
+_WORKSPACES: dict = {}  # per call: one Workspace per root, shared by every process opened in it
 
 
-def _processes(package: Path):
-    for sdir in sorted((package / "Schemas").glob("*")) if (package / "Schemas").is_dir() else []:
-        try:
-            desc = json.loads(read_text(sdir / "descriptor.json")[0])["Descriptor"]
-        except UNREADABLE:
-            continue
-        if desc.get("ManagerName") == "ProcessSchemaManager":
-            yield sdir.name
+def _processes(package: Path) -> list[str]:
+    """The process names of a package, from the workspace's descriptor scan (one read per root, cached across calls)."""
+    key = str(package.parent)
+    if key not in _WORKSPACES:  # not setdefault: its argument would stat every package folder again for every package
+        _WORKSPACES[key] = Workspace(package)
+    ws = _WORKSPACES[key]
+    return sorted(s["name"] for s in ws.schemas if s["manager"] == "ProcessSchemaManager" and s["dir"].parent.parent.name == package.name)
 
 
 def process_units(ps: ProcessSchema):
@@ -73,15 +73,9 @@ def process_units(ps: ProcessSchema):
             yield f["A2"], "Flow", f"condition {by_uid.get(f.get('CI1'), '?')} -> {by_uid.get(f.get('CI2'), '?')}", ps.expressions.decode(f["CI3"])
 
 
-_ROW_NAMES: dict = {}  # per call: the lookup row names of the workspace, read once and shared by every process opened in it
-
-
 def _open(package: Path, name: str) -> ProcessSchema:
     ps = ProcessSchema(package, name)
-    key = str(package.parent)
-    if key not in _ROW_NAMES:  # not setdefault: its argument would read the bindings again for every process
-        _ROW_NAMES[key] = ps.workspace.lookup_rows()
-    ps.workspace._rows = _ROW_NAMES[key]
+    ps._workspace = _WORKSPACES[str(package.parent)]  # shared: the lookup rows (every binding of every package) are read once, on the first caption
     return ps
 
 
@@ -93,7 +87,7 @@ def _regex(pattern: str) -> re.Pattern:
 
 
 def find_in_processes(path: Path | str, pattern: str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
-    _ROW_NAMES.clear()
+    _WORKSPACES.clear()
     if not pattern.strip():
         raise QueryError("give the text or regex to look for")
     rx, hits = _regex(pattern), []
@@ -130,13 +124,16 @@ def _lines(path: Path) -> list[str]:
 
 
 def who_sets(path: Path | str, target: str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
-    _ROW_NAMES.clear()
+    _WORKSPACES.clear()
     m = re.fullmatch(r"\s*(\w+)\.(\w+)\s*(?:=\s*(.+?))?\s*", target or "")
     if not m:
         raise QueryError('give "<Entity>.<Column>" or "<Entity>.<Column> = <value>"')
     entity, column, value = m.groups()
     word_col, word_ent = re.compile(rf"\b{re.escape(column)}\b"), re.compile(rf"\b{re.escape(entity)}\b")
     setter = re.compile(rf"(?:SetColumnValue|\.Set)\(\s*\"{re.escape(column)}\"|\[\"{re.escape(column)}\"\]\s*=(?!=)")
+    client = re.compile(rf"this\.set\(\s*[\"']{re.escape(column)}[\"']|\$context\.{re.escape(column)}\s*=(?!=)|\[[\"']{re.escape(column)}[\"']\]\s*=(?!=)")
+    kinds = {(".cs", "Files"): ("C#", setter, True), (".cs", "Schemas"): ("C#", setter, True), (".js", "Schemas"): ("client", client, False),
+             (".sql", "SqlScripts"): ("sql", word_col, True)}  # (label, pattern, the entity must be named in the file) by file kind
     hits = []
     for package in packages_of(path):
         for name in _processes(package):
@@ -146,8 +143,8 @@ def who_sets(path: Path | str, target: str, limit: int = DEFAULT_LIMIT, offset: 
                     cls = short_type(e)
                     if cls == "ProcessSchemaUserTask" and e.get("J6") in RECORD_VALUES:
                         try:
-                            _, ent, _ = ps._record_target(e)
-                            if ent == entity:
+                            uid = (ps.element_param(e, RECORD_VALUES[e["J6"]][1]).get("L8") or {}).get("GS2")
+                            if ps.workspace.name_of(uid) == entity:  # the name alone: the entity's columns are read for a match only
                                 for col, val in ps.record_values(e):
                                     if col == column and (value is None or value.lower() in val.lower()):
                                         hits.append(f"process  {package.name} / {name} / {e['A2']} [{USER_TASK_BY_UID.get(e.get('J6'), '?')}]: {col} = {ps.workspace.captioned(val)}")
@@ -159,19 +156,17 @@ def who_sets(path: Path | str, target: str, limit: int = DEFAULT_LIMIT, offset: 
                                 hits.append(f"script   {package.name} / {name} / {e['A2']} line {n}: {line.strip()[:160]}")
             except Exception:
                 continue
-        for kind, label, pattern, entity_needed in (((".cs", "Files"), "C#", setter, True), ((".cs", "Schemas"), "C#", setter, True),
-                                                    ((".js", "Schemas"), "client", re.compile(rf"this\.set\(\s*[\"']{re.escape(column)}[\"']|\$context\.{re.escape(column)}\s*=(?!=)|\[[\"']{re.escape(column)}[\"']\]\s*=(?!=)"), False),
-                                                    ((".sql", "SqlScripts"), "sql", word_col, True)):
-            for f in _files(package, (kind,)):
-                lines = _lines(f)
-                text = "\n".join(lines)
-                if entity_needed and not word_ent.search(text):
-                    continue
-                if label == "sql" and not re.search(r"\b(update|insert)\b", text, re.I):
-                    continue
-                for n, line in enumerate(lines, 1):
-                    if pattern.search(line) and (value is None or value.lower() in line.lower()):
-                        hits.append(f"{label:<8} {package.name} / {f.relative_to(package).as_posix()}:{n}: {line.strip()[:160]}")
+        for f in _files(package, tuple(kinds)):  # one walk per package
+            label, pattern, entity_needed = kinds[(f.suffix.lower(), f.relative_to(package).parts[0])]
+            lines = _lines(f)
+            text = "\n".join(lines)
+            if entity_needed and not word_ent.search(text):
+                continue
+            if label == "sql" and not re.search(r"\b(update|insert)\b", text, re.I):
+                continue
+            for n, line in enumerate(lines, 1):
+                if pattern.search(line) and (value is None or value.lower() in line.lower()):
+                    hits.append(f"{label:<8} {package.name} / {f.relative_to(package).as_posix()}:{n}: {line.strip()[:160]}")
     return "\n".join(cut(hits, limit, offset=offset)) if hits else f"nothing sets {entity}.{column}" + (f" = {value}" if value else "") + " (processes, C#, pages, SQL scripts)"
 
 

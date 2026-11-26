@@ -47,7 +47,7 @@ public sealed class CheckProcessCommand : ICommand
             ? " or Id eq " + last.ProcessId
             : string.Empty;
         var runs = await context.Session.QueryRecordsAsync("SysProcessLog", new[] { "Id", "CompleteDate", "ErrorDescription" },
-            "SysSchema/Name eq '" + check.Process + "' and (StartDate ge " + literal + own + ")", 50, cancellationToken).ConfigureAwait(false);
+            ProcessFilter(check.Process) + " and (StartDate ge " + literal + own + ")", 50, cancellationToken).ConfigureAwait(false);
         context.Logger.LogDebug("{Process}: {Count} run(s) since {Since}: {Ids}", check.Process, runs.Count, literal, string.Join(",", runs.Select(r => r["Id"])));
         if (runs.Count == 0)
         {
@@ -80,6 +80,9 @@ public sealed class CheckProcessCommand : ICommand
         throw new CommandFailedException("step \"" + check.Caption + "\" of " + check.Process + " is not " + (wantComplete ? "completed" : "running") + "; " +
                                          (steps.Length == 0 ? "no such step; steps seen: " + (seen.Length == 0 ? "(none)" : seen) : "it is " + (wantComplete ? "running" : "completed")) + ".");
     }
+
+    /// <summary>The runs of the process or of a replacing version of it (a replacing schema has another name and the replaced one as its parent).</summary>
+    internal static string ProcessFilter(string process) => "(SysSchema/Name eq '" + process + "' or SysSchema/Parent/Name eq '" + process + "')";
 
     /// <summary>OData answers a date a row has not got yet as <c>0001-01-01T00:00:00Z</c>, not as null.</summary>
     internal static bool Done(string completeDate) => !string.IsNullOrEmpty(completeDate) && !completeDate.StartsWith("0001-01-01", StringComparison.Ordinal);

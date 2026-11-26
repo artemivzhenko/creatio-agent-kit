@@ -565,7 +565,11 @@ def references(env, schema: str, packages: list[str], manager: str = OBJECT) -> 
     parts = [f'select \'{r["table"]}.{r["column"]}\' "ref", "{r["column"]}"::text "id", count(*)::text "n" from "{r["table"]}" '
              f'where "{r["column"]}" in ({keys}) group by "{r["column"]}"' for r in env.sql(REFERENCES_FK_SQL)]
     hits = env.sql("\nunion all ".join(parts)) if parts else []
-    return [f"references: {h['ref']} {h['n']} rows point at {ids.get(h['id'], h['id'])}'s {schema}" for h in hits if int(h.get("n") or 0)]
+    # the schema's own strings, bodies and resource checksum go with it (D100: 31 SysLocalizableValue rows were Caption,
+    # Parameters.*.Caption, SvgImage; 8.3.2: a user task's SysPackageResourceChecksum row)
+    own = ("SysLocalizableValue.SysSchemaId", "SysSchemaContent.SysSchemaId", "SysPackageResourceChecksum.SysSchemaId")
+    return [f"references: {h['ref']} {h['n']} rows point at {ids.get(h['id'], h['id'])}'s {schema}" for h in hits
+            if int(h.get("n") or 0) and h["ref"] not in own]
 
 
 def _resources(layers: list[Layer], schema: str, folder: Path, suffix: str = "Entity"):
@@ -712,6 +716,34 @@ DIFF_SECTIONS = ("SCHEMA_VIEW_CONFIG_DIFF", "SCHEMA_VIEW_MODEL_CONFIG_DIFF", "SC
 CLASSIC_KEYED = ("attributes", "messages", "details", "mixins", "modules", "rules", "businessRules")
 
 
+def js_string_list(text: str) -> list[str]:
+    """A JS array literal of strings (single or double quotes, a trailing comma) as a list; ValueError names the fault."""
+    body = text.strip()
+    if not (body.startswith("[") and body.endswith("]")):
+        raise ValueError(f"is not an array literal: {body[:40]!r}")
+    out, i, body = [], 0, body[1:-1].strip()
+    while i < len(body):
+        quote = body[i]
+        if quote not in "'\"":
+            raise ValueError(f"has an item that is not a quoted string: {body[i:i + 30]!r}")
+        end = i + 1
+        while end < len(body) and body[end] != quote:
+            end += 2 if body[end] == "\\" else 1
+        if end >= len(body):
+            raise ValueError(f"has an unterminated string: {body[i:i + 30]!r}")
+        out.append(body[i + 1:end])
+        i = end + 1
+        while i < len(body) and body[i].isspace():
+            i += 1
+        if i < len(body):
+            if body[i] != ",":
+                raise ValueError(f"has no comma after {out[-1]!r}")
+            i += 1
+            while i < len(body) and body[i].isspace():
+                i += 1
+    return out
+
+
 def _merge_deps(layers: list[tuple[str, list[str], list[str]]]) -> tuple[list[str], list[str], str]:
     """define()'s modules and the function's parameter names over the layers, bottom first: (modules, names, "") or
     ([], [], why) when a module would need a name the merged list cannot give it at its position."""
@@ -807,8 +839,13 @@ def _freedom_files(order: list[Layer], source: Layer, schema: str, folder: Path,
     layer_deps = []
     for x, r in zip(order, raws):
         args = r.get("SCHEMA_ARGS", "()").strip()
-        layer_deps.append((x.package, json.loads(r.get("SCHEMA_DEPS", "[]")), [a.strip() for a in args[1:-1].split(",") if a.strip()]))
-    deps, names, why = _merge_deps(layer_deps)
+        try:
+            modules = js_string_list(r.get("SCHEMA_DEPS", "[]"))
+        except ValueError as e:
+            stops.append(f"{x.package} {schema}: SCHEMA_DEPS {e}")
+            continue
+        layer_deps.append((x.package, modules, [a.strip() for a in args[1:-1].split(",") if a.strip()]))
+    deps, names, why = _merge_deps(layer_deps) if len(layer_deps) == len(order) else ([], [], "")
     if why:
         stops.append(why)
     if stops:

@@ -903,7 +903,8 @@ def process_runs(env: str, process: str = "", record: str = "", since: str = "",
     under each run the elements it went through (`SysProcessElementLog`: caption, status, start .. end in UTC). A process with no run
     on a site whose `SysProcessLog` is empty answers `process logging is off`. `element` (its caption, or its element UId) with
     `status=running` instead counts the tasks of that element still open (`SysProcessElementLog`, no end date): the count, then one
-    line per task - start, run id, the record the run waits on. Read-only."""
+    line per task - start, run id, the record the run waits on, the owner. A stuck one is cancelled by its run id with
+    `env/proc-runs.py cancel` (dev sites only). Read-only."""
     from creatio_schemas.runs import process_runs as _runs, render_runs
     return _answer(env, lambda e: render_runs(_runs(e, process.strip() or None, record.strip() or None, since.strip() or None,
                                                     until.strip() or None, max(1, min(limit, 200)), max(0, window),
@@ -1522,21 +1523,38 @@ def tool_stats(days: int = 1) -> str:
 
 
 @mcp.tool()
-def report_gap(kind: str, need: str, instead: str, script: str = "", task: str = "") -> str:
+def report_gap(kind: str, need: str, instead: str, script: str = "", task: str = "", text: str = "") -> str:
     """You are about to write your own script, type a query no tool covers, look a value up by hand in the designer, or you just worked
     around a tool that answered wrong, cut or in a shape you could not use: record it here first, at that moment, not at the end.
     `kind`: `missing` (no tool does it), `misbehaved` (a tool did, wrongly or unusably: say what it answered and what you expected),
     `by-hand` (you did it outside the tools). `need`: what you needed, as a question. `instead`: what you did. `script`: the path of the
     script or SQL you wrote - the kit keeps a copy under `dev/gaps/scripts/`, so write it anywhere and never delete it. `task`: the task
-    folder when there is one. One line per gap; these lines and `tool_stats` are what the retrospective and the feedback round read,
+    folder when there is one. `text`: a one-line query or command typed with no file - with `text` and no `script` the server writes it to
+    `dev/gaps/scripts/<date>-<n>.txt` and records that path; a `missing` gap with neither is recorded with a warning. One line per gap; these lines and `tool_stats` are what the retrospective and the feedback round read,
     and a gap that is not recorded does not become a tool. No password in the text. Answer: the log file, the line number, the kept copy."""
     folder = stats_log.gaps_folder()
+    typed = None
     try:
+        if text.strip() and not script:
+            if stats_log._SECRET_RE.search(text):
+                raise ValueError("the log is read by other agents: no password, token or key in the text")
+            scripts = folder / "scripts"
+            scripts.mkdir(parents=True, exist_ok=True)
+            today, n = stats_log.date.today().isoformat(), 1
+            while (scripts / f"{today}-{n}.txt").exists():
+                n += 1
+            typed = script = str(scripts / f"{today}-{n}.txt")
+            Path(script).write_text(text.strip() + "\n", encoding="utf-8")
         line = stats_log.record_gap(folder, kind, need, instead, script, task)
     except ValueError as exc:
+        if typed:
+            Path(typed).unlink(missing_ok=True)
         return f"refused: {exc}"
     n = len(stats_log.read_gaps(folder))
-    return f"recorded: {folder / 'gaps.jsonl'} line {n}" + (f"; script kept as {line['script']}" if line["script"] else "")
+    answer = f"recorded: {folder / 'gaps.jsonl'} line {n}" + (f"; script kept as {line['script']}" if line["script"] else "")
+    if kind == "missing" and not line["script"]:
+        answer += "; no script, no text: the workaround is lost"
+    return answer
 
 
 def main() -> None:

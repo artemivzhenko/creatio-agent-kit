@@ -10,14 +10,14 @@ them. Pure Python standard library (`api.py` also needs Windows PowerShell).
 | File | What it does |
 | --- | --- |
 | `sql.py` | SQL through clio: rows as JSON (default) or `--csv`, one statement per clio call; a statement that is not select / with / show / explain needs `--write` and prints `affected: N` |
-| `call.py` | `GET`/`POST`/`PATCH`/`PUT`/`DELETE` a site path with login and CSRF: status, then JSON or the fault; `--upload <file>` sends a file (multipart, or base64 in `--field`) |
+| `call.py` | `GET`/`POST`/`PATCH`/`PUT`/`DELETE` a site path with login and CSRF: status, then JSON or the fault; `--upload <file>` sends a file (multipart, or base64 in `--field`); a `GET conf/content/<Schema>.js` is a served file: `0/` on .NET Framework and `Accept: */*`, a 406 names the header |
 | `site.py` | `restart` the site (clio restart-web-app, then waits until it answers); `process-off` / `process-on` a process by name through the Process Library's service, read back from `SysProcessDisabled` |
 | `file.py` | `get <FileSchema> <Id> --out <path>`: a file record's bytes from the site through SQL; prints `path: N bytes, type` |
 | `proc-run.py` | start a process, print its result parameters and its `SysProcessLog` row; exit 1 unless completed |
 | `proc-runs.py` | `runs` of a process (`--steps`: the elements of each run), or around the changes of a record; `timers` pending; `fire` one early (dev only); `error` of one run without stack frames |
 | `unit.py` | `run --category` / `--class`: the project's in-Creatio tests, one row per test |
 | `api.py` | public members of a platform type from the assemblies of a local installation |
-| `record.py` | `find` the table that holds an Id; `context` of a record: lookups named, the rows that point at it; `history` from the change log; `transitions` of one column |
+| `record.py` | `find` the table that holds an Id; `context` of a record: lookups named, the rows that point at it; `history` from the change log; `transitions` of one column; `merge` duplicate rows of a lookup into one, foreign keys moved (plan; `--apply` on a dev site) |
 | `data.py` | `lookup-values` of a lookup ordered by Name; `sample` records with their lookups named; `fixture`: a synthetic DSL `insert` block of an object's shape (writes nothing) |
 | `roles.py` | `members` of a role, the roles of a `user`, a `diff` of users against a role - the closure, nested roles included |
 | `setting.py` | a system setting on each environment with date and author, and the workspace bindings that set it |
@@ -95,6 +95,7 @@ python record.py find    -e <env> <id> [--workspace <folder>] [--everywhere]
 python record.py context -e <env> <Entity> <id> [--columns "Name,*Id"] [--depth 1|2]
 python record.py history -e <env> <Entity>:<id> [--column UsrStatus] [--clusters 500]
 python record.py transitions -e <env> <Entity>.<Column> [--from "A"] [--to "B"] [--since 2026-11-01] [--out file.csv]
+python record.py merge   -e <env> <Object> --keep <Id> --drop <Id>[,<Id>..] [--apply --project project.json] [--backup <folder>]
 ```
 
 | command | what it does |
@@ -103,6 +104,7 @@ python record.py transitions -e <env> <Entity>.<Column> [--from "A"] [--to "B"] 
 | `context` | a record with its lookups named and the rows that point at it |
 | `history` | the change log of a record: when, who, was -> became |
 | `transitions` | every change of one column of an object, from its change log |
+| `merge` | duplicate rows of a lookup folded into one: foreign keys moved, backup, delete (a plan unless --apply) |
 
 ### env file
 
@@ -161,6 +163,7 @@ python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<captio
 python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
 python proc-runs.py fire  --project project.json --process UsrOrder_Process --record UsrOrder:<id> [--timer "1 d."] [--delay 20]
 python proc-runs.py error -e <env> <log id>
+python proc-runs.py cancel --project project.json <run id> [<run id> ..] [--wait 10]
 ```
 
 | command | what it does |
@@ -169,6 +172,7 @@ python proc-runs.py error -e <env> <log id>
 | `timers` | the pending timers of a process |
 | `fire` | move a pending timer to now + --delay seconds (dev environments only) |
 | `error` | one run's error without stack frames, and the element it stopped on |
+| `cancel` | cancel runs (a stuck page task's run; dev environments only) |
 
 ### env site
 
@@ -232,7 +236,7 @@ loop's `environment` block (`url`, `login`, `password`, `clioName`; `isNetCore`,
 ## Forensics: records, roles, settings
 
 Three commands answer what an author used to find out table by table. Every statement they send is below, so a human can
-run it with `sql.py`; none writes. Times print in UTC and in `environment.timeZone` of `project.json` (`+03:00`, `UTC-5`
+run it with `sql.py`; none writes (`merge --apply` below is the one that does). Times print in UTC and in `environment.timeZone` of `project.json` (`+03:00`, `UTC-5`
 or an IANA name where the machine has the tz database - Windows needs `pip install tzdata`, which the MCP server's
 `pyproject.toml` lists; else the machine's zone, said so).
 
@@ -249,6 +253,19 @@ lookup by the `Name` of the referenced row; `--columns "Name,Usr*Id"` picks colu
 column with a value). `--depth 1` adds the tables with a foreign key to the entity, a `count(*)` per table in unions of 50,
 and for each table with rows the first 20 (`order by "Id" offset 0 rows fetch first 20 rows only`: the Id, the column that
 points here and a caption column); `--depth 2` names the lookups of those rows too.
+
+**`record.py merge <Object> --keep <Id> --drop <Id>[,<Id>..]`** - folds duplicate rows of a lookup (`City`, `Region`) into one; `data.py duplicates
+<Object> <Column>` finds the candidates, `merge` acts on the ids it printed. Without `--apply` it only reads: the rows pointing at the dropped
+ids come from the incoming foreign keys of the table (the `context` query) plus the unconstrained uuid columns called `<Object>Id` /
+`Usr<Object>Id` (printed `(no constraint)`, moved too), one `count(*)` per column in unions of 50, then the plan as SQL -
+`delete from "<T>" where "Id" in (...)` for the rows a unique index would reject, `update "<T>" set "<Col>" = '<keep>' where "<Col>" in (...)`
+per column, `delete from "<Object>" where "Id" in (...)` last. A unique index of the table that holds the column (`pg_indexes`, plain column
+lists only; MS SQL has none of it and a collision then fails the update before the final delete) makes a row collide when the kept row, or a
+dropped row of a lower Id, has a sibling with the same other columns: that child row is deleted instead of moved. `--apply` needs
+`--project` whose `environment` says `kind: dev` and `mayBreak: true` (anything else, or no project, is refused, no override); it writes
+`<--backup folder, default merge-backups>/<Object>-<UTC time>.json` (the dropped rows, every pointing row's Id / table / column / old value,
+the colliding rows whole) before the first write, then runs the statements one `sql --write` call each and prints `affected: N`; a failed
+statement stops and names the backup.
 
 **`roles.py`** - who is in a role comes from `SysAdminUnitInRole`, the closure the platform keeps (`SysAdminUnitId` the
 member, `SysAdminUnitRoleId` the role), joined to `SysAdminUnit` for names and `SysAdminUnitTypeValue` for the kind
@@ -349,6 +366,15 @@ and the unfiltered list, with the line `N runs of noise processes hidden`; `--pr
 `runs --process <P> --element "<caption or element UId>" [--status running]` (MCP `process_runs element= status=running`) lists the
 elements of `SysProcessElementLog` with no end date and no error (`SchemaElementUId` or `Caption` as asked), newest first, joined to
 `SysProcessLog` for the process's copies; the record is the first `SysProcessEntity` row of the run. First line: `N running tasks`.
+Each line ends with the owner (`SysProcessElementLog.OwnerId`, a contact, by name) when the task has one (S48-T13).
+
+A stuck task is cancelled by its run: `cancel --project project.json <run id> [..]` (refused unless the project marks the
+environment `kind: dev`, like `fire`) posts the Process Log's cancel, `POST ServiceModel/ProcessEngineService.svc/CancelExecution
+{"processDataIds": "<id>;<id>"}` (8.3.2 binaries: each id goes to `CancelExecutionAsync`; there is also
+`CancelExecutionBySchemaId`, every run of a schema, not wrapped), then reads each `SysProcessLog` row back, polling up to `--wait`
+seconds; exit 1 when one is still running. On 8.3.2 the run, its open page task (`SysProcessElementLog`) both read `Canceled`
+at the read-back and the run's `SysProcessData` row was removed. Completing the task instead (`CompleteExecuting` with the button's
+`Tag`, P-8.17) runs the flow behind that button.
 
 ### Steps, timers and firing a timer early (S33-T06)
 

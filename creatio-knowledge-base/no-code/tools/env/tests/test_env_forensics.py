@@ -288,14 +288,16 @@ def test_process_runs_by_process_and_noise():
 
 def test_process_runs_count_the_open_tasks_of_an_element():
     from creatio_schemas import runs
-    rows = [{"run": RUN.upper(), "StartDate": "2026-11-11T08:00:00", "record": "Order 7"}, {"run": BOSS, "StartDate": "2026-11-10T08:00:00", "record": None}]
+    rows = [{"run": RUN.upper(), "StartDate": "2026-11-11T08:00:00", "record": "Order 7", "owner": "Supervisor", "task": ID},
+            {"run": BOSS, "StartDate": "2026-11-10T08:00:00", "record": None}]
     e, clio = env({'from "SysProcessElementLog" e join': lambda text: rows if "'Fill in the order'" in text else [], COPIES_NEEDLE: COPIES[:1]})
     answer = runs.process_runs(e, process="UsrOrder_Process", element="Fill in the order", status="running")
     statement = clio.statements[1]
     assert 'e."CompleteDate" is null' in statement and "e.\"Caption\" = 'Fill in the order'" in statement and "'c1000000-0000-4000-8000-000000000001'" in statement, statement
     assert [t["run"] for t in answer["tasks"]] == [RUN, BOSS] and answer["tasks"][0]["record"] == "Order 7"
     text = runs.render_runs(answer).splitlines()
-    assert text[0] == "2 running tasks" and f"run {RUN}  waits on Order 7" in text[1] and text[2].endswith(f"run {BOSS}"), text
+    assert text[0] == "2 running tasks" and text[1].endswith(f"run {RUN}  waits on Order 7  owner Supervisor") and text[2].endswith(f"run {BOSS}"), text
+    assert answer["tasks"][0]["task"] == ID and 'left join "Contact" c on c."Id" = e."OwnerId"' in statement  # S48-T13: the owner, by name
     assert runs.render_runs(runs.process_runs(e, element="Another task")) == "0 running tasks"  # a task of another element is not counted
     runs.process_runs(e, element=ID)
     assert f"e.\"SchemaElementUId\" = '{ID}'" in clio.statements[-1]  # a UId names the element by its schema UId
@@ -368,6 +370,113 @@ def test_process_error_trims_frames_and_names_the_element():
         assert run_cli("proc-runs", ["runs", "-e", "dev", "--record", "UsrOrder:x"], {})[0] == 2
     finally:
         shutil.rmtree(project.parent, ignore_errors=True)
+
+
+KEEP, DUP1, DUP2 = "a1111111-1111-1111-1111-111111111111", "b2222222-2222-2222-2222-222222222222", "c3333333-3333-3333-3333-333333333333"
+DROPS = f"{DUP1},{DUP2}"
+IDS = f"'{DUP1}', '{DUP2}'"
+
+
+def merge_answers(**more):
+    """UsrCity (kept + two duplicates); UsrItem.UsrCityId a foreign key, UsrCityLink.UsrCityId one with a unique (UsrCityId, UsrTagId), UsrLegacy.UsrCityId none."""
+    base = {'select * from "UsrCity" where "Id" in': [{"Id": KEEP, "Name": "Kyiv"}, {"Id": DUP1, "Name": "Kyiv "}, {"Id": DUP2, "Name": "kyiv"}],
+            "ccu.table_name = 'UsrCity'": [{"table": "UsrItem", "column": "UsrCityId", "ref_table": "UsrCity"},
+                                           {"table": "UsrCityLink", "column": "UsrCityId", "ref_table": "UsrCity"}],
+            "c.column_name in ('UsrCityId', 'UsrUsrCityId')": [{"table": "UsrLegacy", "column": "UsrCityId"}, {"table": "UsrItem", "column": "UsrCityId"}],
+            "count(*)": [{"table": "UsrCityLink", "column": "UsrCityId", "n": 1}, {"table": "UsrItem", "column": "UsrCityId", "n": 3},
+                         {"table": "UsrLegacy", "column": "UsrCityId", "n": 2}],
+            "from pg_indexes": [{"table": "UsrCityLink", "indexdef": 'CREATE UNIQUE INDEX "IUsrCityLink" ON public."UsrCityLink" USING btree ("UsrCityId", "UsrTagId")'},
+                                {"table": "UsrItem", "indexdef": 'CREATE UNIQUE INDEX "IUsrItemP" ON public."UsrItem" USING btree ("UsrCityId") WHERE ("UsrCityId" IS NOT NULL)'}],
+            '"value" from "UsrItem" where "UsrCityId" in': [{"Id": f"{i}0000000-0000-0000-0000-000000000000", "value": DUP1} for i in (1, 2, 3)],
+            '"value" from "UsrLegacy" where "UsrCityId" in': [{"Id": "40000000-0000-0000-0000-000000000000", "value": DUP2}, {"Id": "50000000-0000-0000-0000-000000000000", "value": DUP2}],
+            '"value" from "UsrCityLink" where "UsrCityId" in': [{"Id": "60000000-0000-0000-0000-000000000000", "value": DUP1}],
+            'select r.* from "UsrCityLink" r': [{"Id": "60000000-0000-0000-0000-000000000000", "UsrCityId": DUP1, "UsrTagId": "t1"}],
+            'update "UsrItem"': 3, 'update "UsrLegacy"': 2, 'update "UsrCityLink"': 0, 'delete from "UsrCityLink"': 1, 'delete from "UsrCity" where': 2}
+    return {**base, **more}
+
+
+def test_merge_plan_counts_every_pointer_and_prints_the_sql_without_writing():
+    e, clio = env(merge_answers())
+    plan = records.merge_plan(e, "UsrCity", KEEP, [DUP1, DUP2])
+    assert [(t["table"], t["column"], t["count"], t["constraint"]) for t in plan["targets"]] == [
+        ("UsrCityLink", "UsrCityId", 1, True), ("UsrItem", "UsrCityId", 3, True), ("UsrLegacy", "UsrCityId", 2, False)]  # the FK ones and the loose column, once each
+    assert [s["sql"] for s in plan["statements"]] == [
+        f'delete from "UsrCityLink" where "Id" in (\'60000000-0000-0000-0000-000000000000\')',
+        f'update "UsrCityLink" set "UsrCityId" = \'{KEEP}\' where "UsrCityId" in ({IDS})',
+        f'update "UsrItem" set "UsrCityId" = \'{KEEP}\' where "UsrCityId" in ({IDS})',
+        f'update "UsrLegacy" set "UsrCityId" = \'{KEEP}\' where "UsrCityId" in ({IDS})',
+        f'delete from "UsrCity" where "Id" in ({IDS})']  # colliding child rows first, the moves, the dropped rows last
+    text = records.render_plan(plan)
+    assert "UsrItem.UsrCityId: 3 row(s)" in text and "UsrLegacy.UsrCityId: 2 row(s) (no constraint)" in text
+    assert not any(s.lstrip().startswith(("update", "delete")) for s in clio.statements)  # a plan writes nothing
+    raises(lambda: records.merge_plan(e, "UsrCity", KEEP, [KEEP]), ValueError, "not among")
+    raises(lambda: records.merge_plan(e, "UsrCity", KEEP, [DUP1, "d4444444-4444-4444-4444-444444444444"]), KeyError, "no row d4444444")
+
+
+def test_merge_plan_marks_the_rows_a_unique_index_would_reject():
+    e, clio = env(merge_answers())
+    plan = records.merge_plan(e, "UsrCity", KEEP, [DUP1, DUP2])
+    link = next(t for t in plan["targets"] if t["table"] == "UsrCityLink")
+    assert link["unique"] == [["UsrCityId", "UsrTagId"]] and [r["Id"] for r in link["collide"]] == ["60000000-0000-0000-0000-000000000000"]
+    sql = next(s for s in clio.statements if s.startswith('select r.* from "UsrCityLink"'))
+    assert 's."UsrTagId" = r."UsrTagId"' in sql and f's."UsrCityId" = \'{KEEP}\'' in sql and 's."Id" < r."Id"' in sql  # kept row's sibling, or a lower-Id dropped one
+    assert next(t for t in plan["targets"] if t["table"] == "UsrItem")["collide"] == []  # a partial index is not read: no guess
+    assert "1 would collide" in records.render_plan(plan)
+
+
+def test_merge_apply_writes_the_backup_first_then_one_statement_per_call():
+    e, clio = env(merge_answers())
+    plan = records.merge_plan(e, "UsrCity", KEEP, [DUP1, DUP2])
+    before, folder, lines = len(clio.statements), tempfile.mkdtemp(), []
+    try:
+        path = records.merge_apply(e, plan, folder, log=lines.append)
+        backup = json.loads(Path(path).read_text(encoding="utf-8"))
+        assert Path(path).parent == Path(folder) and Path(path).name.startswith("UsrCity-") and lines[0] == f"backup: {path}"
+        assert [r["Id"] for r in backup["dropped"]] == [DUP1, DUP2] and backup["keep"] == KEEP
+        assert len(backup["pointing"]) == 6 and {"table": "UsrItem", "column": "UsrCityId", "Id": "10000000-0000-0000-0000-000000000000", "value": DUP1} in backup["pointing"]
+        assert backup["collidingRows"][0]["table"] == "UsrCityLink" and backup["collidingRows"][0]["row"]["UsrTagId"] == "t1"
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    ran = clio.statements[before:]
+    assert [s.split(" where")[0] for s in ran] == ['delete from "UsrCityLink"', 'update "UsrCityLink" set "UsrCityId" = ' + f"'{KEEP}'",
+                                                  'update "UsrItem" set "UsrCityId" = ' + f"'{KEEP}'", 'update "UsrLegacy" set "UsrCityId" = ' + f"'{KEEP}'", 'delete from "UsrCity"']
+    assert [l.splitlines()[-1] for l in lines[1:]] == ["  affected: 1", "  affected: 0", "  affected: 3", "  affected: 2", "  affected: 2"]
+
+
+def test_merge_apply_stops_at_a_failed_statement_and_names_the_backup():
+    class Failing(Scripted):
+        def __call__(self, args):
+            text = Path(args[args.index("-f") + 1]).read_text(encoding="utf-8")
+            return (1, "[ERR] - duplicate key") if text.startswith('update "UsrItem"') else super().__call__(args)
+    clio = Failing(merge_answers())
+    e, folder = Environment("https://site.example/", "u", "p", clio_name="dev", clio_run=clio), tempfile.mkdtemp()
+    try:
+        plan = records.merge_plan(e, "UsrCity", KEEP, [DUP1, DUP2])
+        raises(lambda: records.merge_apply(e, plan, folder, log=lambda _: None), RuntimeError, "the backup is " + folder)
+        assert not any(s.startswith(('update "UsrLegacy"', 'delete from "UsrCity"')) for s in clio.statements)  # nothing after the failure
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_merge_cli_plans_by_default_and_applies_only_on_a_dev_project():
+    root = Path(tempfile.mkdtemp())
+    try:
+        def project(name, **environment):
+            path = root / name
+            path.write_text(json.dumps({"environment": {"clioName": "dev", "url": "https://s", "login": "u", "password": "p", **environment}}), encoding="utf-8")
+            return str(path)
+        argv = ["merge", "UsrCity", "--keep", KEEP, "--drop", DROPS]
+        code, out = run_cli("record", argv + ["-e", "dev"], merge_answers())
+        assert code == 0 and "plan:" in out and "backup:" not in out and "UsrItem.UsrCityId: 3 row(s)" in out
+        code, out = run_cli("record", argv + ["-e", "dev", "--apply"], merge_answers())  # no project: the refusal names the rule
+        assert code == 2 and "only on a dev site" in out and "plan:" not in out
+        for env_block in ({"kind": "test", "mayBreak": True}, {"kind": "dev"}, {}):
+            code, out = run_cli("record", argv + ["--project", project("p.json", **env_block), "--apply", "--backup", str(root / "b")], merge_answers())
+            assert code == 2 and "only on a dev site" in out and not (root / "b").exists()
+        code, out = run_cli("record", argv + ["--project", project("dev.json", kind="dev", mayBreak=True), "--apply", "--backup", str(root / "b")], merge_answers())
+        assert code == 0 and "affected: 2" in out and len(list((root / "b").glob("UsrCity-*.json"))) == 1
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

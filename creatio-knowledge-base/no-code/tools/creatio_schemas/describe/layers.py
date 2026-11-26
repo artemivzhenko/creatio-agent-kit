@@ -5,7 +5,7 @@ ModifiedOn and ModifiedBy, IsChanged, the size and md5 of its body (SysSchemaCon
 and its level in the package hierarchy of the customisation package (the platform function the object
 toolkit's base fetch uses). The copy applied last wins - and when it lives in the customisation package
 (`Custom`, or project.json environment.customLayer), it overrides every package the task pushes. With a rule
-UId, each layer's body says whether that business rule is absent, enabled, disabled or removed there.
+UId, each layer's body (read through body.read, one layer at a time) says whether that business rule is absent, enabled, disabled or removed there.
 PostgreSQL only, like the other probes.
 """
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 
 from ..entity.hierarchy import merge_order
+from .body import read
 
 CUSTOM_LAYER = "Custom"
 
@@ -23,11 +24,10 @@ from ..records import quote as _quote  # noqa: E402
 
 def layers_sql(schema: str, custom_layer: str = CUSTOM_LAYER) -> str:
     name, custom = _quote(schema), _quote(custom_layer)
-    return f"""select p."Name"::text "package", s."ExtendParent"::text "extendParent", s."ModifiedOn"::text "modifiedOn",
+    return f"""select s."Id"::text "id", p."Name"::text "package", s."ExtendParent"::text "extendParent", s."ModifiedOn"::text "modifiedOn",
   coalesce(c."Name", '')::text "modifiedBy", s."IsChanged"::text "isChanged", s."ManagerName"::text "manager",
   coalesce(octet_length(b."Content"), octet_length(s."MetaData"), 0)::text "size",
   coalesce(md5(b."Content"), md5(s."MetaData"), '')::text "md5",
-  coalesce(convert_from(b."Content", 'UTF8'), '')::text "body",
   coalesce(h."SchemaLevel"::text, '-1') "sl", coalesce(h."PackageLevel"::text, '-1') "pl", p."HierarchyLevel"::text "hl"
 from "SysSchema" s
 join "SysPackage" p on p."Id" = s."SysPackageId"
@@ -84,14 +84,14 @@ def site_name_of(env, workspace, schema: str) -> str | None:
 
 
 def _runtime_order(rows: list[dict]) -> list[dict]:
-    """The replacing copies re-sorted the way the runtime folds them - `SysPackage.HierarchyLevel`, then the package name -
-    in the places the design-time function gave them; that function has no tiebreak for siblings and printed a chain's
-    upper package before the lower one (S27-T09). The same rule as `merge.layers_in_order`. Unchanged when a copy has no level."""
-    replacing = [r for r in rows if str(r.get("extendParent", "")).lower() == "true"]
-    if len(replacing) < 2 or any(not str(r.get("hl") or "").lstrip("-").isdigit() for r in replacing):
+    """The order the runtime folds the copies: the own (not replacing) copy first, then every replacing copy by
+    `SysPackage.HierarchyLevel`, then the package name - the same rule as `merge.layers_in_order`. The design-time function's
+    levels do not decide it: it has no tiebreak for siblings (S27-T09), and on 8.3.2 it leaves out the copies of packages outside
+    the customisation package's hierarchy and levels the base after replacing ones, while the served body holds the base first and
+    the rest by HierarchyLevel (S48-T08, `CasePage`). Unchanged when a copy has no level."""
+    if any(not str(r.get("hl") or "").lstrip("-").isdigit() for r in rows):
         return rows
-    ordered, ids = iter(sorted(replacing, key=lambda r: (int(r["hl"]), r["package"]))), {id(r) for r in replacing}
-    return [next(ordered) if id(r) in ids else r for r in rows]
+    return sorted(rows, key=lambda r: (str(r.get("extendParent", "")).lower() == "true", int(r["hl"]), r["package"]))
 
 
 def _is_postgres(env) -> bool:
@@ -108,18 +108,20 @@ def schema_layers(env, schema: str, rule: str | None = None, custom_layer: str =
     site_name = site_name_of(env, workspace, schema) if workspace else None
     try:
         rows = env.sql(layers_sql(site_name or schema, custom_layer))
+        if not rows and any(r.get("n") != "0" for r in env.sql(f'select count(*)::text "n" from "SysSchema" where "Name" = {_quote(site_name or schema)}')):
+            raise RuntimeError("clio's answer had no rows while SysSchema holds copies of that name")  # an empty answer is not "no copy" (S48-T04)
     except RuntimeError as e:  # an empty answer would read as "no copy" (S45-T02)
         where = env.clio_name or env.url
         line = str(e.args[0] if e.args else e).removeprefix("sql: ")
         raise RuntimeError(("" if _is_postgres(env) else f"{where} is not PostgreSQL - the kit's site SQL is PostgreSQL\n")
                            + f"the layers query failed on {where}: {line}") from e
-    outside = [r for r in rows if r.get("sl") in (None, "", "-1")]  # not in the customisation package's hierarchy: listed first, applied nowhere above it
+    outside = [r for r in rows if r.get("sl") in (None, "", "-1")]  # not in the customisation package's hierarchy (the fallback order lists them first)
     out = []
-    for r in outside + _runtime_order(merge_order([r for r in rows if r not in outside])):
+    for r in _runtime_order(outside + merge_order([r for r in rows if r not in outside])):
         layer = {k: r.get(k, "") for k in ("package", "extendParent", "modifiedOn", "modifiedBy", "isChanged", "manager", "size", "md5")}
         layer["level"] = None if r.get("pl") in (None, "", "-1") else int(r["pl"])
         if rule:
-            layer["rule"] = rule_state(r.get("body") or "", rule)
+            layer["rule"] = rule_state(read(env, r["id"]) if r.get("id") else "", rule)
         out.append(layer)
     custom = [x["package"] for x in out if x["package"].lower() == custom_layer.lower()]
     return {"schema": schema, "rule": rule, "customLayer": custom_layer, "layers": out, "custom": custom, "siteName": site_name}

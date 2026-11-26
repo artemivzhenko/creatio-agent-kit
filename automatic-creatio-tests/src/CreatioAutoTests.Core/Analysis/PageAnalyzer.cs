@@ -138,6 +138,18 @@ public sealed partial class PageAnalyzer
         }
     }
 
+    /// <summary>
+    /// A control first seen on a toggle group's other tab (the attachments list behind 'Attachments') lies on it: its <c>tab</c> is
+    /// <c>&lt;group&gt;/&lt;caption&gt;</c>, which a command on it sets first (S48-T11, D9). The default tab is open on arrival and marks nothing.
+    /// </summary>
+    internal static void MarkTogglePanel(List<DiscoveredElement> elements, int from, string group, string caption, bool isDefault)
+    {
+        for (var i = from; i < elements.Count && !isDefault; i++)
+        {
+            elements[i] = elements[i] with { Tab = elements[i].Tab ?? group + "/" + caption };
+        }
+    }
+
     /// <summary>Adds what one extraction pass found, ignoring controls already recorded.</summary>
     private void Collect(
         JsonElement raw,
@@ -359,6 +371,7 @@ public sealed partial class PageAnalyzer
                 var raw = await page.EvaluateAsync<JsonElement>(script).ConfigureAwait(false);
                 var before = elements.Count;
                 Collect(raw, includeHidden, elements, unknown, seen);
+                MarkTogglePanel(elements, before, group, tab, tab == tabs[0]);
 
                 _logger.LogInformation("Toggle tab {Group}/{Tab}: {Count} new control(s).",
                     group, tab, elements.Count - before);
@@ -825,7 +838,8 @@ public sealed partial class PageAnalyzer
       result.known.push({
         tag,
         code: host.getAttribute('element-name'),
-        label: norm(tabHeader ? tabHeader.getAttribute('title')
+        label: norm(tag === 'crt-expansion-panel' ? (host.querySelector('.expansion-panel-header') || host).textContent
+                              : tabHeader ? tabHeader.getAttribute('title')
                               : (labelEl ? labelEl.textContent : '')),
         value: input ? (input.value || '') : '',
         required: !!(input && (input.hasAttribute('required')

@@ -3,7 +3,7 @@
 Inspect and change business processes stored in a package (library: ../creatio_schemas/process).
 
     python proc.py inspect   <package> <Process>
-    python proc.py find      <workspace|package> "<text|regex>" [--limit N] [--offset N]   the decoded text of every process: scripts, conditions, filters, values
+    python proc.py find      <workspace|package> "<text|regex>" [--limit N] [--offset N] [--captions]   the decoded text of every process: scripts, conditions, filters, values
     python proc.py new       <package> <Process> --caption "..." [--cultures en-US ru-RU]
     python proc.py caption   <package> <Process> <target> en-US="..." [ru-RU="..."]   target: Process | Element | Element.Param | Parameter:Name
     python proc.py captions  <package> <Process> [--missing] [--from en-US]
@@ -18,6 +18,8 @@ Inspect and change business processes stored in a package (library: ../creatio_s
     python proc.py element   <package> <Process> filter <Name> "<Column> = {Parameter:X}; <Column> is not null"   Read / Modify / Delete data
     python proc.py element   <package> <Process> count <Name> [--into <IntegerParam>]   Read data: count the records, ResultCount into a parameter (a formula task)
     python proc.py element   <package> <Process> buttons <Name> add <Code> --caption "Save" [--to <Next>] [--style ..] | remove <Code>   page tasks
+    python proc.py element   <package> <Process> signal <Name> [--entity ..] [--on ..] [--columns A,B] [--filter "<Column> = ..; .."] [--env dev]   start / catch signal
+    python proc.py element   <package> <Process> retask <Name> --task <UserTask> [--env dev]   another user task schema; parameters matched by name
     python proc.py flow      <package> <Process> add <Src> <Dst> [--condition "{Parameter:X} > 0"] [--name ..] [--caption ..]
     python proc.py flow      <package> <Process> remove <Name> | condition <Name> "<expr>"
     python proc.py script    <package> <Process> get <Element> [--out file] | set <Element> --file body.cs
@@ -104,8 +106,10 @@ def fill_captions(proc, a):
 
 def element_signal(proc, a, el=None):
     proc.rows_of = Clio(a.env).execute_sql_rows if a.env else None
-    el = el or proc.element(a.name)
+    direct, el = el is None, el or proc.element(a.name)
     proc.set_signal(el, a.entity, a.on, a.columns.split(",") if a.columns else None, a.filter)
+    if direct:  # as `inspect` shows it
+        print(f"{el['A2']}: {proc.describe_signal(el)}")
 
 
 def element_add(proc, a):
@@ -121,6 +125,14 @@ def element_add(proc, a):
         proc.set_message(el, a.message)
     for k, v in parse_assignments(a.set).items():
         proc.set_value(el, k, v, a.expr)
+
+
+def element_retask(proc, a):
+    proc.rows_of = Clio(a.env).execute_sql_rows if a.env else None
+    r = proc.retask(proc.element(a.name), a.task)
+    print(f"{a.name}: {r['old']} -> {r['new']}; kept {len(r['kept'])} parameter(s)"
+          + (f"; removed (not in {r['new']}): {', '.join(r['removed'])}" if r["removed"] else "")
+          + (f"; added: {', '.join(r['added'])}" if r["added"] else ""))  # `finish` validates after the save
 
 
 def element_set(proc, a):
@@ -228,6 +240,10 @@ def build() -> CommandLine:
     p.add_argument("--on")
     p.add_argument("--columns")
     p.add_argument("--filter")
+    p = c("retask", element_retask, "a user-task element to another user task schema: parameters and mappings matched by name, values kept", True, g)
+    p.add_argument("name")
+    p.add_argument("--task", required=True, help="the user task schema: a catalogue name (ReadDataUserTask, an alias), a workspace one, or with --env the site's")
+    p.add_argument("--env", help="a user task the workspace does not hold: its parameters from this site's SysSchema")
     p = c("rename", lambda proc, a: proc.rename_element(a.old, a.new), "rename an element (mappings, labels, captions follow)", True, g)
     p.add_argument("old")
     p.add_argument("new")
@@ -272,6 +288,7 @@ def build() -> CommandLine:
     p.add_argument("pattern")
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--offset", type=int, default=0)
+    p.add_argument("--captions", action="store_true", help="match lookup captions too: reads every data binding of the workspace first")
 
     g = cli.group("flow", "sequence and conditional flows")
     p = c("add", lambda proc, a: proc.add_flow(a.src, a.dst, a.condition, a.name, a.caption), "add a flow", True, g)
@@ -297,8 +314,41 @@ def build() -> CommandLine:
 
 
 def find(_, a):
-    from creatio_schemas.describe.writes import find_in_processes
-    print(find_in_processes(a.path, a.pattern, a.limit, a.offset))
+    """Streams the hits process by process and stops after offset + limit (+1 to know there is more). The decoded text is matched
+    with lookup Ids as they are: the workspace's bindings (thousands of files in a big package: 230 of 273 s on a cold disk,
+    S48-T13) are read only to caption the printed hits that hold an Id. `--captions` matches the captions too (reads them first)."""
+    from creatio_schemas.describe.index import packages_of
+    from creatio_schemas.describe.writes import _open, _processes, _regex, find_in_processes, process_units
+    from creatio_schemas.files import GUID_RE
+    if a.captions:
+        print(find_in_processes(a.path, a.pattern, a.limit, a.offset))
+        return
+    if not a.pattern.strip() or a.limit < 0 or a.offset < 0:
+        raise ValueError("give the text or regex to look for, and a non-negative --limit / --offset")
+    rx, seen, rows = _regex(a.pattern), 0, None
+    for package in packages_of(a.path):
+        for name in _processes(package):
+            try:
+                ps = ProcessSchema(package, name)
+                ps.workspace._rows = {}  # no captions while matching
+                hits = [(e, k, w, x) for e, k, w, x in process_units(ps) if rx.search(x) or rx.search(e)]
+            except Exception as exc:  # one unreadable process costs its own line
+                hits = [] if not rx.search(name) else [("(unreadable)", "", "", str(exc))]
+            for element, kind, where, text in hits:
+                seen += 1
+                if seen <= a.offset:
+                    continue
+                if a.limit and seen > a.offset + a.limit:
+                    print(f"  ... more; next: --offset {a.offset + a.limit}")
+                    return
+                if GUID_RE.search(text):
+                    rows = rows if rows is not None else _open(package, name).workspace.lookup_captions()
+                    text = GUID_RE.sub(lambda m: f"{rows[m.group(0).lower()]} ({m.group(0)})" if m.group(0).lower() in rows else m.group(0), text)
+                print(f"{package.name} / {name} / {element} [{kind}] / {where}: {text[:200]}", flush=True)
+    if not seen:
+        print(f"no process text matches /{a.pattern}/")
+    elif seen <= a.offset:
+        print(f"  (offset {a.offset} is past the end: {seen} hits)")
 
 
 def main(argv: list[str]) -> int:

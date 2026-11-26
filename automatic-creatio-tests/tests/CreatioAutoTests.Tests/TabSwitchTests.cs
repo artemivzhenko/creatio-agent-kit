@@ -149,3 +149,83 @@ public sealed class ToggleTabOnElementTests
         Assert.That(ex!.Message, Does.Contain("'FilesList'").And.Contain("'ViewToggle'").And.Contain("panels"));
     }
 }
+
+/// <summary>S48-T11 (D9): a control on a toggle group's panel carries '&lt;group&gt;/&lt;caption&gt;' as its tab; the line sets the group first.</summary>
+[TestFixture]
+public sealed class TogglePanelTabTests
+{
+    private sealed class Toggle : IValueElement
+    {
+        private readonly List<string> _log;
+        public Toggle(string code, List<string> log) { Code = code; _log = log; }
+        public string Code { get; }
+        public string Label => Code;
+        public Task<string?> GetValueAsStringAsync(CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task SetValueFromStringAsync(string value, CancellationToken cancellationToken = default) { _log.Add("set " + Code + " " + value); return Task.CompletedTask; }
+    }
+
+    [Test]
+    public async Task A_control_on_a_toggle_panel_sets_its_group_once()
+    {
+        var list = CatalogBuilder.Element("AttachmentList", "Text");
+        list.Tab = "CardButtonToggleGroup/Attachments";
+        var catalog = CatalogBuilder.Build(list, CatalogBuilder.Element("CardButtonToggleGroup", "ToggleTab"));
+        var services = new ServiceCollection();
+        services.AddSingleton<ValueCompatibilityPolicy>();
+        var plan = new ScriptValidator(CommandRegistry.Discover(), services.BuildServiceProvider()).Validate("d", "d.act",
+            new ScriptParser().Parse(new[] { "use tester", "open TestPage", "check AttachmentList exists", "check AttachmentList exists" }),
+            new ValidationContext(catalog, new Dictionary<string, string>(), new[] { "tester" }, new Dictionary<string, ObjectDefinition>()));
+        Assert.That(plan.IsValid, Is.True, plan.DescribeIssues());
+        var log = new List<string>();
+        var session = new FakeExecutionSession { Catalog = catalog, MaterializeWith = t => new Toggle(t.Code, log) };
+
+        foreach (var step in plan.Steps)
+        {
+            await CommandExecutor.EnsureTabsAsync(step, session, default);
+        }
+
+        Assert.That(log, Is.EqualTo(new[] { "set CardButtonToggleGroup Attachments" }));
+    }
+
+    private sealed class SlowPanel : IValueElement, IVisibilityAware
+    {
+        private readonly List<string> _log;
+        public SlowPanel(string code, List<string> log) { Code = code; _log = log; }
+        public string Code { get; }
+        public string Label => Code;
+        public Task<string?> GetValueAsStringAsync(CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task SetValueFromStringAsync(string value, CancellationToken cancellationToken = default) { _log.Add("set " + value); return Task.CompletedTask; }
+        public Task<bool> IsShownAsync(bool expected, int timeoutMs, CancellationToken cancellationToken = default) => Task.FromResult(_log.Count >= 2);
+    }
+
+    [Test]
+    public async Task A_toggle_panel_that_did_not_open_gets_one_more_click()
+    {
+        var list = CatalogBuilder.Element("AttachmentList", "Text");
+        list.Tab = "CardButtonToggleGroup/Attachments";
+        var catalog = CatalogBuilder.Build(list, CatalogBuilder.Element("CardButtonToggleGroup", "ToggleTab"));
+        var services = new ServiceCollection();
+        services.AddSingleton<ValueCompatibilityPolicy>();
+        var plan = new ScriptValidator(CommandRegistry.Discover(), services.BuildServiceProvider()).Validate("d", "d.act",
+            new ScriptParser().Parse(new[] { "use tester", "open TestPage", "check AttachmentList exists" }),
+            new ValidationContext(catalog, new Dictionary<string, string>(), new[] { "tester" }, new Dictionary<string, ObjectDefinition>()));
+        var log = new List<string>();
+        var session = new FakeExecutionSession { Catalog = catalog, MaterializeWith = t => new SlowPanel(t.Code, log) };
+
+        await CommandExecutor.EnsureTabsAsync(plan.Steps[^1], session, default);
+
+        Assert.That(log, Is.EqualTo(new[] { "set Attachments", "set Attachments" }));
+    }
+
+    [Test]
+    public void The_walk_marks_what_a_toggle_tab_other_than_the_default_showed()
+    {
+        static CreatioAutoTests.Analysis.DiscoveredElement El(string code) => new(code, code, "Text", "crt-input", false, false, true, null, null, null, null, false);
+        var elements = new List<CreatioAutoTests.Analysis.DiscoveredElement> { El("JobTitle"), El("AttachmentList") };
+
+        CreatioAutoTests.Analysis.PageAnalyzer.MarkTogglePanel(elements, 0, "CardButtonToggleGroup", "Feed", isDefault: true);
+        CreatioAutoTests.Analysis.PageAnalyzer.MarkTogglePanel(elements, 1, "CardButtonToggleGroup", "Attachments", isDefault: false);
+
+        Assert.That(elements.Select(e => e.Tab), Is.EqualTo(new string?[] { null, "CardButtonToggleGroup/Attachments" }));
+    }
+}

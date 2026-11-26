@@ -379,7 +379,8 @@ def _page(item, r: Resolver) -> list[Edge]:
             name, uid = r.entity(entity)
             edges.append(Edge("object", name, uid, "data-source", "name", [ds] + r.column_names(name, columns.get(ds, []))))
     try:  # SCHEMA_DEPS: the modules the page loads; a workspace client schema among them is an edge
-        modules = json.loads(item.raw_sections().get("SCHEMA_DEPS") or "[]")
+        from .merge import js_string_list  # a hand-written layer may hold single quotes (S48-T16)
+        modules = js_string_list(item.raw_sections().get("SCHEMA_DEPS") or "[]")
     except ValueError:
         modules = []
     for dep in modules if isinstance(modules, list) else []:

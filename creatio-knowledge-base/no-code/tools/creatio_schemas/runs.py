@@ -7,6 +7,7 @@
     process_runs(..., steps=True)                         the steps of each run (`SysProcessElementLog`: caption, status, dates)
     process_timers(env, "<process>", "Entity:<id>")       the pending timers (`qrtz_triggers` of the run's elements), fire time in the zone
     fire_timer(env, "<process>", "Entity:<id>", project)  move a pending timer to now + 20 s; only for an environment `kind: dev`
+    cancel_runs(env, ["<run id>"], project)                cancel runs (`ProcessEngineService.svc/CancelExecution`); only for `kind: dev`
 
 The process id RunProcess answers is the `SysProcessLog.Id` of the run. Every query is in `env/README.md`.
 """
@@ -136,7 +137,8 @@ def schema_copies(env, process: str) -> list[dict]:
 def element_tasks(env, element: str, process: str | None = None, zone: str | None = None) -> dict:
     """{tasks [task], copies}: the elements of `element` (its caption, or its `SchemaElementUId`) still open in `SysProcessElementLog`
     (no end date, no error), newest first, of a process (every copy of that schema) when `process` is given. A task is {run, start,
-    record}: the run id, its start, and the record the run holds in `SysProcessEntity` (its display value, else the id), if any."""
+    record, owner, task}: the run id, its start, the record the run holds in `SysProcessEntity` (its display value, else the id), if
+    any, the owner (`OwnerId`, a contact, by name) and the task's own `SysProcessElementLog.Id`."""
     where = ['e."CompleteDate" is null', "coalesce(e.\"ErrorDescription\", '') = ''",
              f"e.\"SchemaElementUId\" = '{guid(element)}'" if GUID_RE.fullmatch(element.strip()) else f'e."Caption" = {quote(element)}']
     copies = []
@@ -145,11 +147,13 @@ def element_tasks(env, element: str, process: str | None = None, zone: str | Non
         if not copies:
             return {"tasks": [], "copies": []}
         where.append('l."SysSchemaId" in (' + ", ".join(f"'{guid(c['id'])}'" for c in copies) + ")")
-    rows = env.sql('select e."SysProcessId"::text as "run", e."StartDate", (select coalesce(n."EntityDisplayValue", n."EntityId"::text) '
+    rows = env.sql('select e."SysProcessId"::text as "run", e."Id"::text as "task", e."StartDate", c."Name" as "owner", '
+                   '(select coalesce(n."EntityDisplayValue", n."EntityId"::text) '
                    'from "SysProcessEntity" n where n."SysProcessId" = e."SysProcessId" offset 0 rows fetch first 1 rows only) as "record" '
-                   'from "SysProcessElementLog" e join "SysProcessLog" l on l."Id" = e."SysProcessId" where ' + " and ".join(where)
-                   + ' order by e."StartDate" desc')
-    return {"tasks": [{"run": str(r["run"]).lower(), "start": local_time(r.get("StartDate"), zone), "record": r.get("record") or ""} for r in rows],
+                   'from "SysProcessElementLog" e join "SysProcessLog" l on l."Id" = e."SysProcessId" '
+                   'left join "Contact" c on c."Id" = e."OwnerId" where ' + " and ".join(where) + ' order by e."StartDate" desc')
+    return {"tasks": [{"run": str(r["run"]).lower(), "start": local_time(r.get("StartDate"), zone), "record": r.get("record") or "",
+                       "owner": r.get("owner") or "", "task": str(r.get("task") or "").lower()} for r in rows],
             "copies": copies}
 
 
@@ -301,6 +305,40 @@ def fire_timer(env, process: str, record: str, project: str | None, env_name: st
     return {"timer": t, "was": t["fires"], "now": local_time(moment.isoformat(), zone), "delay": delay}
 
 
+CANCEL = "ServiceModel/ProcessEngineService.svc/CancelExecution"
+
+
+def cancel_runs(env, run_ids: list[str], project: str | None, env_name: str | None = None, zone: str | None = None,
+                wait: int = 10, sleep=None) -> list[dict]:
+    """Cancels runs (a stuck page task's run, say): `POST ProcessEngineService.svc/CancelExecution {"processDataIds": "<id>;<id>"}`,
+    the Process Log's cancel (8.3.2 binaries: each id goes to `CancelExecutionAsync`), then each `SysProcessLog` row read back,
+    polled up to `wait` seconds until no run is still running. Refused (PermissionError) unless the project.json marks the
+    environment `kind: dev`, like `fire_timer`."""
+    import time
+    name = env_name or getattr(env, "clio_name", None) or "this environment"
+    if not environment_is_dev(project, env_name or getattr(env, "clio_name", None)):
+        raise PermissionError(f"refused: {name} is not a dev environment (project.json environment.kind must be \"dev\" for it)")
+    ids = [guid(i) for i in run_ids]
+    if not ids:
+        raise ValueError("give the run id(s) to cancel (`runs --element ...` lists them)")
+    r = env.call_service(CANCEL, {"processDataIds": ";".join(ids)})
+    if not r.ok:
+        raise RuntimeError(f"CancelExecution: {r.error}")
+    sleep = sleep or time.sleep
+    for _ in range(max(1, wait)):
+        logs = [process_log(env, i, zone) or {"id": i, "process": None, "status": None, "state": "no SysProcessLog row", "start": "", "end": ""}
+                for i in ids]
+        if all(log["state"] != "running" for log in logs):
+            break
+        sleep(1)
+    return logs
+
+
+def render_cancel(logs: list[dict]) -> str:
+    return "\n".join(f"{x['id']}  {x['process'] or '?'}  {x['status'] or '?'} ({x['state']})" + (f", ended {x['end']}" if x.get("end") else "")
+                     for x in logs)
+
+
 def trim_error(text: str | None) -> str:
     """The message chain of a .NET error without its stack frames (`   at ...`, `--- End of inner exception ...`)."""
     return "\n".join(line.rstrip() for line in str(text or "").splitlines() if line.strip() and not _FRAME_RE.match(line))
@@ -334,7 +372,8 @@ def render_runs(answer: dict) -> str:
     if "tasks" in answer:
         tasks = answer["tasks"]
         return "\n".join([f"{len(tasks)} running task{'' if len(tasks) == 1 else 's'}"]
-                          + [f"{k['start']}  run {k['run']}" + (f"  waits on {k['record']}" if k["record"] else "") for k in tasks])
+                          + [f"{k['start']}  run {k['run']}" + (f"  waits on {k['record']}" if k["record"] else "")
+                             + (f"  owner {k['owner']}" if k.get("owner") else "") for k in tasks])
     copies = answer.get("copies") or []
     if copies:
         asked = {c["name"] for c in copies}

@@ -11,7 +11,7 @@ namespace CreatioAutoTests.Frontend;
 /// generations disagree on, so <see cref="BuildSelector"/> is left to <see cref="FreedomElementBase"/>
 /// and <see cref="Classic.ClassicElementBase"/>; everything above it is identical.
 /// </summary>
-public abstract class UiElementBase : IUiElement, IExistable, ILabeled, IVisibilityAware
+public abstract class UiElementBase : IUiElement, IExistable, ILabeled, IVisibilityAware, IPositioned
 {
     private ILocator? _root;
 
@@ -53,7 +53,7 @@ public abstract class UiElementBase : IUiElement, IExistable, ILabeled, IVisibil
     protected virtual string LocatorDescription => BuildSelector();
 
     /// <summary>Host locator, cached because every element operation starts from the same control.</summary>
-    protected ILocator Root => _root ??= Page.Locator(BuildSelector()).First;
+    protected ILocator Root => _root ??= (Context.Scope is { } scope ? Page.Locator(scope).Last.Locator(BuildSelector()) : Page.Locator(BuildSelector())).First;
 
     /// <summary>Element that carries the value. Overridden per control type.</summary>
     protected abstract ILocator ValueLocator { get; }
@@ -110,6 +110,13 @@ public abstract class UiElementBase : IUiElement, IExistable, ILabeled, IVisibil
         {
             return false;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsBeforeAsync(IUiElement other, CancellationToken cancellationToken = default)
+    {
+        var after = await ((UiElementBase)other).Root.ElementHandleAsync(new LocatorElementHandleOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
+        return await Root.EvaluateAsync<bool>("(a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)", after).ConfigureAwait(false);
     }
 
     /// <summary>Reads the rendered caption for comparison with the configured label.</summary>

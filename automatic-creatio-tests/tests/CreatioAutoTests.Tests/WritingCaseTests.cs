@@ -107,7 +107,7 @@ public sealed class WritingCaseTests
 
     /// <summary>S45-T05: <c>expect error</c> turns a refused write into the pass.</summary>
     [Test]
-    public void Expect_error_is_a_tail_of_insert_and_update_only()
+    public void Expect_error_is_a_tail_of_insert_update_and_delete()
     {
         Assert.Multiple(() =>
         {
@@ -118,8 +118,7 @@ public sealed class WritingCaseTests
             Assert.That(Validate("# writes", "use Supervisor", "insert UsrOrder as Order set UsrAmount=5 expect error \"x\"").IsValid, Is.True, "nothing to delete");
             Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5", "update UsrOrder $Order set UsrAmount=1 expect error \"no\"").IsValid, Is.True);
             Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set expect error \"x\"").DescribeIssues(), Does.Contain("needs 'Column=Value"));
-            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5", "delete UsrOrder $Order expect error \"x\"").DescribeIssues(),
-                Does.Contain("belongs to 'insert' and 'update'"));
+            Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrAmount=5", "delete UsrOrder $Order expect error \"x\"").IsValid, Is.True);
         });
     }
 

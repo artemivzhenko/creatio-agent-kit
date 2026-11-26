@@ -13,7 +13,7 @@ namespace CreatioAutoTests.Frontend.Composite;
 /// Neither implies the other, so all four combinations occur.
 /// </summary>
 [UiElement("DataGrid", HostTag = "crt-data-grid", Options = typeof(DataGridOptions), LabeledByPanel = true)]
-public sealed class DataGrid : FreedomElementBase, IEditableAware, IColumned, IRecordAddable, IRowed
+public sealed class DataGrid : FreedomElementBase, IEditableAware, IColumned, IRecordAddable, IRowed, IGridRowsReadable
 {
     /// <summary>
     /// The columns a person sees, and nothing else.
@@ -302,6 +302,44 @@ public sealed class DataGrid : FreedomElementBase, IEditableAware, IColumned, IR
         }
 
         return rows;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<GridRowSnapshot>> ReadGridRowsAsync(string? column, CancellationToken cancellationToken = default)
+    {
+        if (!await ExistsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw NotFound();
+        }
+
+        // first array: the index of the first data column, then the caption of every header cell (positions line up with the cells);
+        // then [class, ...cells] per row. The row-number / toolbar cell in front of the data columns is not the row's text.
+        var raw = await Root.EvaluateAsync<string[][]>(
+            @"(el, args) => { const [headers, rowSel, dataSel] = args;
+                const text = c => (c.innerText || c.textContent || '').trim();
+                const heads = [...el.querySelectorAll(headers)];
+                const rows = [...el.querySelectorAll(rowSel)].map(r => {
+                    const cells = [...r.querySelectorAll('[role=""gridcell""], td')].map(text);
+                    return cells.some(c => c) ? [r.getAttribute('class') || '', ...cells] : null; }).filter(r => r);
+                return [[String(Math.max(0, heads.findIndex(h => h.matches(dataSel)))), ...heads.map(text)], ...rows]; }",
+            new[] { AllColumnHeadersSelector, RowSelector, ColumnHeaderSelector }).ConfigureAwait(false) ?? Array.Empty<string[]>();
+
+        var firstData = raw.Length > 0 ? int.Parse(raw[0][0]) : 0;
+        var captions = raw.Length > 0 ? raw[0].Skip(1).ToArray() : Array.Empty<string>();
+        var at = -1;
+        if (column is not null)
+        {
+            at = Array.FindIndex(captions, c => NormalizeLabel(c).Equals(NormalizeLabel(column), StringComparison.OrdinalIgnoreCase));
+            if (at < 0)
+            {
+                throw new CommandFailedException("Grid '" + Code + "' has no column '" + column + "'. On screen it shows: " +
+                                                 string.Join(", ", captions.Where(c => c.Length > 0).Select(c => "'" + c + "'")) + ".");
+            }
+        }
+
+        return raw.Skip(1).Select(r => new GridRowSnapshot(
+            at >= 0 ? (at + 1 < r.Length ? r[at + 1] : string.Empty) : r.Skip(1 + firstData).FirstOrDefault(c => c.Length > 0) ?? string.Empty,
+            r[0].Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToList();
     }
 
     /// <inheritdoc />

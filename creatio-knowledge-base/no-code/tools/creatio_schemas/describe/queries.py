@@ -411,7 +411,7 @@ def q_pg_attribute(pg: PageSchema, name, f):
 
 
 def q_pg_sources(pg: PageSchema, name, f):
-    return "\n".join(f"{k:<24} {(v.get('config') or {}).get('entitySchemaName', '?'):<24} scope={v.get('scope')}  attributes={', '.join((v.get('config') or {}).get('attributes', {})) or '-'}"
+    return "\n".join(f"{k:<24} {(v.get('config') or {}).get('entitySchemaName', '?'):<24} scope={v.get('scope')}  attributes={', '.join(a if isinstance(a, str) else json.dumps(a, ensure_ascii=False) for a in (v.get('config') or {}).get('attributes') or {}) or '-'}"
                      for k, v in pg.data_sources.items()) or "(no data sources)"
 
 

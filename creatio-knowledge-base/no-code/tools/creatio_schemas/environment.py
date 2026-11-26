@@ -32,7 +32,7 @@ from typing import Any
 
 AUTH_PATH = "ServiceModel/AuthService.svc/Login"  # at the site root on both platforms, never under 0/
 RUN_PROCESS = "ServiceModel/ProcessEngineService.svc/RunProcess"
-APP_PATHS = ("odata", "ServiceModel", "rest", "DataService")  # the paths that live under /0/ on .NET Framework
+APP_PATHS = ("odata", "ServiceModel", "rest", "DataService", "conf")  # the paths that live under /0/ on .NET Framework
 
 
 def clio_settings_path() -> Path:
@@ -116,9 +116,15 @@ def split_statements(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip() and not all(l.strip().startswith("--") for l in p.strip().splitlines())]
 
 
+CLIO_TIMEOUT_S = 600  # a select that hangs (gap 71: ten minutes on a site query) ends as an error, not a stuck tool
+
+
 def _run_clio(args: list[str]) -> tuple[int, str]:
     try:
-        r = subprocess.run(["clio", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        r = subprocess.run(["clio", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+                           timeout=CLIO_TIMEOUT_S)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"clio {args[0]} did not answer in {CLIO_TIMEOUT_S} s") from e
     except OSError as e:
         raise RuntimeError(f"could not run clio: {e}") from e
     return r.returncode, r.stdout + r.stderr
@@ -315,7 +321,7 @@ class Environment:
                 code, output = self._clio_run(["execute-sql-script", "-e", name, "-f", str(src), "-v", "json", "-d", str(out)])
                 if sql_failed(code, output):
                     raise RuntimeError(f"sql: {err_line(output)}")
-                result = out.read_text(encoding="utf-8-sig").strip() if out.is_file() else ""
+                result = sql_answer(out, output, name)
             parsed = json.loads(result, strict=False) if result else []  # strict=False: a raw newline inside a value
             rows.extend(parsed if isinstance(parsed, list) else [])  # an update: clio writes the affected row count
             if counts is not None:
@@ -336,6 +342,17 @@ _MSSQL_RE = re.compile(r"^Msg \d+, Level \d+")  # MS SQL's form of the same: `Ms
 
 def _is_error(line: str) -> bool:
     return "[ERR]" in line or bool(_SQLSTATE_RE.match(line.strip()) or _MSSQL_RE.match(line.strip()))
+
+
+def sql_answer(out: Path, output: str, env: str) -> str:
+    """The text of clio's `-d` file. clio 8.1.0.158 writes `[]` for zero rows and the count for an update (8.3.2 test site); an
+    older clio writes no file for zero rows and prints `Done` - that is an empty answer too. No file otherwise is a lost answer,
+    not zero rows: it raises naming clio and the environment."""
+    if out.is_file():
+        return out.read_text(encoding="utf-8-sig").strip()
+    if re.search(r"^(\[INF\] - )?Done\s*$", output, re.M) and "Results saved to" not in output:
+        return ""
+    raise RuntimeError(f"clio execute-sql-script wrote no result (environment {env!r}?): {output.strip()[-500:]}")
 
 
 def sql_failed(code: int, output: str) -> bool:

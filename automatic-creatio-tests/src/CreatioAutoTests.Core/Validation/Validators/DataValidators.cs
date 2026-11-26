@@ -69,6 +69,7 @@ public sealed class UpdateValidator : ICommandValidator
 /// <summary>
 /// Shape of 'delete':
 ///   delete UsrOrder $Order
+///   delete UsrOrder $Parent expect error "foreign key"   - the delete must be refused
 /// A deleted alias leaves the cleanup list, and counts as deleted for '# writes'.
 /// </summary>
 public sealed class DeleteValidator : ICommandValidator
@@ -76,14 +77,15 @@ public sealed class DeleteValidator : ICommandValidator
     /// <summary>Validates the object and the record reference.</summary>
     public ValidationResult Validate(ParsedCommand command, ValidationContext context)
     {
-        if (command.ArgumentCount != 2)
+        var expect = DataShapes.ExpectError(command);
+        if (expect.Count != 2)
         {
-            return ValidationResult.Fail("'delete' reads 'delete <object> $alias|<guid>'" +
-                                         (DataShapes.ExpectError(command).Expected ? "; 'expect error' belongs to 'insert' and 'update'" : string.Empty) + ".");
+            return ValidationResult.Fail("'delete' reads 'delete <object> $alias|<guid> [expect error \"<text>\"]'.");
         }
 
+        // A refused delete deletes nothing: the alias still needs its own delete for '# writes'.
         return DataShapes.IdReference("delete", command.Arguments[1])
-               ?? ValidationResult.Ok().WithVariable(new VariableEffect(null, Deletes: DataShapes.AliasIn(command.ValueAt(1)!)));
+               ?? ValidationResult.Ok().WithVariable(new VariableEffect(null, Deletes: expect.Expected ? null : DataShapes.AliasIn(command.ValueAt(1)!)));
     }
 }
 
@@ -99,10 +101,11 @@ public sealed class DeleteRecordValidator : ICommandValidator
     {
         if (command.ArgumentCount < 2)
         {
-            return ValidationResult.Fail("'delete-record' reads 'delete-record <object> Column=Value;...'.");
+            return ValidationResult.Fail("'delete-record' reads 'delete-record <object> Column=Value;... [expect error \"<text>\"]'.");
         }
 
-        var filter = command.Arguments.Skip(1).ToArray();
+        var expect = DataShapes.ExpectError(command);
+        var filter = command.Arguments.Skip(1).Take(expect.Count - 1).ToArray();
         if (DataShapes.Pairs("delete-record", filter) is { } error)
         {
             return error;
@@ -111,7 +114,7 @@ public sealed class DeleteRecordValidator : ICommandValidator
         // 'Id=$Order' deletes the aliased record: for '# writes' that is the same as 'delete <object> $Order'.
         var text = RecordAssignments.Rejoin(filter);
         var byId = Regex.Match(text, @"^\s*Id\s*=\s*\$([A-Za-z_]\w*)\s*$");
-        return ValidationResult.Ok().WithVariable(new VariableEffect(null, Deletes: byId.Success ? byId.Groups[1].Value : null));
+        return ValidationResult.Ok().WithVariable(new VariableEffect(null, Deletes: byId.Success && !expect.Expected ? byId.Groups[1].Value : null));
     }
 }
 
@@ -263,7 +266,7 @@ public static class DataShapes
     }
 
     /// <summary>
-    /// The optional tail <c>expect error ["&lt;text&gt;"]</c> of 'insert' and 'update': how many leading arguments
+    /// The optional tail <c>expect error ["&lt;text&gt;"]</c> of 'insert', 'update', 'delete' and 'delete-record': how many leading arguments
     /// are the line proper, whether the write must be refused, and the text the refusal must contain.
     /// </summary>
     public static (int Count, bool Expected, string? Text) ExpectError(ParsedCommand command)

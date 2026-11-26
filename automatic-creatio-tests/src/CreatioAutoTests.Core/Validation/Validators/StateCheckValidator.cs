@@ -57,6 +57,25 @@ public sealed class StateCheckValidator : ICommandValidator
             return ValidationResult.Fail("'check' cannot run: " + resolveError + ".");
         }
 
+        if (GridRowForms.IsForm(command))
+        {
+            if (!GridRowForms.TryParse(command, i => command.ValueAt(i)!, out _, out var formError))
+            {
+                return ValidationResult.Fail(formError);
+            }
+
+            return target.Entry.Supports(typeof(IGridRowsReadable))
+                ? ValidationResult.Ok(target)
+                : ValidationResult.Fail("'" + code + "' is a " + target.Entry.Definition.Type + " and has no rows to check.");
+        }
+
+        if (command.ArgumentCount == 4 && DataShapes.Is(command, 1, "is") && DataShapes.Is(command, 2, "before"))
+        {
+            return context.TryResolve(command.ValueAt(3)!, out var other, out var otherError)
+                ? ValidationResult.Ok(target, other)
+                : ValidationResult.Fail("'check " + code + " is before ...' cannot run: " + otherError + ".");
+        }
+
         var rest = command.Arguments.Skip(1).Select(a => a.Value.ToLowerInvariant()).ToArray();
 
         return rest switch

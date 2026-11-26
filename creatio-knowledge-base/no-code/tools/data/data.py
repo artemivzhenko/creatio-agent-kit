@@ -5,7 +5,7 @@
     python data.py validate   <package> <Binding>
     python data.py rows       <package> <Binding> [--limit 20] [--culture en-US]
     python data.py new        <package> <Binding> --table UsrOrderStatus [--key Id] [--columns Name,Description]
-                              [--cultures en-US,ru-RU] [--rows rows.json]
+                              [--cultures en-US,ru-RU] [--rows rows.json] [--env dev]
     python data.py set        <package> <Binding> <key> <Column> <value> [--culture ru-RU]
     python data.py add-row    <package> <Binding> Column=value ...           (prints the new row's key)
     python data.py remove-row <package> <Binding> <key>
@@ -15,8 +15,9 @@
 A row's key is the value of its key column (several key columns: joined by "|"). "null" is a null
 value; a lookup takes the record's UId. A localised column (Name, Description of a lookup) lives in
 Localization/data.<culture>.json: `set` needs --culture for it, `add-row Name=x` writes x to every
-culture. `new` binds an object of the workspace (column UIds come from it); rows.json is a list of
-{Column: value} objects. Writing commands accept --dry-run. `clio push-pkg` installs the rows.
+culture. `new` binds an object of the workspace (column UIds come from it) or a platform table
+(Lookup, SysEntitySchemaOperationRight, SysSettings, SysModule ...: --env reads it from the site,
+else data/assets/platform_bindings.json); rows.json is a list of {Column: value} objects. Writing commands accept --dry-run. `clio push-pkg` installs the rows.
 
 `duplicates` reads the environment over OData (library: ../creatio_schemas/environment) and groups
 the records by the normalised value of the column: one line per group of two or more
@@ -111,8 +112,9 @@ def build() -> CommandLine:
     p = c.command("rows", rows, "the rows, one line each, key first")
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--culture", help="localised columns in this culture only")
-    p = c.command("new", lambda b, a: print(b.describe()), "a binding of an object of the workspace")
+    p = c.command("new", lambda b, a: print(b.describe()), "a binding of an object of the workspace or a platform table")
     p.add_argument("--table", required=True)
+    p.add_argument("--env", help="a platform table: read its columns from this environment (else the bundled catalog)")
     p.add_argument("--key", default="Id", help="key columns, comma-separated")
     p.add_argument("--columns", default="", help="more columns, comma-separated (the rows add theirs)")
     p.add_argument("--cultures", default="en-US")
@@ -145,7 +147,7 @@ def open_binding(a):
     if a.command == "new":
         data = json.loads(Path(a.rows).read_text(encoding="utf-8-sig")) if a.rows else []
         return DataBinding.create(Path(a.package), a.binding, a.table, a.key.split(","), data, a.cultures.split(","),
-                                  [n for n in a.columns.split(",") if n])
+                                  [n for n in a.columns.split(",") if n], a.env)
     return DataBinding(Path(a.package), a.binding)
 
 

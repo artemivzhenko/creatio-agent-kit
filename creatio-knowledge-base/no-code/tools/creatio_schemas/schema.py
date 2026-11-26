@@ -50,7 +50,8 @@ class Descriptor:
         self.text = re.sub(r'("Caption":\s*")[^"]*(")', lambda m: m.group(1) + literal + m.group(2), self.text, count=1)
 
     def touch(self) -> None:
-        self.text = re.sub(r'"\\/Date\(\d+\)\\/"', lambda m: f'"{wcf_now()}"', self.text, count=1)
+        # the date in the form the file has it: `\/Date(n)\/` (an export) or `/Date(n)/` (clio add-package)
+        self.text = re.sub(r'"(\\?)/Date\(\d+\)\\?/"', lambda m: f'"{wcf_now() if m.group(1) else wcf_now().replace(chr(92), "")}"', self.text, count=1)
 
 
 class PackageItem:
@@ -119,10 +120,21 @@ class Schema(PackageItem):
         if not self.metadata_path.is_file():
             raise FileNotFoundError(f"no schema {name} in {self.package}")
         self.descriptor = Descriptor(self.dir / "descriptor.json")
-        self.resources = Resources(self.package / "Resources" / f"{name}.{self.RESOURCE_SUFFIX}")
+        self._resources: Resources | None = None
         text, self.metadata_bom = read_text(self.metadata_path)
         self.newline = newline_of(text)
         self.load_metadata(text)
+
+    @property
+    def resources(self) -> Resources:
+        """Read on first use: a reader that shows no caption (who_sets over 400 packages) opens none of the resource files."""
+        if self._resources is None:
+            self._resources = Resources(self.package / "Resources" / f"{self.name}.{self.RESOURCE_SUFFIX}")
+        return self._resources
+
+    @resources.setter
+    def resources(self, value: Resources) -> None:
+        self._resources = value
 
     def load_metadata(self, text: str) -> None:
         raise NotImplementedError

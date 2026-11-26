@@ -45,6 +45,8 @@ public sealed class Button : FreedomElementBase, IRefusable, IUploadable
         await EnsureEnabledAsync().ConfigureAwait(false);
 
         var target = await ResolveClickTargetAsync().ConfigureAwait(false);
+        // The node itself, not the locator: a dialog the save opens may bring a button of the same name, which the locator would find next (S48-T11).
+        var clicked = _options.IsSave ? await Root.ElementHandleAsync(new LocatorElementHandleOptions { Timeout = TimeoutMs }).ConfigureAwait(false) : null;
         await target.ClickAsync(new LocatorClickOptions { Timeout = TimeoutMs }).ConfigureAwait(false);
 
         if (_options.SettleMs > 0)
@@ -57,7 +59,7 @@ public sealed class Button : FreedomElementBase, IRefusable, IUploadable
             return;
         }
 
-        await CompleteSaveAsync(target, cancellationToken).ConfigureAwait(false);
+        await CompleteSaveAsync(target, clicked!, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -168,7 +170,7 @@ public sealed class Button : FreedomElementBase, IRefusable, IUploadable
     }
 
     /// <summary>Verifies a save actually went through: no error popup and the button is gone.</summary>
-    private async Task CompleteSaveAsync(ILocator target, CancellationToken cancellationToken)
+    private async Task CompleteSaveAsync(ILocator target, IElementHandle clicked, CancellationToken cancellationToken)
     {
         var error = await ReadErrorNotificationAsync().ConfigureAwait(false);
         if (error is not null)
@@ -194,9 +196,8 @@ public sealed class Button : FreedomElementBase, IRefusable, IUploadable
             // Hidden rather than detached: some pages remove the Save button from the DOM once the
             // record is stored, others keep the host and collapse it. Waiting for removal reports a
             // save that plainly worked as a failure on every page of the second kind.
-            await Root.WaitForAsync(new LocatorWaitForOptions
+            await clicked.WaitForElementStateAsync(ElementState.Hidden, new ElementHandleWaitForElementStateOptions
             {
-                State = WaitForSelectorState.Hidden,
                 Timeout = _options.DisappearTimeoutMs
             }).ConfigureAwait(false);
 

@@ -37,21 +37,22 @@ def _method(c, method: str) -> tuple[int, str] | None:
 
 def layers_of(c, method: str, env=None, env_name: str = "") -> list[dict]:
     """[{package, where: workspace|site|site only, line, body}] first to last; `body` None when that layer does not define it."""
-    from ..describe.layers import layers_sql
+    from ..describe.body import copies, read
     from ..describe.merge import layers_in_order
     from .schema import ClassicSchema
 
     workspace = Path(c.package).parent
     if env is None:
         layers = layers_in_order(workspace, c.name, manager="ClientUnitSchemaManager")
-        bodies = {}
+        ids = {}
     else:
         layers = layers_in_order(workspace, c.name, env, manager="ClientUnitSchemaManager")
-        bodies = {r["package"]: r.get("body") or "" for r in env.sql(layers_sql(c.name))}
+        ids = {r["package"]: r["id"] for r in copies(env, c.name)}  # the layers query has no body column (S48-T04): one read per layer
     out = []
     for layer in layers:
         if env is not None and layer.source == "site":  # the site's body is what runs, in the workspace or not
-            schema, where = view(bodies.get(layer.package, ""), c.name), "site" if layer.folder is not None else "site only"
+            body = read(env, ids[layer.package]) if layer.package in ids else ""
+            schema, where = view(body, c.name), "site" if layer.folder is not None else "site only"
         else:
             schema = ClassicSchema(layer.folder.parent.parent, c.name)
             where = "workspace" if env is None else "not on the site"

@@ -7,15 +7,19 @@
     python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
     python proc-runs.py fire  --project project.json --process UsrOrder_Process --record UsrOrder:<id> [--timer "1 d."] [--delay 20]
     python proc-runs.py error -e <env> <log id>
+    python proc-runs.py cancel --project project.json <run id> [<run id> ..] [--wait 10]
 
 `runs --record` lists every run that started within --window seconds of a change of the record or of a row pointing at
 it (its details), oldest first. The processes `environment.noiseProcesses` of --project names (names or prefixes) are
 hidden from `--record` and the unfiltered list, with a line saying how many. Times are UTC and `environment.timeZone`.
-`--element` lists instead the tasks of that element (a page task, say) still open in `SysProcessElementLog`, newest first, the count in the first line.
+`--element` lists instead the tasks of that element (a page task, say) still open in `SysProcessElementLog`, newest first, the count in the first
+line, then per task its start, run id, the record the run holds and the owner.
 `--steps` prints under each run the elements it went through (`SysProcessElementLog`: caption, status, start .. end, UTC). `timers` lists the
 pending timers of a process (a `qrtz_triggers` row whose `job_group` is the run's element id) with the fire time in the project's zone. `fire`
 moves one pending timer to now + `--delay` seconds (default 20); it is refused (exit 2, `refused: <env> is not a dev environment`) unless the
-`--project` marks the environment `"kind": "dev"`. With no run on a site whose `SysProcessLog` is empty `runs` says `process logging is off`.
+`--project` marks the environment `"kind": "dev"`. `cancel` (dev environments only, refused the same way) posts the Process Log's
+cancel (`ProcessEngineService.svc/CancelExecution`) for the runs - the run ids `--element` lists - and prints each `SysProcessLog` row read
+back (polled up to `--wait` seconds). With no run on a site whose `SysProcessLog` is empty `runs` says `process logging is off`.
 Exit 1 when no run is found (`runs`, `timers`) or the run failed (`error`); 2 on a usage error or a refusal.
 """
 
@@ -29,8 +33,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas.environment import open_environment  # noqa: E402
 from creatio_schemas.records import zone_of  # noqa: E402
-from creatio_schemas.runs import (fire_timer, process_error, process_runs, process_timers, render_error, render_fire,  # noqa: E402
-                                  render_runs, render_timers)
+from creatio_schemas.runs import (cancel_runs, fire_timer, process_error, process_runs, process_timers, render_cancel,  # noqa: E402
+                                  render_error, render_fire, render_runs, render_timers)
 
 
 def noise_of(project: str | None) -> list[str]:
@@ -64,11 +68,15 @@ def main(argv=None, **env_kw) -> int:
     fire.add_argument("--delay", type=int, default=20, help="seconds from now (default 20)")
     error = commands.add_parser("error", help="one run's error without stack frames, and the element it stopped on")
     error.add_argument("log_id")
-    for sub in (runs, error, timers, fire):
+    cancel = commands.add_parser("cancel", help="cancel runs (a stuck page task's run; dev environments only)")
+    cancel.add_argument("run_ids", nargs="+", metavar="run_id")
+    cancel.add_argument("--wait", type=int, default=10, help="seconds to wait for the SysProcessLog rows to leave running (default 10)")
+    for sub in (runs, error, timers, fire, cancel):
         sub.add_argument("-e", "--env", help="clio environment name")
         sub.add_argument("--project", help="project.json (environment, timeZone, noiseProcesses)")
     a = p.parse_args(argv)
     try:
+        sleep = env_kw.pop("sleep", None)  # tests: the cancel's poll without waiting
         env, zone = open_environment(a.env, a.project, **env_kw), zone_of(a.project)
         if a.command == "runs":
             answer = process_runs(env, a.process, a.record, a.since, a.until, a.limit, a.window, noise_of(a.project), zone, a.steps, a.element, a.status)
@@ -81,6 +89,10 @@ def main(argv=None, **env_kw) -> int:
         if a.command == "fire":
             print(render_fire(fire_timer(env, a.process, a.record, a.project, a.env, a.timer, a.delay, zone)))
             return 0
+        if a.command == "cancel":
+            logs = cancel_runs(env, a.run_ids, a.project, a.env, zone, a.wait, sleep)
+            print(render_cancel(logs))
+            return 1 if any(x["state"] == "running" for x in logs) else 0
         answer = process_error(env, a.log_id, zone)
         print(render_error(answer))
         return 1 if answer["run"]["state"] == "failed" else 0

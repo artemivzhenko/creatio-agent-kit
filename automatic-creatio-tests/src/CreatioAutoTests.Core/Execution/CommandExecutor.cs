@@ -204,6 +204,9 @@ public sealed class CommandExecutor
         }
     }
 
+    // How long a toggle panel gets to show the element before its tab is clicked once more.
+    private const int TogglePanelWaitMs = 3000;
+
     private static bool IsTabControl(ResolvedTarget target) =>
         target.Definition.Type is "Tab" or "TabPanel" or "ToggleTab";
 
@@ -218,6 +221,27 @@ public sealed class CommandExecutor
             var code = target.Definition.Tab;
             if (string.IsNullOrWhiteSpace(code) || IsTabControl(target) || string.Equals(code, session.ActiveTabCode, StringComparison.Ordinal))
             {
+                continue;
+            }
+
+            if (code.IndexOf('/') is var slash and > 0 && session.Catalog.TryGetElement(target.Page, code[..slash], out var group) && group.Definition.Type == "ToggleTab")
+            {
+                // '<group>/<caption>': a toggle group's tab, as 'analyse' writes it for a control on its panel (S48-T11).
+                if (session.Materialize(new ResolvedTarget(group.Definition.Code, group)) is IValueElement toggle)
+                {
+                    // The panel may need a second click to open (S45-T08); the element itself tells whether it did.
+                    for (var click = 0; click < 2; click++)
+                    {
+                        await toggle.SetValueFromStringAsync(code[(slash + 1)..], cancellationToken).ConfigureAwait(false);
+                        if (session.Materialize(target) is not IVisibilityAware shown || await shown.IsShownAsync(true, TogglePanelWaitMs, cancellationToken).ConfigureAwait(false))
+                        {
+                            break;
+                        }
+                    }
+
+                    session.ActiveTabCode = code;
+                }
+
                 continue;
             }
 

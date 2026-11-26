@@ -30,6 +30,10 @@ in `metadata.json`); `"elements"`, `"element <Name>"`, `"params"`, `"flows"` are
 Add / Modify data value prints with its name (`UsrStatus = Done`) when the workspace's data bindings hold the row.
 `proc.py filter` given a caption (`UsrStatus = Done`) writes the row Id as the value and the caption as `displayValue`, so the designer
 shows the name; a caption no binding of the workspace holds is an error (give the Id). `find` searches the decoded text of every process.
+It prints each hit as it is found and stops after `--offset` + `--limit` (a tail line names the next offset). A lookup Id
+is matched as written; the workspace's data bindings are read only to caption a printed hit that holds one, and
+`--captions` matches the captions too (it reads every binding first). On a cold disk the bindings were most of the
+time: the 61 processes of the stock CrtBase package took 273 s before (230 s of them the bindings), 47 s after (S48-T13).
 
 A lookup row the workspace holds no binding for (a base package's status or stage, a row filled by hand on the site) is named from the site with `env=` (S33-T10):
 `describe.py schema <package> <Process> --env dev` (MCP `describe_schema(..., env="dev")`) and `describe.py item <package> <Process> "element ReadOrders env=dev"`
@@ -44,7 +48,7 @@ is the one above, unchanged.
 <!-- commands:start -->
 ```
 python proc.py inspect   <package> <Process>
-python proc.py find      <workspace|package> "<text|regex>" [--limit N] [--offset N]   the decoded text of every process: scripts, conditions, filters, values
+python proc.py find      <workspace|package> "<text|regex>" [--limit N] [--offset N] [--captions]   the decoded text of every process: scripts, conditions, filters, values
 python proc.py new       <package> <Process> --caption "..." [--cultures en-US ru-RU]
 python proc.py caption   <package> <Process> <target> en-US="..." [ru-RU="..."]   target: Process | Element | Element.Param | Parameter:Name
 python proc.py captions  <package> <Process> [--missing] [--from en-US]
@@ -59,6 +63,8 @@ python proc.py element   <package> <Process> map <Name> Param=value .. [--expr] 
 python proc.py element   <package> <Process> filter <Name> "<Column> = {Parameter:X}; <Column> is not null"   Read / Modify / Delete data
 python proc.py element   <package> <Process> count <Name> [--into <IntegerParam>]   Read data: count the records, ResultCount into a parameter (a formula task)
 python proc.py element   <package> <Process> buttons <Name> add <Code> --caption "Save" [--to <Next>] [--style ..] | remove <Code>   page tasks
+python proc.py element   <package> <Process> signal <Name> [--entity ..] [--on ..] [--columns A,B] [--filter "<Column> = ..; .."] [--env dev]   start / catch signal
+python proc.py element   <package> <Process> retask <Name> --task <UserTask> [--env dev]   another user task schema; parameters matched by name
 python proc.py flow      <package> <Process> add <Src> <Dst> [--condition "{Parameter:X} > 0"] [--name ..] [--caption ..]
 python proc.py flow      <package> <Process> remove <Name> | condition <Name> "<expr>"
 python proc.py script    <package> <Process> get <Element> [--out file] | set <Element> --file body.cs
@@ -138,6 +144,13 @@ every culture, with `--style`) and makes the flow `<El> -> AddOrder` wait for it
 promoted, a second button joins the same flow). `buttons remove <Code>` takes the item, its caption and a flow that waits
 for it alone. `inspect` lists the buttons with their flows. The page itself: `pages.py new <pkg> <Page> --template mini`.
 
+Another user task for an element (S48-T13): `element <pkg> <Process> retask <El> --task <UserTask>` points the element at
+the new task schema (`J6`, `BL7`), its parameters' owner (`A3`/`A4`) and every mapping row (`GT4` the task, `GT5` the
+task's parameter, matched by name). Values stay; a parameter the new task lacks is removed with its mapping and captions
+and named in the output line, one the element lacks is added with the task's default. The task is a catalogue name (an
+alias such as `readData` too), a workspace user task, or - with `--env <env>` - one read from the site's `SysSchema.MetaData`.
+`validate` runs after the save; an expression that read a removed parameter is flagged there.
+
 `rename-schema <workspace-or-package> <Old> <New> [--apply]` moves the schema and resource
 folders, rewrites the name in descriptor and metadata, and replaces whole-word occurrences
 in every text file under the root (page JS, C#, data). Dry run by default.
@@ -205,8 +218,13 @@ back into one line (`UsrOrder where UsrAmount > 100`), the same line DCM cases u
 python proc.py element UsrPkg UsrOrder_Process add OnBigAmount --kind startSignal --entity UsrOrder \
     --on modified --columns UsrAmount --filter "UsrAmount > 100; UsrStatus is not null"
 python proc.py element UsrPkg UsrOrder_Process signal OnBigAmount --on added,modified     # change later
+python proc.py element UsrPkg UsrOrder_Process signal OnBigAmount --filter "UsrAmountNet > 100"   # a new filter, the rest kept
 python proc.py element UsrPkg UsrOrder_Process add WaitClosed --kind catchSignal --message OrderClosed --after X
 ```
+
+`signal` on an existing element changes only what it is given and prints the signal as `inspect` shows it
+(`OnBigAmount: record signal: UsrOrder modified (columns: UsrAmount); when UsrOrder where UsrAmountNet > 100`). On 8.3.2
+the pushed filter is the `ConditionData` of the process's `SysEntityPrcStartEvent` row (S48-T13).
 
 Verified on 8.2.3: a process with a `modified` signal on an order object (one column, one
 condition) and a script that writes a mark into the record was pushed, published with
@@ -356,6 +374,18 @@ survive every push.
   its short name without `using Terrasoft.Configuration` fails to compile (`CS0103`) and every start then says the process must be published.
   `validate` warns `script <Element>: Terrasoft.Configuration is not among the usings` when the script names a class of the workspace (a source code
   schema or a `Files/cs` file of the package); write `Terrasoft.Configuration.<Class>` in full, or add the using.
+
+## Columns of a related object (E14, S48-T13)
+
+A formula or mapping reads one level of a Read data result: `{Element:ReadItem.Parameter:ResultEntity.EntityColumn:UsrCode}`.
+Two levels (`...[EntityColumn:{UsrContact}].[EntityColumn:{Name}]#]`, written by hand) were tried on 8.3.2 and answered an
+empty string, both with the default column fetch and with `EntityColumnMetaPathes` set to `<UsrContact uid>;<UsrContact uid>.<Name uid>`
+(the task's ESQ does accept a dotted meta path there - `GetSchemaColumnPathByMetaPath` in the 8.3.2 binaries - but the
+value does not reach the expression); the one-level column in the same run answered `stuck`. So `--columns` takes no paths.
+The no-code way is a second Read data on the related object, filtered by the first one's lookup:
+`element filter ReadContact "Id = {Element:ReadItem.Parameter:ResultEntity.EntityColumn:UsrContact}"`, then the one-level
+column of `ReadContact` (unproved live here); the code way is a script task with an ESQ over the column path (`script set`;
+the ESQ recipes: `search_recipes("EntitySchemaQuery")`).
 
 ## Not covered yet
 

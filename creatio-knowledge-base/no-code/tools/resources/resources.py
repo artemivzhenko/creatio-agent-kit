@@ -129,6 +129,18 @@ def set_(_, a):
     if not all("=" in v for v in a.values):
         raise ValueError('give culture=value pairs, e.g. en-US="Order"')
     values = parse_assignments(a.values)
+    body = package / "Schemas" / a.schema / f"{a.schema}.js"
+    if "." not in a.key and a.key != "Caption" and body.is_file() and "/**SCHEMA_VIEW_CONFIG_DIFF*/" in read_text(body)[0]:
+        # D95: a Freedom page shows LocalizableStrings.<Key>.Value with its B2 entry, never a plain key
+        from creatio_schemas.page import PageSchema
+        page = PageSchema(package, a.schema)
+        culture, text = next(iter(values.items()))
+        page.ensure_resource_string(a.key, text, culture)
+        for culture, value in values.items():
+            page.resources.set(f"LocalizableStrings.{a.key}.Value", value, [culture])
+        print(f"{a.schema} is a Freedom page: written as LocalizableStrings.{a.key}.Value with its B2 entry "
+              f"(#ResourceString({a.key})# shows it; `pages.py set-value --text` sets it on an element)")
+        return write(package, [page.resources], a.dry_run, {page.metadata_path: (page.render_metadata(), page.metadata_bom)})
     for culture, value in values.items():
         r.set(a.key, value, [culture])
     extra = {}

@@ -11,7 +11,7 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | Command | Syntax | Target | Example |
 | --- | --- | --- | --- |
 | use | `use <user>` (a browser opens at the first page, never for a backend case) | none | `use testUser` |
-| open | `open <page> [for <record>]` \| `open process-task <process> on <page>` | none | `open ContactForm for ContactRecord` |
+| open | `open <page> [for <record>]` (no record: a Freedom UI card address `#Card/<Page>` opens in add mode, `/add`) \| `open process-task <process> on <page>` | none | `open ContactForm for ContactRecord` |
 | check | `check <code> [not] exists` \| `check <code> is [not] required\|readonly\|editable\|shown` \| `check <code> columns` \| `check console\|network no errors [except "<regex>"]` \| `check dialog [not] shown\|contains "<text>"\|matches "<regex>"\|count <op> <n>` | `IExistable`; `required`/`readonly` need `IStateAware`, `editable` needs `IEditableAware`, `shown` needs `IVisibilityAware`, `columns` needs `IColumned`; `console` none | `check Input_Text is required` |
 | check-value | `check-value <code> eq|ne|gt|ge|lt|le|contains|startswith|endswith <value>` | `IValueElement` | `check-value Input_Text eq "Sample Name 123"` |
 | set | `set <code> "value" | set <code> <sourceCodeOrStaticValue>` | `IValueElement` | `set Input_Text DefInput` |
@@ -28,8 +28,8 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | check-record | `check-record <object> Column=Value;Column=Value [not] exists` \| `check-record <object> <filter> has <column> <op> <value>` | none (read over OData) | `check-record UsrOrder UsrName=Order 1 exists` |
 | insert | `insert <object> as <alias> [keep] set Column=Value;... [expect error "<text>"]` | none (OData) | `insert UsrOrder as Order set UsrName=Bed;UsrAmount=500` |
 | update | `update <object> $alias\|<guid> set Column=Value;... [expect error "<text>"]` | none (OData) | `update UsrOrder $Order set UsrAmount=5000` |
-| delete | `delete <object> $alias\|<guid>` | none (OData) | `delete UsrOrder $Order` |
-| delete-record | `delete-record <object> Column=Value;...` | none (OData, at most 20 records) | `delete-record UsrOrderLog UsrOrder/Id=$Order` |
+| delete | `delete <object> $alias\|<guid> [expect error "<text>"]` | none (OData) | `delete UsrOrder $Order` |
+| delete-record | `delete-record <object> Column=Value;... [expect error "<text>"]` | none (OData, at most 20 records) | `delete-record UsrOrderLog UsrOrder/Id=$Order` |
 | remember | `remember <code> as $name` \| `remember dialog as $name` | `IValueElement` | `remember UsrNumber as $first` |
 | remember-record | `remember-record <object> Column=Value;... as $name` | none (OData, exactly one record) | `remember-record UsrOrder UsrName=Bed as $order` |
 | check-count | `check-count <object> Column=Value;... eq\|ne\|gt\|ge\|lt\|le <number>\|$name` | none (OData) | `check-count UsrOrderLog UsrOrder/Id=$Order eq 1` |
@@ -47,6 +47,7 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 | navigate | `navigate <page> [for <record>]` | none (a configured page) | `navigate UsrOrderPage for $B` |
 | wait-record | `wait-record <object> <filter> [not] exists` \| `wait-record <object> <filter> has <column> <op> <value>`, each `within <n> second\|minute` | none (OData, polled) | `wait-record UsrOrder Id=$B has UsrStatus eq Done within 30 second` |
 | wait-count | `wait-count <object> Column=Value;... eq\|ne\|gt\|ge\|lt\|le <number>\|$name within <n> second\|minute` | none (OData, polled) | `wait-count UsrQueue Order/Id=$B ge 2 within 60 second` |
+| wait-process-task | `wait-process-task <process> on <page> [within <n> second\|minute]` | none (a configured page; OData, the process log) | `wait-process-task UsrOrder_Process on UsrOrderTaskPage within 30 second` |
 | check-process | `check-process <process> [for $record] started \| running \| step "<caption>" completed\|running [within <n> second\|minute]` | none (OData, the process log) | `check-process UsrOrder_Process for $B step "Status" completed within 2 minute` |
 | seed | `seed <object> $alias\|<guid> set Column=Value;...` | none (dev-only, SQL through clio) | `seed UsrOrder $A set UsrStatus=0042909f-...` |
 | fire-timer | `fire-timer <process> [for $record]` | none (dev-only, SQL through clio) | `fire-timer UsrOrder_Process for $B` |
@@ -90,6 +91,7 @@ or has not, completed (`SysProcessElementLog`). The runs counted are those that 
 binary process data, so the start time is the link, and `for $record` is accepted to say which record the check is about but does not narrow the query. Consecutive `check-process` lines
 look back from the same moment; the run the case's last `start` of the same process began is counted too, whenever it began (S45-T09). `within` polls like `wait-record`; without it the check reads once. A site whose process log is empty fails with `process logging is off for <process>`,
 never with "step not found"; a missing step lists the steps the runs did have.
+A process replaced in another package is a schema with another name whose `ParentId` is the replaced one (8.3.2); its runs count as runs of the replaced name (`SysSchema/Name eq 'X' or SysSchema/Parent/Name eq 'X'`), and `start X` already starts the replacing version.
 
 ### Waiting for a process
 
@@ -129,6 +131,38 @@ open process-task UsrS45T09_Process on UsrS45T09Page
 click SaveButton
 check-process UsrS45T09_Process step "Add order" completed within 20 second
 ```
+
+### A process page a click opened: `wait-process-task`
+
+When a UI line starts the process (a host page's button, a Save that fires a record signal) the case has no `start` to point at, and
+the application opens the task's page by itself, in a dialog over the host page. `wait-process-task <process> on <page> [within <n>
+second|minute]` waits (the budget, `pageCheckTimeoutMs` without `within`) for a running pre-configured page task of the process (or of a
+replacing version) that started since the case began, the same query as `open process-task`; when the page has not appeared in its
+dialog within 5 s it opens it as `open process-task` does. It then binds `<page>`, and every element line searches inside the newest
+dialog (`mat-dialog-container`): the host page has a `SaveButton` of its own, and without the scope `click SaveButton` would press the
+host's. `open process-task` scopes the same way when the page opens in a dialog. `on <page>` binds a page unscoped again. A host page's `SaveButton` with `isSave` waits for the button it clicked to go, not for any button of that name, so the dialog's `SaveButton` appearing at once does not fail the host's save.
+No task fails with `no running task of <process> ...`.
+
+```
+open UsrOrderForm                                               # add mode
+set UsrName "Bed"
+click SaveButton                                                # the record signal starts UsrOrder_Process
+wait-process-task UsrOrder_Process on UsrOrderTaskPage within 30 second
+click SaveButton                                                # the dialog's button: the task completes on it
+check-process UsrOrder_Process step "Save notes" completed within 30 second
+remember-record UsrOrder UsrName=Bed as $order
+open UsrOrderForm for $order                                    # the host page again, with what the process wrote
+check-value UsrNotes eq "Saved by page"
+```
+
+Closing the task's page steps the Shell back one history entry, past the host page (8.3.2): the form opened from a section
+returns to the section, and a form the case opened first returns to `about:blank`. So the host page is opened again for its record,
+not adopted with `on`. The run whose task `wait-process-task` found is counted by `check-process` whenever it began, as a run the
+case's own `start` began is.
+
+A task completed from outside the browser (`ProcessEngineService.svc/CompleteExecuting` with `PressedButtonCode`) takes the button's
+`Tag` as the code, `SaveButton_clicked`, not its `Name`: the flows out of the task are matched on the tags of the buttons they wait for,
+and any other value leaves no flow whose condition is met.
 
 ### Navigating inside the application: `navigate`
 
@@ -202,6 +236,21 @@ A section's list page (`#Section/<Object>_ListPage`) analyses like a form: `anal
 - `click AddButton`, then `on UsrOrderForm`, is the way to the add form; there is no `create` command.
 
 `select-in-dialog "A; B"` ticks the rows of a record selection window (the grid a `crt.OpenSelectionWindowRequest` opens) whose display value equals each text, case-blind; the window's own buttons are then pressed with `answer "Select"` and `check dialog not shown` reads that it closed. The checkbox of a row exists while the row is hovered, so the line hovers it first; it waits until the window's rows stop changing. A value that is not a row fails the step with the rows the window showed (the first 20): `the window has no row "X". It shows {1 | A}; {2 | B}.` With no window it fails with `no dialog is shown`. See the case `s42-links` (open the window, tick, Select, `wait-count` of the link rows, save).
+
+### Grid rows: order, text, class; the order of two elements
+
+A Freedom UI `DataGrid` (list page or detail) answers four forms of `check`; rows are counted from 1 in the order the grid renders them.
+
+- `check DataGrid rows are "a" "b" "c"` - the visible rows, in this order and no others (a comma after a quoted text is allowed). A row's text is its first non-empty cell after the row-number / toolbar cell (a row with every cell empty is not counted); `column <caption>` at the end takes that column's cell instead (the rendered caption, as in `check-row`).
+- `check DataGrid row 2 is "b" [column Name]` - one row's text.
+- `check DataGrid row 2 has class bold` / `has not class bold` - the class list of the row element (the `[role=row]` node). The classes are the grid's own (8.3.2: `mat-mdc-row mdc-data-table__row cdk-row`, plus `crt-data-table-row-active` on the row `select-row` clicked); read them once with a failing `has class` (the message lists them); a style the page sets from a column value (bold, grey) shows as a class only when the page puts one there. Computed style is not read.
+- `check DataGrid active row is 2` - the row that carries a class `active` / `selected` or ending in `-active` / `-selected` (`crt-data-table-row-active`: the row clicked or opened for editing; before a click none is marked); none marked fails with "has no active row".
+
+The rows are read again until the line holds or the element timeout ends, so a list that fills after the page opened needs no `wait`. Classic `Detail` grids are not covered (their rows are not `[role=row]`).
+
+`check A is before B` passes when element A comes before element B in the page (document order) and both are on it: the order of two panels in a tab, of two buttons in a panel. A container's children are not listed; name the two elements.
+
+An `ExpansionPanel` (`crt-expansion-panel`, the designer's detail panel) is an element type of its own: `check ItemsPanel is shown`, `check ItemsPanel exists` (its title is the label), `check ItemsPanel is before OtherPanel`. A collapsed panel is shown; only its content is not rendered. `analyse` lists every panel it finds as `ExpansionPanel`.
 
 ### Browser tabs
 
@@ -386,7 +435,7 @@ delete UsrOrder $Order
 ```
 
 - **Writes.** `insert` posts the record and binds its Id to the alias: `insert ... as Order` makes
-  `$Order`. `update` patches and `delete` deletes a record named by `$alias` or a GUID. `delete-record`
+  `$Order`. `update` patches and `delete` deletes a record named by `$alias` or a GUID; an `update <guid>` of an id nobody has yet creates the record (a PATCH upserts), and the case cleans it up like an insert. `delete-record`
   deletes every record matching a filter - the records a page or a process created, which the case
   has no alias for; more than 20 matches is refused with the count, no match fails. Values are typed
   like the filters: a GUID, `true`/`false` and a number unquoted, the rest text; a lookup given a GUID
@@ -396,7 +445,7 @@ delete UsrOrder $Order
 - **Expected refusal.** `insert ... expect error "<text>"` and `update ... expect error "<text>"` pass when the OData write FAILS and its error
   text (`error.message` and `error.innererror.message`, where a listener's message is) contains `<text>` (case-blind; `expect error` alone accepts any
   error). A saved write fails the step (`expected an error ... but the record was saved: <id>`, and cleanup deletes it); another text fails naming both.
-  A refused `insert` binds no alias. Not for `delete`. `Cases/s45-expect-error.act` is one.
+  A refused `insert` binds no alias. `delete <object> $alias|<guid> expect error "<text>"` and `delete-record ... expect error` pass when the DELETE is refused (a record another one still references: the foreign key says no); a delete that went through fails `... but the record was deleted: <id>`, and a refused delete leaves the alias on the cleanup list and does not count as its delete for `# writes`. `Cases/s45-expect-error.act` is one.
 - **Cleanup.** Every record a case inserts is deleted when the case ends, newest first - passed,
   failed or stopped early - unless the `insert` line says `keep`. `delete` and `delete-record`
   take a record off that list. A record the cleanup cannot delete fails the case as a run error naming
@@ -456,6 +505,7 @@ and `Cases/order-page-writes.act.exp`.
 | Button | `crt-button` | None | `isSave`, `doubleClick`, `settleMs`, `disappearTimeoutMs`; `pinned` |
 | CasesBar | `crt-entity-stage-progress-bar` | Stage | `values`, `subvalues`; `pinned` |
 | DataGrid | `crt-data-grid` | None | `columns`; `pinned` |
+| ExpansionPanel | `crt-expansion-panel` | None | `pinned` |
 
 A `DataGrid` has two properties Creatio configures independently, the way a field has required and
 read-only: whether inline editing is on, and whether it sits inside an expansion panel. All four
@@ -676,6 +726,8 @@ Values cross command layers as text. Dates accept `yyyy-MM-ddTHH:mm:ss`, `yyyy-M
 
 Boolean literals are exactly `true` or `false`; numbers use invariant decimal syntax.
 
+In a `Column=Value` list (`insert`, `update`, `check-record`, `remember-record`, `delete-record`) a value in double quotes is text whatever it looks like: `UsrNumber="0008640"` is the string `'0008640'` in a filter and in a body, `UsrExternalId="3842c895-..."` is a text column, not a lookup. A bare value keeps its typing (a GUID, `true`/`false`, a number); a bare `null` is JSON `null` (`UsrBaseDoc=null` and `UsrBaseDocId=null` both clear the lookup, written as `UsrBaseDocId`), and `"null"` is the word. `""` is the empty string and does not change how the other values of the list are read: `set UsrNumber="";UsrProject=$P` writes `UsrProjectId`. A `$name` inside quotes is not substituted.
+
 ## Finding A Page
 
 Analysing a page needs its schema name, and the name is rarely what you would guess: contacts live on
@@ -749,7 +801,7 @@ All paths are relative to the working directory.
 | `creatio.env.config.json` (copy `creatio.env.config.example.json`) | `BaseUrl`, optional `AuthUrl`, `Users` (`Username`, `Password`, optional `Name`: what a case writes after `use` when the login should stay out of the cases), optional `CasesFolders`, `AnalysisFolders` and `ProcessCasesFolders`, optional `AllowDevOnly` and `ClioEnvironment` (`# dev-only` cases) |
 | `creatio.site.config.json` | `AuthPath`, optional `ODataBasePath`, optional `ProcessStartPath` (default `/0/ServiceModel/ProcessEngineService.svc/RunProcess`) |
 | `processes/*.json` | one file per process a case may start: `name` and `parameters` (`code`, `type`, `direction`) |
-| `pages/*.json` | one file per page: `name`, `url`, `type` (`FreedomUI`, the default, or `ClassicUI`), `schema` (Classic only: the page schema name), and `elements` (`code`, `label`, `type`, optional `tab` (the page tab the control lies on: `analyse` writes it for a control shown on one tab only; a command on such a control opens that tab first, so no `click <Tab>` line is needed) and `pinned`, plus type-specific options such as a Classic element's `name` or a Save button's `isSave`). The page is implied by the file, so elements never repeat it. |
+| `pages/*.json` | one file per page: `name`, `url`, `type` (`FreedomUI`, the default, or `ClassicUI`), `schema` (Classic only: the page schema name), and `elements` (`code`, `label`, `type`, optional `tab` (the page tab the control lies on: `analyse` writes it for a control shown on one tab only; a command on such a control opens that tab first, so no `click <Tab>` line is needed; a control first seen on a toggle group's other tab, such as the attachments list behind `Attachments`, gets `<group>/<caption>` (`CardButtonToggleGroup/Attachments`) and the line sets the group to that caption first, once more when the control has not appeared within 3 s) and `pinned`, plus type-specific options such as a Classic element's `name` or a Save button's `isSave`). The page is implied by the file, so elements never repeat it. |
 | `objects.config.json` | `objects`: `name`, `sectionPage`, `formPage`, `newButton`, `saveButton`, `fields` mapping codes to static-value names |
 | `static.values.json` | object mapping static names to scalar values |
 | `run.config.json` | `headless`, `continueOnFailure`, `runAnalysis`, `viewportWidth`, `viewportHeight`, `elementTimeoutMs`, `absenceTimeoutMs`, `pageCheckTimeoutMs` (the `on <page>` check, 15000), `pollIntervalMs` (`wait-record` / `wait-count`, 1000), `testDataDirectory` (`upload`, `TestData`), `pageLoadTimeoutMs`, `captureConsole` (console errors into the reports), `trace` (a Playwright trace per case), `reportsDirectory`, `reports`, `skipFilePrefix` |
@@ -784,7 +836,7 @@ The first pass checks all lines before a browser action runs: unknown commands, 
 
 ```text
 Unknown command 'opne'. Known commands: add-record, analyse, check, check-value, click, clear, end, goto, open, set, use, wait.
-Element 'X' on page 'ContactForm': Unknown element type 'Slider' for a FreedomUI page. Known types for FreedomUI pages: Boolean, Button, CasesBar, DataGrid, Date, DateTime, Decimal, Email, Integer, Link, Lookup, Phone, RichText, Tab, Text, QuickFilter, Time, ToggleTab.
+Element 'X' on page 'ContactForm': Unknown element type 'Slider' for a FreedomUI page. Known types for FreedomUI pages: Boolean, Button, CasesBar, DataGrid, Date, DateTime, Decimal, Email, ExpansionPanel, Integer, Link, Lookup, Phone, RichText, Tab, Text, QuickFilter, Time, ToggleTab.
 Element 'Email' on page 'OrderClassic': Unknown element type 'Email' for a ClassicUI page. It exists for FreedomUI pages only. Known types for ClassicUI pages: Boolean, Button, Date, DateTime, Decimal, Integer, Lookup, RichText, Tab, Text, Time.
 'wait' expects the unit 'second' or 'minute'.
 ```

@@ -4,30 +4,41 @@ namespace CreatioAutoTests.Execution;
 
 /// <summary>
 /// How a <c>Column=Value</c> pair is typed for OData, in one place for the filters of the checks and the
-/// bodies of the writes. The literal's form decides: a GUID, <c>true</c>/<c>false</c> and a number go
-/// unquoted, everything else is a string; a lookup column given a GUID is addressed by its <c>Id</c> suffix.
+/// bodies of the writes. The literal's form decides: a GUID, <c>true</c>/<c>false</c>, <c>null</c> and a number go
+/// unquoted, everything else is a string; a lookup column given a GUID (or <c>null</c>) is addressed by its <c>Id</c> suffix.
+/// A value written in double quotes is text whatever it looks like (<c>"0008640"</c>, <c>"3842c895-..."</c>, <c>"null"</c>).
 /// </summary>
 public static class ODataValues
 {
     /// <summary>The column as OData names it for this value (<c>Owner</c> + a GUID is <c>OwnerId</c>).</summary>
-    public static string ColumnFor(string column, string value) =>
-        Guid.TryParse(value, out _) && !column.EndsWith("Id", StringComparison.Ordinal) ? column + "Id" : column;
+    public static string ColumnFor(string column, string value, bool quoted = false) =>
+        !quoted && (Guid.TryParse(value, out _) || value == "null") && !column.EndsWith("Id", StringComparison.Ordinal) ? column + "Id" : column;
 
     /// <summary>
     /// The column as OData names it in a <c>$filter</c>: a lookup given a GUID is the path <c>Owner/Id</c>. <c>OwnerId eq &lt;guid&gt;</c> in a
     /// filter answers 500 "Column by path OwnerId not found", although <c>OwnerId</c> is right in a <c>$select</c> and in a body
     /// (<see cref="ColumnFor"/>). A column that already ends in <c>Id</c> (<c>Id</c>, <c>Owner/Id</c>) is left alone.
     /// </summary>
-    public static string FilterColumn(string column, string value) =>
-        Guid.TryParse(value, out _) && !column.EndsWith("Id", StringComparison.Ordinal) ? column + "/Id" : column;
+    public static string FilterColumn(string column, string value, bool quoted = false) =>
+        !quoted && Guid.TryParse(value, out _) && !column.EndsWith("Id", StringComparison.Ordinal) ? column + "/Id" : column;
 
     /// <summary>The value as a filter literal: <c>OwnerId eq 1f…</c>, <c>UsrAmount eq 10</c>, <c>UsrName eq 'x'</c>.</summary>
-    public static string FilterLiteral(string value) =>
-        IsUnquoted(value) ? value : "'" + value.Replace("'", "''") + "'";
+    public static string FilterLiteral(string value, bool quoted = false) =>
+        !quoted && IsUnquoted(value) ? value : "'" + value.Replace("'", "''") + "'";
 
     /// <summary>The value as a JSON body value: a GUID stays a string, a boolean and a number are not quoted.</summary>
-    public static object? JsonValue(string value)
+    public static object? JsonValue(string value, bool quoted = false)
     {
+        if (quoted)
+        {
+            return value;
+        }
+
+        if (value == "null")
+        {
+            return null;
+        }
+
         if (Guid.TryParse(value, out _))
         {
             return value;
@@ -48,9 +59,9 @@ public static class ODataValues
 
     /// <summary>The JSON body of an insert or an update.</summary>
     public static Dictionary<string, object?> Body(IEnumerable<RecordAssignment> assignments) =>
-        assignments.ToDictionary(a => ColumnFor(a.Column, a.Value), a => JsonValue(a.Value), StringComparer.Ordinal);
+        assignments.ToDictionary(a => ColumnFor(a.Column, a.Value, a.Quoted), a => JsonValue(a.Value, a.Quoted), StringComparer.Ordinal);
 
     private static bool IsUnquoted(string value) =>
-        Guid.TryParse(value, out _) || value is "true" or "false" ||
+        Guid.TryParse(value, out _) || value is "true" or "false" or "null" ||
         decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out _);
 }

@@ -21,7 +21,7 @@ python usertask.py inspect      <package> <Task>
 python usertask.py validate     <package> <Task>
 python usertask.py method       <package> <Task> <Method>                      # one method's C#
 python usertask.py new          <package> <Task> --caption "Notify owner" [--param RecordId:Guid:In:required] [--param Note:Text] [--interactive] [--cultures en-US]
-python usertask.py add-param    <package> <Task> <Name> <Type> [--direction In|Out|Variable] [--caption C] [--required] [--ref UsrOrder]
+python usertask.py add-param    <package> <Task> <Name> <Type> [--direction In|Out|Variable] [--caption C] [--required] [--ref UsrOrder [--env dev]]
 python usertask.py remove-param <package> <Task> <Name>
 python usertask.py rename-param <package> <Task> <Old> <New>
 python usertask.py set-caption  <package> <Task> <value>
@@ -44,8 +44,12 @@ python usertask.py set-source   <package> <Task> <file.cs>                     #
 ## How a task is stored
 
 - `FJ1`: the parameters, the same `ProcessSchemaParameter` a process has (`L1` type, `L12`
-  direction, `L6` required, `L16` referenced object); the platform generates a property per
-  parameter in its half of the partial class.
+  direction, `L6` required, `L9` / `L16` the referenced object's UId / name); the platform generates
+  a property per parameter in its half of the partial class.
+- A `Lookup` parameter carries both `L9` (`ReferenceSchemaUId`, right after `L8`) and `L16`, as every
+  platform process does: `add-param <Name> Lookup --ref Contact` takes the UId from the workspace,
+  the stock catalogue or, with `--env`, the site; a `--ref` UId gets its name the same way.
+  `inspect` prints `-> Contact (<uid>)`, `no L9` for a parameter written without it.
 - `FK7` IsUserTask, `FK16` HasUserDefinedCode, `FK12` the colour of the element in the designer;
   `properties.json` carries `IsInteractive` (the task waits for a user).
 - `<Task>.cs`: `public partial class <Task>` in `Terrasoft.Core.Process.Configuration` overriding

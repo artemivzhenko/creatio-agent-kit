@@ -4,6 +4,7 @@
     record_context(env, "Contact", "<id>")         the record with its lookups named, then the rows that point at it
     record_history(env, "UsrOrder:<id>")           the change log of a record (`Sys<Entity>Log`): when, who, was -> became per column
     column_transitions(env, "UsrOrder.UsrStatus")  every transition of one column over all records, from the same log
+    merge_plan / merge_apply(env, "UsrCity", keep, drops)  duplicate rows of a lookup folded into one: every foreign key moved, a backup, the delete
 
 Every query is a plain `information_schema` / `select` the README lists, so a human can run it by hand. A table name
 reaches a statement only from `information_schema` or after `ident` accepted it.
@@ -167,6 +168,119 @@ def record_context(env, entity: str, record_id: str, columns: str = "", depth: i
         out["details"].append({"table": c["table"], "column": c["column"], "count": int(c["n"]),
                                "rows": _named(env, c["table"], keep, zone) if depth > 1 else keep})
     return out
+
+
+# -- merge duplicate rows: move every pointer to the kept row, delete the rest ---------------------- #
+UNIQUE_SQL = ('select tablename as "table", indexdef from pg_indexes where indexdef like \'CREATE UNIQUE INDEX%\' and tablename in (')
+UNIQUE_COLUMNS = re.compile(r'\(((?:"?[A-Za-z_]\w*"?(?:, )?)+)\)$')  # a plain column list; a partial (`where`) or expression index does not match
+
+
+def require_dev(project: str | None) -> None:
+    """A write that cannot be undone runs on a site whose project.json `environment` says `kind: dev` and `mayBreak: true`; nothing else lifts this."""
+    import json
+    rule = "merge --apply writes: it runs only on a dev site, --project <project.json> with environment.kind = dev and environment.mayBreak = true (there is no override)"
+    if not project:
+        raise ValueError(rule + "; no --project was given")
+    with open(project, encoding="utf-8-sig") as f:
+        e = json.load(f).get("environment") or {}
+    if e.get("kind") != "dev" or e.get("mayBreak") is not True:
+        raise ValueError(rule + f"; this project has kind = {e.get('kind')!r}, mayBreak = {e.get('mayBreak')!r}")
+
+
+def _ids(ids) -> str:
+    return ", ".join(quote(i) for i in ids)
+
+
+def merge_plan(env, entity: str, keep: str, drops: list[str]) -> dict:
+    """What folding the rows `drops` of `entity` into `keep` would do, read only: {entity, keep, drops, rows (the dropped rows), targets [{table, column,
+    constraint, count, pointing [{Id, value}], collide [full rows], unique [column lists]}], statements [{sql, table, kind}]}.
+
+    A target is a foreign key to the table (`foreign_keys`, incoming) or an unconstrained uuid column called `<Entity>Id` / `Usr<Entity>Id` (`constraint` False).
+    A row whose move would break a unique index of its table that holds the column (the kept row has a sibling with the same other columns, or a dropped
+    row of a lower Id has) is `collide`: it is deleted instead of moved. The statements are the exact text `merge_apply` runs: deletes of colliding rows,
+    updates, the final delete."""
+    entity, keep, drops = ident(entity), guid(keep), [guid(d) for d in drops]
+    if not drops or keep in drops:
+        raise ValueError("give --keep <Id> and --drop <Id>[,<Id>..], the kept row not among the dropped ones")
+    rows = env.sql(f'select * from "{entity}" where "Id" in ({_ids([keep] + drops)})')
+    missing = sorted(set([keep] + drops) - {str(r["Id"]).lower() for r in rows})
+    if missing:
+        raise KeyError(f"no row {', '.join(missing)} in {entity}")
+    pairs = {(ident(f["table"]), ident(f["column"])): True for f in foreign_keys(env, entity, incoming=True)}
+    loose = ('select c.table_name as "table", c.column_name as "column" from information_schema.columns c join information_schema.tables t '
+             "on t.table_name = c.table_name and t.table_schema = c.table_schema where t.table_type = 'BASE TABLE' and c.data_type in ('uuid', 'uniqueidentifier') "
+             f"and c.column_name in ('{entity}Id', 'Usr{entity}Id') and c.table_schema not in ('pg_catalog', 'information_schema', 'sys')")
+    for r in env.sql(loose):
+        pairs.setdefault((ident(r["table"]), ident(r["column"])), False)
+    pairs = dict(sorted(pairs.items()))
+    counts = []
+    for i in range(0, len(pairs), CHUNK):
+        union = " union all ".join(f"select '{t}' as \"table\", '{c}' as \"column\", count(*) as \"n\" from \"{t}\" where \"{c}\" in ({_ids(drops)})"
+                                   for t, c in list(pairs)[i:i + CHUNK])
+        counts += [r for r in env.sql(union) if int(r["n"])]
+    tables = sorted({r["table"] for r in counts})
+    unique: dict[str, list[list[str]]] = {}
+    if tables:
+        try:
+            for r in env.sql(UNIQUE_SQL + ", ".join(quote(t) for t in tables) + ")"):
+                m = UNIQUE_COLUMNS.search(r["indexdef"].strip())
+                if m:
+                    unique.setdefault(r["table"], []).append([c.strip('"') for c in m.group(1).split(", ")])
+        except RuntimeError:  # no pg_indexes (MS SQL): a collision then fails the update, which stops the apply before the final delete
+            pass
+    targets, statements = [], []
+    for c in sorted(counts, key=lambda r: (r["table"], r["column"])):
+        t, col = c["table"], c["column"]
+        pointing = [{"Id": r["Id"], "value": r["value"]} for r in env.sql(f'select "Id", "{col}" as "value" from "{t}" where "{col}" in ({_ids(drops)})')]
+        collide, indexes = {}, [u for u in unique.get(t, []) if col in u]
+        for u in indexes:
+            same = "".join(f' and s."{ident(x)}" = r."{x}"' for x in u if x != col)
+            for r in env.sql(f'select r.* from "{t}" r where r."{col}" in ({_ids(drops)}) and exists (select 1 from "{t}" s where s."Id" <> r."Id"{same} '
+                             f'and (s."{col}" = {quote(keep)} or (s."{col}" in ({_ids(drops)}) and s."Id" < r."Id")))'):
+                collide[str(r["Id"]).lower()] = r
+        targets.append({"table": t, "column": col, "constraint": pairs[(t, col)], "count": int(c["n"]), "pointing": pointing,
+                        "collide": list(collide.values()), "unique": indexes})
+        if collide:
+            statements.append({"sql": f'delete from "{t}" where "Id" in ({_ids(collide)})', "table": t, "kind": "delete colliding"})
+    statements += [{"sql": f'update "{t["table"]}" set "{t["column"]}" = {quote(keep)} where "{t["column"]}" in ({_ids(drops)})', "table": t["table"], "kind": "move"}
+                   for t in targets]
+    statements.append({"sql": f'delete from "{entity}" where "Id" in ({_ids(drops)})', "table": entity, "kind": "delete dropped"})
+    return {"entity": entity, "keep": keep, "drops": drops, "rows": [r for r in rows if str(r["Id"]).lower() != keep], "targets": targets, "statements": statements}
+
+
+def render_plan(plan: dict) -> str:
+    lines = [f"merge {plan['entity']}: keep {plan['keep']}, drop {len(plan['drops'])}: {', '.join(plan['drops'])}"]
+    for t in plan["targets"]:
+        lines.append(f"  {t['table']}.{t['column']}: {t['count']} row(s)" + ("" if t["constraint"] else " (no constraint)")
+                     + (f", {len(t['collide'])} would collide with a unique index and are deleted instead" if t["collide"] else ""))
+    if not plan["targets"]:
+        lines.append("  (no row points at the dropped ones)")
+    lines.append("plan:")
+    lines += [f"  {s['sql']}" for s in plan["statements"]]
+    return "\n".join(lines)
+
+
+def merge_apply(env, plan: dict, backup_dir: str, log=print) -> str:
+    """Write the backup (`<backup_dir>/<Entity>-<UTC time>.json`: the dropped rows, every pointing row's Id / table / column / old value, the colliding
+    rows whole), then run the plan's statements one clio call each, `log`ging `affected: N` per statement. A failed statement stops and names the
+    backup. Returns the backup path."""
+    import json
+    from pathlib import Path
+    path = Path(backup_dir) / f"{plan['entity']}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"entity": plan["entity"], "keep": plan["keep"], "dropped": plan["rows"],
+                                "pointing": [{"table": t["table"], "column": t["column"], **p} for t in plan["targets"] for p in t["pointing"]],
+                                "collidingRows": [{"table": t["table"], "row": r} for t in plan["targets"] for r in t["collide"]]},
+                               indent=2, default=str), encoding="utf-8")
+    log(f"backup: {path}")
+    for s in plan["statements"]:
+        counts: list = []
+        try:
+            env.sql(s["sql"], counts=counts)
+        except RuntimeError as e:
+            raise RuntimeError(f"{e} (statement: {s['sql']}; the backup is {path})") from None
+        log(f"{s['sql']}\n  affected: {counts[0] if counts else '?'}")
+    return str(path)
 
 
 def _named(env, table: str, rows: list[dict], zone: str | None) -> list[dict]:

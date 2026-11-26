@@ -13,14 +13,22 @@ public sealed class ElementRuntimeContext
         ElementDefinition definition,
         RunSettings settings,
         ILogger logger,
-        PageDefinition? pageDefinition = null)
+        PageDefinition? pageDefinition = null,
+        string? scope = null)
     {
         Page = page ?? throw new ArgumentNullException(nameof(page));
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         PageDefinition = pageDefinition;
+        Scope = scope;
     }
+
+    /// <summary>
+    /// A selector the element is searched inside, the newest match of it: the dialog a process page is shown in over a host page that has
+    /// controls of the same names (S48-T11). Null searches the whole document.
+    /// </summary>
+    public string? Scope { get; }
 
     /// <summary>Playwright page on which the configured control is currently rendered.</summary>
     public IPage Page { get; }

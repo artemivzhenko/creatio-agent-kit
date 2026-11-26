@@ -7,7 +7,8 @@ Verified facts about Creatio 8.3 on PostgreSQL, collected in work on client site
 is `Usr`, "the site" or "the client package". Each fact has an id, how it was seen (`source`: platform source code;
 `sql`: a database query; `run`: an execution on a site; `build`: a compiler or an install) and `used by`: the tool,
 test, recipe or skill that carries it (`-` when nothing does yet). Facts not verified are at the end and must not
-become recipes as they stand.
+become recipes as they stand. An 8.3.2 test site exists (S48); a fact checked there carries `8.3.2`, the older ones were
+checked on 8.2.3.
 
 ## Processes
 
@@ -216,6 +217,34 @@ into `SysLocalizableValue` with no message. clio's "rejected" is its own tools' 
 text being English stays a convention of the kit, not something the push enforces. 8.2.3, run (S40-T06; N-17 deleted).
 used by: -.
 
+**P-2.24 A replacing process version is its own `SysSchema` row** (another Name, its own UId) whose `ParentId` is the Id of the
+replaced schema; the descriptor's `Parent` makes the link and the replaced row keeps `ParentId` null. `SysProcessLog` rows
+carry the replacing schema, and `start` of the base name starts the replacing version. 8.3.2, sql + run (S48-T10). used by:
+the DSL `check-process`.
+
+**P-2.25 The served body of a client schema holds the base copy first, then every replacing copy ordered by `SysPackage.HierarchyLevel` (then name), packages outside the customisation hierarchy included.** Checked on 8.3.2 against the served `CasePage` (8 copies) and `ActivityMiniPage` (8): the base copy's own lines come first, the replacing copies follow in ascending level. `tsp_GetSysSchemaParentsInPackageHierarchyByPackage` returned 1 of 8 copies for `CasePage` and levelled a base after replacing copies - `schema_layers` sorts by this rule now (S48-T08). 8.3.2, run.
+
+**P-2.19 `push-pkg` ignores a changed `DependsOn` while the package descriptor's `ModifiedOnUtc` is unchanged** (the
+`SysPackageDependency` rows stay as they were); with a new date they follow. A client schema whose descriptor date did not
+move is skipped the same way (its body is not installed). 8.3.2, run (S48-T03: the dependency half live; the body half is the
+field report the stamp was written for). used by: `push.py` (the process-dates step).
+
+**P-2.20 A removed user task is still referenced by two NO ACTION keys the install itself clears:** `SysLocalizableValue.SysSchemaId`
+and `SysPackageResourceChecksum.SysSchemaId` (the schema's own rows). 8.3.2, sql (S48-T03). used by: `describe merge` references,
+`push.py --allow-removed`.
+
+**P-2.21 `SysProcessDisabled` is per site, keyed by that site's `SysSchema.Id`; a disabled process does not travel in a package.**
+The metadata flag `BK36` is ignored on install, and the row's key differs on every site. Disable it on the site (P-A9).
+8.3.2, run (S48-T15, from the field report). used by: `env/site.py process-off`.
+
+**P-2.22 The base Classic client schemas keep their UIds on 8.3.2:** `BaseGridDetailV2` 01eb38ee-668a-42f0-999d-c2534f979089,
+`BasePageV2` d3cc497c-f286-4f13-99c1-751c468733c0, `BaseModulePageV2` d62293c0-7f14-44b1-b547-735fb40499cd (the same as the
+8.2.3 fixture). 8.3.2, sql (S48-T06). used by: `classicui.py new` (`PLATFORM_PARENTS`).
+
+**P-2.23 A grid detail's `Caption` is the string 8f7c31a4-b656-47c9-a503-a72d0b3dd077 of `BaseDetailV2`;** the designer rebinds
+it with the override form `= MetaData.Schema.B2.["<uid>"].A4 / .A5`, and `add-string` writes that form for an inherited key.
+8.3.2, run (S48-T06). used by: `classicui.py add-string`.
+
 ## Data, rights, settings
 
 **P-3.1 Role membership:** `SysUserInRole` holds direct members only; the closure (nested roles, org structure) is
@@ -331,6 +360,10 @@ filter gives 500 "column at path not found", wrapped in an `ObjectContent` seria
 **P-5.2 An OData insert runs the object's logic** (listeners, signal processes) as a UI save; a listener may reset a
 column on insert (set it with a separate PATCH); required columns are checked. 8.3, run. used by: the tester
 skill, `seed` as the way around it (S34-T08).
+
+**P-5.6 Fixture rows written by raw SQL skip listeners and processes** (no numbering, no signal, no defaults of P-3.14); use the
+dev-only `seed` line of a backend case or an OData insert, and `make_fixture` for the row's shape. 8.3.2, run (S48 field report).
+used by: the tester skill, `make_fixture`.
 
 **P-5.3 Deleting test records:** OData DELETE as the user; rows with a foreign key to the record first. 8.3, run.
 used by: the DSL `delete`, `cases_from_package` cleanup.
@@ -505,6 +538,14 @@ fails with a `NullReferenceException` in `ProcessSchemaConditionalFlow.SpecifyCo
 expected"). 8.2.3, build + run (S45-T09); the flow method read in the 8.3.2 `Terrasoft.Core.dll`. used by: the process
 toolkit's user task catalog (`result`), `pages.py from-schema` (the template's buttons).
 
+**P-8.17 `CompleteExecuting` of a pre-configured page task takes the button's `Tag` (`SaveButton_clicked`), not its code or ItemUId;** `POST ServiceModel/ProcessEngineService.svc/CompleteExecuting {processElementUId, parameterValues: [{name: "PressedButtonCode", value: "<Tag>"}]}`. With the code (`SaveButton`) the call answers 200, the task completes and the run ends in `Error: Conditional branching error. No condition has been executed` (`ProcessSchemaConditionalFlow.GetButtonsCode` builds the flow's codes from the button `Tag`; `ConditionalSequenceFlow.CheckPressedButtonCode` compares). 8.3.2, run + binaries (S48-T11). Closing the task page steps the Shell back one history entry past the host form.
+
+**P-8.18 `POST ServiceModel/ProcessEngineService.svc/CancelExecution {"processDataIds": "<id>;<id>"}` cancels running process instances:** the `SysProcessLog` row reads `Canceled`, an open page task's `SysProcessElementLog` row too, and the `SysProcessData` row is removed. 8.3.2, run (S48-T13; `env/proc-runs.py cancel`, dev sites only).
+
+**P-8.19 A Read data result gives one level of columns:** a two-level `EntityColumn` path (`[EntityColumn:{UsrContact}].[EntityColumn:{Contact.Name}]`) over the result answers an empty string, with the default column fetch and with `EntityColumnMetaPathes` set. Read the related object with a second Read data (or a script task). 8.3.2, run (S48-T13).
+
+**P-8.20 A Freedom UI `crt-data-grid` row carries the classes `mat-mdc-row mdc-data-table__row cdk-row ng-star-inserted`; the clicked row gains `crt-data-table-row-active`, none is marked before a click; the grid renders one extra `role=row` of empty cells.** 8.3.2, run (S48-T12; the framework's `row has class` and `active row` asserts).
+
 **P-C1 `Model.create('<Entity>')` then `model.load({attributes: [...]})` from an Angular element** returns rows as
 plain objects keyed by attribute; only text columns and the no-filter call were exercised (N-3). 8.3, run.
 
@@ -577,6 +618,15 @@ the author skill. clio's MCP server has no restart tool; `clio restart-web-app -
 page). The accepted form is `#ResourceString(<Grid>DS_<Col>)#`, plus the page string and its B2 metadata entry
 (`PageSchema.ensure_resource_string`). The kit's own validator accepted the literal form. 8.2.3 target, run (S46-T11, the
 pilot). used by: `pages.py add-grid` (S46-T02).
+
+**P-9.12 `Terrasoft.Core.Packages.BuildResultType` is Success=0, Error=1, NoChanges=2;** clio's "build result 0" is a success.
+8.3.2, reflection on `Terrasoft.Core.dll` (S48-T01). used by: `push.py` (compile-package verdict).
+
+**P-9.13 A `compile-package` writes a `<Pkg>.csproj` `CompilationHistory` row, then a `Terrasoft.Configuration.ODataEntities.csproj`
+row about 20 s later;** `CreatedOn` is UTC. 8.3.2, sql (S48-T01). used by: `push.py` (the polling without `--wait`).
+
+**P-9.14 clio 8.1.0.158 writes `[]` for a select with no rows and `0` for an update with no rows;** no file after `Results saved to`
+is a lost answer, not zero rows. 8.3.2, run (S48-T03). used by: `environment.sql_answer`.
 
 ## Windows and Git Bash
 
