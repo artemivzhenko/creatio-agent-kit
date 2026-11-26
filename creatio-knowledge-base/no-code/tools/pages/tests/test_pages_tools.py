@@ -487,6 +487,33 @@ def test_new_makes_a_page_for_an_existing_object_and_refuses_an_existing_one():
         shutil.rmtree(pkg.parent, ignore_errors=True)
 
 
+def test_new_mini_page_is_a_pre_configured_page_with_one_label():
+    # S47-T02: what the bed's hand-written pre-configured page carries (parent BaseMiniPageTemplate, Group MiniPage, one label)
+    import contextlib
+    import io
+    pkg = copy()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert main(["new", str(pkg), "UsrApprove_MiniPage", "--template", "mini", "--caption", 'Approve the "order"']) == 0
+        sdir = pkg / "Schemas" / "UsrApprove_MiniPage"
+        desc = json.loads(read(sdir / "descriptor.json").lstrip("﻿"))["Descriptor"]
+        assert desc["Parent"] == {"UId": "ecdcc8ff-272c-4957-9381-7d74ce17e140", "Name": "BaseMiniPageTemplate"}
+        assert json.loads(read(sdir / "properties.json").lstrip("﻿"))["Properties"]["Group"] == "MiniPage"
+        assert '= MetaData.Schema.HD1 "ecdcc8ff-272c-4957-9381-7d74ce17e140"' in read(sdir / "metadata.json")
+        page = PageSchema(pkg, "UsrApprove_MiniPage")
+        assert page.validate() == [] and page.resources.get("Caption") == 'Approve the "order"'
+        label = page.sections["SCHEMA_VIEW_CONFIG_DIFF"].value[0]
+        assert (label["name"], label["values"]["type"], label["values"]["caption"], label["parentName"]) == \
+            ("Label", "crt.Label", 'Approve the "order"', "MainContainer")
+        codes = {e["code"] for e in page.page_file()[0]["elements"]}
+        assert {"SaveButton", "CancelButton", "CloseButton"} <= codes  # the template's buttons a page task completes on
+        with contextlib.redirect_stderr(io.StringIO()):
+            assert main(["new", str(pkg), "UsrOther_MiniPage", "--template", "mini", "--entity", "UsrOrder"]) == 2
+            assert main(["new", str(pkg), "UsrOther_FormPage"]) == 2  # a form page still needs its object
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_")]:
         fn()

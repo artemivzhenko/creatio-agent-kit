@@ -22,6 +22,9 @@ DataGrid). Two pages read from the package render back byte-for-byte.
 ## A page for an object that exists
 
 `pages.py new <package> <Page> --entity <Object> [--fields A,B] [--caption ..] [--template form|list]` writes the template page and one field per column (default: every own column of the object), validated in a scratch copy first; an existing page is refused, `--dry-run` lists the files.
+`--template mini` (no `--entity`) writes a process's pre-configured page instead: parent `BaseMiniPageTemplate`, group
+`MiniPage`, one label showing `--caption` (P-8.16); a `preconfiguredPage` task opens it (`ClientUnitSchemaUId`) and
+completes on the template's buttons (`proc.py element ... buttons`).
 
 ## A resource string as an element value
 
@@ -67,7 +70,7 @@ into JSON booleans and digits into numbers.
 
 <!-- commands:start -->
 ```
-python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list]
+python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list|mini]
                           [--cultures en-US,ru-RU] [--dry-run]
 python pages.py inspect   <package> <Page>
 python pages.py add-field <package> <Page> <Column> [--parent SideAreaProfileContainer] [--row N] [--col N] [--span N]
@@ -82,7 +85,7 @@ python pages.py from-schema <package> <Page> [--name UsrOrderForm] [--out Config
 
 | command | what it does |
 | --- | --- |
-| `new` | a form or list page for an object that exists |
+| `new` | a form or list page for an object that exists; a process's mini page |
 | `inspect` | elements, attributes, data sources and problems |
 | `validate` | problems; exit code 1 on errors |
 | `add-field` | a field bound to a column of the page's object |

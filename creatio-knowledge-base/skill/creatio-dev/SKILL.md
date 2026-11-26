@@ -31,7 +31,7 @@ change.
    with the toolkits); it refuses an existing schema. C# goes into
    `Files/cs` per `get_code_style("3.7")` and gets a unit test per `get_code_style("3.8")`
    (`project.py tests-init <project.json>` once per package, then project.json's `commands.unitTests` green before you say
-   done - it rebuilds the dll against the test binaries, so push with `push.py --build`; `run_tests` runs them inside Creatio).
+   done - it rebuilds the dll against the test binaries, so push with `push.py --build` (`push_package(..., build=True)`); `run_tests` runs them inside Creatio).
    Client code (a Classic schema, a Freedom UI page, a remote module) follows
    `get_code_style(guide="frontend")`: its review checklist is the last thing to read before the push. For a
    Freedom UI page, clio's MCP gives the component and request catalogue of the site's exact platform version:

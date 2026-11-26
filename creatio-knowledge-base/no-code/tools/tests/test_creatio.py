@@ -19,7 +19,7 @@ def test_listing_names_every_tool_with_its_purpose():
         assert creatio.main([]) == 0 and creatio.main(["--help"]) == 0
     lines = out.getvalue().splitlines()
     first_words = {line.split("  ")[0].strip() for line in lines}
-    for name in ("objects", "process", "pages", "describe", "push", "env sql", "env api", "project"):
+    for name in ("objects", "process", "pages", "describe", "push", "env sql", "env api", "env site", "project"):
         assert name in first_words, name
     assert any("Objects (entity schemas) stored in a package" in line for line in lines) and all('"""' not in line for line in lines)
     assert list(creatio.tools())[:2] == ["sqlscripts", "data"] and creatio.tools()["process"] == "process/proc.py"

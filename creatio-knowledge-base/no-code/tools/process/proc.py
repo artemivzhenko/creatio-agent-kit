@@ -10,13 +10,14 @@ Inspect and change business processes stored in a package (library: ../creatio_s
     python proc.py fill-captions <package> <Process> [--from en-US]
     python proc.py param     <package> <Process> add <Name> --type Text [--direction In|Out|Variable] [--caption ..] [--default ..] [--ref-schema Contact]
     python proc.py param     <package> <Process> rename <Old> <New> | remove <Name>
-    python proc.py element   <package> <Process> add <Name> --kind readData --after X [--before Y] [--caption ..] [--entity UsrOrder] [--set Param=value ..]
+    python proc.py element   <package> <Process> add <Name> --kind readData --after X [--before Y] [--caption ..] [--entity UsrOrder [--env dev]] [--set Param=value ..]
     python proc.py element   <package> <Process> rename <Old> <New> | remove <Name> | set <Name> Param=value .. [--expr]
     python proc.py element   <package> <Process> formula <Name> "<expression>" --result <ProcessParam>
     python proc.py element   <package> <Process> values <Name> Column=value .. [--expr]     Add / Modify data: the columns it writes
     python proc.py element   <package> <Process> map <Name> Param=value .. [--expr]        sub-process: the called process's parameters
     python proc.py element   <package> <Process> filter <Name> "<Column> = {Parameter:X}; <Column> is not null"   Read / Modify / Delete data
     python proc.py element   <package> <Process> count <Name> [--into <IntegerParam>]   Read data: count the records, ResultCount into a parameter (a formula task)
+    python proc.py element   <package> <Process> buttons <Name> add <Code> --caption "Save" [--to <Next>] [--style ..] | remove <Code>   page tasks
     python proc.py flow      <package> <Process> add <Src> <Dst> [--condition "{Parameter:X} > 0"] [--name ..] [--caption ..]
     python proc.py flow      <package> <Process> remove <Name> | condition <Name> "<expr>"
     python proc.py script    <package> <Process> get <Element> [--out file] | set <Element> --file body.cs
@@ -34,7 +35,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from creatio_schemas import DATA_VALUE_TYPES, DVT_OF, ProcessSchema  # noqa: E402
+from creatio_schemas import DATA_VALUE_TYPES, DVT_OF, Clio, ProcessSchema  # noqa: E402
 from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
 from creatio_schemas.process.catalog import DIRECTION, short_type  # noqa: E402
 from creatio_schemas.process import ELEMENT_KINDS, TASK_ALIASES  # noqa: E402
@@ -102,11 +103,13 @@ def fill_captions(proc, a):
 # -- elements -------------------------------------------------------------------- #
 
 def element_signal(proc, a, el=None):
+    proc.rows_of = Clio(a.env).execute_sql_rows if a.env else None
     el = el or proc.element(a.name)
     proc.set_signal(el, a.entity, a.on, a.columns.split(",") if a.columns else None, a.filter)
 
 
 def element_add(proc, a):
+    proc.rows_of = Clio(a.env).execute_sql_rows if a.env else None
     el = proc.add_element(a.kind, a.name, a.caption or "", a.after, a.before)
     if short_type(el) in SIGNAL_KEYS and (a.entity or a.on or a.columns or a.filter):
         element_signal(proc, a, el)
@@ -143,6 +146,18 @@ def element_count(proc, a):
         proc.set_formula(a.name + "Into", "{Element:" + a.name + ".Parameter:ResultCount}", a.into)
         line += f", formula {a.name}Into: ResultCount -> {a.into}"
     print(line)
+
+
+def element_buttons(proc, a):
+    el = proc.element(a.name)
+    if a.action == "remove":
+        proc.remove_button(el, a.code)
+        print(f"{a.name}: button {a.code} removed")
+        return
+    if not a.caption:
+        raise SystemExit("add needs --caption")
+    proc.add_button(el, a.code, a.caption, a.to, a.style)
+    print(f"{a.name}: button {a.code}" + (f" -> {a.to}" if a.to else ""))
 
 
 def script_get(proc, a):
@@ -198,6 +213,7 @@ def build() -> CommandLine:
     p.add_argument("--after")
     p.add_argument("--before")
     p.add_argument("--entity", help="data elements and record-signal starts: entity schema name (resolved from the workspace) or its UId")
+    p.add_argument("--env", help="an entity the workspace does not hold: its name and UId from this site's SysSchema (one select)")
     p.add_argument("--calls", help="sub-process: the process to call, by name or UId")
     p.add_argument("--message", help="message / signal events: the message name (a start or catch signal then waits for that named signal)")
     p.add_argument("--on", help="record signals: added, modified, deleted - several joined by a comma")
@@ -208,6 +224,7 @@ def build() -> CommandLine:
     p = c("signal", element_signal, "record signal of a start or catch signal: entity, what fires it, columns, conditions", True, g)
     p.add_argument("name")
     p.add_argument("--entity")
+    p.add_argument("--env", help="the entity from this site's SysSchema when the workspace does not hold it")
     p.add_argument("--on")
     p.add_argument("--columns")
     p.add_argument("--filter")
@@ -223,6 +240,14 @@ def build() -> CommandLine:
     p = c("count", element_count, "Read data: count the records (ResultType 1, FunctionType 0); --into copies ResultCount to a process parameter by a formula task", True, g)
     p.add_argument("name")
     p.add_argument("--into", help="the Integer process parameter that receives ResultCount (created when missing)")
+    p = c("buttons", element_buttons, "page tasks: a button with its caption and, with --to, the flow that waits for it; remove takes all three",
+          True, g)
+    p.add_argument("name")
+    p.add_argument("action", choices=["add", "remove"])
+    p.add_argument("code", help="the button's name, e.g. SaveButton (PressedButtonCode)")
+    p.add_argument("--caption", help="add: the text in every culture of the process")
+    p.add_argument("--to", help="add: the element the button leads to (a flow from the task, made conditional)")
+    p.add_argument("--style", help="add, auto-generated page: default, primary, ...")
     p = c("values", lambda proc, a: proc.set_record_values(proc.element(a.name), parse_assignments(a.values), a.expr),
           "Add / Modify data: column values (constants typed by the column, or {Parameter:X} expressions)", True, g)
     p.add_argument("name")

@@ -69,7 +69,7 @@ def test_v2_options_are_forwarded_and_failure_reason_survives():
                 "project": Path("project.json"), "tasks": Path("tasks"), "task": Path("tasks/UsrTask"),
                 "force": True, "baseline": Path("baseline.txt"), "skip_drift": True,
                 "skip_foreign_files": True, "skip_sql_dates": True, "skip_compile_package": True,
-                "allow_removed": ["UsrGone", "UsrOld"], "skip_stale_bin": True,
+                "allow_removed": ["UsrGone", "UsrOld"], "skip_stale_bin": True, "build": False,
             }
             log("push FAILED at compilation: new errors")
             return 1
@@ -100,6 +100,23 @@ def test_push_package_with_a_page_saves_that_page_only():
         with patch.object(push_page_module, "push_page", side_effect=ValueError("UsrX is not a Freedom UI page")):
             out = server.push_package(str(pkg), "dev", dry_run=True, page="UsrX")
         assert out == "error: ValueError: UsrX is not a Freedom UI page\nexit code 2", out
+
+
+def test_push_package_passes_build_to_the_push():
+    """S47-T05: `build=True` reaches push(..., build=True); the default is False."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = Path(tmp) / "UsrPkg"
+        pkg.mkdir()
+        (pkg / "descriptor.json").write_text('{"Descriptor": {"Name": "UsrPkg"}}', encoding="utf-8")
+        seen = []
+
+        def fake(*args, **kwargs):
+            seen.append(kwargs["build"])
+            return 0
+        with patch.object(push_module, "push", side_effect=fake):
+            server.push_package(str(pkg), "dev", dry_run=True)
+            server.push_package(str(pkg), "dev", dry_run=True, build=True)
+        assert seen == [False, True], seen
 
 
 def test_shell_source_answers_through_the_library_and_names_an_error():

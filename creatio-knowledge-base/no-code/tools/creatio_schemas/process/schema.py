@@ -39,6 +39,14 @@ PARAMETER_VALUE_TYPE = "Terrasoft.Core.Process.ProcessSchemaParameterValue, Terr
 _COMPACT = {"separators": (",", ":"), "ensure_ascii": False}  # how the designer serialises the list (re-dumps 432 of 432 real ones)
 _LOOKUP_CONST_RE = re.compile(r"\[#Lookup\.[^.#]+\.([^.#]+)#\]")
 _BOOL_CONST_RE = re.compile(r"\[#BooleanValue\.(True|False)#\]")
+# Page tasks (S47-T02): a pre-configured page keeps its buttons in its `Buttons` parameter, an auto-generated one in the
+# resource `BaseElements.<El>.Parameters.Buttons.Value` of each culture; a flow per button waits for it in `GV2`.
+PRECONFIGURED_PAGE, AUTO_PAGE = "ac2ef13c-30dd-4023-9c04-58f580743b48", "b5936328-09b2-45fd-b763-48d37c265644"
+_GV2_TYPE = ("System.Collections.Generic.Dictionary`2[[System.Guid, mscorlib],[System.Collections.ObjectModel.Collection`1"
+             "[[System.Guid, mscorlib]], mscorlib]], mscorlib")
+_GV2_LIST_TYPE = "System.Collections.ObjectModel.Collection`1[[System.Guid, mscorlib]], mscorlib"
+_AUTO_ITEM_TYPE = "System.Collections.Generic.Dictionary`2[[System.String, mscorlib],[System.Object, mscorlib]], mscorlib"
+_AUTO_LIST_TYPE = f"System.Collections.Generic.List`1[[{_AUTO_ITEM_TYPE}]], mscorlib"
 
 
 def copy_called_params(owner_uid: str, element: dict, called: "ProcessSchema", mappings: list) -> list[dict]:
@@ -68,13 +76,20 @@ def _without_lcz_text(value):
     return [_without_lcz_text(v) for v in value] if isinstance(value, list) else value
 
 
-def _flow_buttons(flow: dict) -> list[str]:
-    """The button UIds in a flow's `GV2`: `{"<completion parameter UId>": ["<button UId>", ...]}`."""
+def _gv2(flow: dict) -> dict:
     raw = flow.get("GV2")
     found = json.loads(raw) if isinstance(raw, str) and raw.startswith("{") else raw
+    return found if isinstance(found, dict) else {}
+
+
+def _gv2_lists(gv2: dict) -> list[list]:
     # the designer's form carries "$type" and wraps each list as {"$type": ..., "$values": [...]} (S45-T09)
-    lists = [v.get("$values", []) if isinstance(v, dict) else v for k, v in (found.items() if isinstance(found, dict) else []) if k != "$type"]
-    return [u for v in lists for u in v]
+    return [v.get("$values", []) if isinstance(v, dict) else v for k, v in gv2.items() if k != "$type"]
+
+
+def _flow_buttons(flow: dict) -> list[str]:
+    """The button UIds in a flow's `GV2`: `{"<page element UId>": ["<button UId>", ...]}`."""
+    return [u for v in _gv2_lists(_gv2(flow)) for u in v]
 
 
 def _disagree(value: dict | None, mapping: dict | None) -> bool:
@@ -112,6 +127,7 @@ def _strip_strings_and_comments(code: str) -> str:
 class ProcessSchema(Schema):
     RESOURCE_SUFFIX = "Process"
     site = None  # a SiteNames after `attach_site`: lookup rows the workspace's bindings do not hold, named from the site (S33-T10)
+    rows_of = None  # `rows_of(sql)` runs a select on a site (`Clio(env).execute_sql_rows`): entities the workspace does not hold (S47-T03)
 
     def attach_site(self, env) -> None:
         """Names the lookup rows this process shows from `env` (a clio environment's `Environment`): one read-only select per lookup table, now."""
@@ -213,19 +229,27 @@ class ProcessSchema(Schema):
                 return p
         raise KeyError(f"element {element['A2']} has no parameter {name!r}; have {[p['A2'] for p in self.element_params(element)]}")
 
+    def _button_list(self, element: dict, culture: str = "en-US") -> list[dict]:
+        """The stored button items: the `Buttons` parameter of a pre-configured page, the culture's resource of an auto-generated one."""
+        if element.get("J6") == AUTO_PAGE:
+            raw = self.resources.get(f"BaseElements.{element['A2']}.Parameters.Buttons.Value", culture)
+        else:
+            try:
+                raw = (self.element_param(element, "Buttons").get("L8") or {}).get("GS2")
+            except KeyError:
+                return []
+        return json.loads(raw)["$values"] if raw else []
+
     def buttons(self, element: dict) -> list[dict]:
         """The buttons of a page task: [{uid, code, caption, flows: [(flow, target element)]}]; the flows are the conditional ones
         whose `GV2` completion parameter names the button. The caption is the item's own text, else a resource under its UId, else the code."""
-        try:
-            raw = self.element_param(element, "Buttons").get("L8", {}).get("GS2")
-        except KeyError:
-            return []
         names = {x["UId"]: x["A2"] for x in self.elements}
         texts = self.resources.cultures.get("en-US", {})
         out = []
-        for b in json.loads(raw)["$values"] if raw else []:
-            uid, code = b["ItemUId"], (b.get("Name") or {}).get("value") or b["ItemUId"]
-            caption = (b.get("Caption") or {}).get("value") or next((v for k, v in texts.items() if uid in k), None) or code
+        for b in self._button_list(element):
+            uid = b.get("ItemUId") or b["Id"]
+            code = (b.get("Name") or {}).get("value") or b.get("name") or uid
+            caption = (b.get("Caption") or {}).get("value") or b.get("caption") or next((v for k, v in texts.items() if uid in k), None) or code
             flows = [(f["A2"], names.get(f.get("CI2"), "?")) for f in self.flows() if f.get("CI1") == element["UId"] and uid in _flow_buttons(f)]
             out.append({"uid": uid, "code": code, "caption": caption, "flows": flows})
         return out
@@ -234,6 +258,76 @@ class ProcessSchema(Schema):
         """The codes of the buttons a conditional flow waits for (`GV2`), or []."""
         source = self.element_by_uid(flow.get("CI1"))
         return [b["code"] for b in self.buttons(source) if b["uid"] in _flow_buttons(flow)] if source else []
+
+    def add_button(self, element: dict, code: str, caption: str, to: str | None = None, style: str | None = None) -> str:
+        """A button of a page task, its caption in every culture of the process and, with `to`, the flow element -> to that waits
+        for it (`GV2`; a plain flow between the two is promoted). `style` is the auto-generated page's only. Returns the button UId."""
+        if element.get("J6") not in (PRECONFIGURED_PAGE, AUTO_PAGE):
+            raise ValueError(f"{element['A2']} is not a page task (preconfiguredPage or userTask:AutoGeneratedPageUserTask)")
+        if any(b["code"] == code for b in self.buttons(element)):
+            raise ValueError(f"{element['A2']} has a button {code}")
+        uid, key = new_uid(), f"BaseElements.{element['A2']}.Parameters.Buttons"
+        if element["J6"] == AUTO_PAGE:
+            for culture in self.resources.cultures:
+                items = self._button_list(element, culture) or self._button_list(element)
+                items.append({"$type": _AUTO_ITEM_TYPE, "Id": uid, "isEnabled": True, "performValidation": True, "caption": caption,
+                              "name": code, "style": style or "default", "generateSignal": ""})
+                text = json.dumps({"$type": _AUTO_LIST_TYPE, "$values": items}, **_COMPACT)
+                self.resources.set(key + ".Value", text, [culture])
+                self.resources.set(key + ".DisplayValue", text, [culture])
+        else:
+            if style:
+                raise ValueError("--style is the auto-generated page's; a pre-configured page's buttons are the page's own")
+            try:
+                param = self.element_param(element, "Buttons")
+            except KeyError:  # the catalogue's task has no Buttons parameter; the designer puts it first
+                param = {"BL1": NS + "ProcessSchemaParameter", "UId": new_uid(), "A2": "Buttons", "A3": self.uid, "A4": self.uid,
+                         "IL2": element["UId"], "L1": DVT_OF["LocalizableParameterValuesList"], "L8": {}}
+                element["BP2"].insert(0, param)
+            items = self._button_list(element) + [{"ItemUId": uid, "Caption": {"isLczValue": True}, "Name": {"value": code}, "Id": {"value": uid},
+                                                   "Tag": {"value": code + "_clicked"}, "Event": {"value": "clicked"},
+                                                   "PerformClosePage": {"value": "True"}, "PerformValidation": {"value": "True"}}]
+            param["L8"] = {"GS1": 1, "GS2": json.dumps({"$type": VALUES_TYPE, "$values": items}, **_COMPACT), "GS5": self.uid}
+            self.resources.set(f"{key}.Value.{uid}.Caption", f"{caption} | {code}")  # the designer's text: "<caption> | <button name>"
+        if to:
+            target = self.element(to)
+            flow = next((f for f in self.flows() if f.get("CI1") == element["UId"] and f.get("CI2") == target["UId"]), None) \
+                or self.add_flow(element["A2"], to)
+            if short_type(flow) == "ProcessSchemaSequenceFlow":
+                flow.update({"BL1": NS + "ProcessSchemaConditionalFlow", "BL7": CONDITIONAL_FLOW_MANAGER, "CI3": "null", "CI4": 2, "GV3": []})
+            gv2 = _gv2(flow)
+            gv2.setdefault("$type", _GV2_TYPE)
+            entry = gv2.setdefault(element["UId"], {"$type": _GV2_LIST_TYPE, "$values": []})
+            (entry["$values"] if isinstance(entry, dict) else entry).append(uid)
+            flow["GV2"] = json.dumps(gv2, **_COMPACT)
+        return uid
+
+    def remove_button(self, element: dict, code: str) -> None:
+        """A button with its caption; a flow that waits for it and for no other button goes too."""
+        found = self.buttons(element)
+        uid = next((b["uid"] for b in found if b["code"] == code), None)
+        if not uid:
+            raise KeyError(f"{element['A2']} has no button {code!r}; have {[b['code'] for b in found]}")
+        key = f"BaseElements.{element['A2']}.Parameters.Buttons"
+        if element["J6"] == AUTO_PAGE:
+            for culture in self.resources.cultures:
+                items = [b for b in self._button_list(element, culture) if b.get("Id") != uid]
+                if self.resources.get(key + ".Value", culture) is not None:
+                    text = json.dumps({"$type": _AUTO_LIST_TYPE, "$values": items}, **_COMPACT)
+                    self.resources.set(key + ".Value", text, [culture])
+                    self.resources.set(key + ".DisplayValue", text, [culture])
+        else:
+            items = [b for b in self._button_list(element) if b.get("ItemUId") != uid]
+            self.element_param(element, "Buttons")["L8"]["GS2"] = json.dumps({"$type": VALUES_TYPE, "$values": items}, **_COMPACT)
+            self.resources.remove_prefix(f"{key}.Value.{uid}")
+        for flow in [f for f in self.flows() if f.get("CI1") == element["UId"] and uid in _flow_buttons(f)]:
+            gv2 = _gv2(flow)
+            for values in _gv2_lists(gv2):
+                values.remove(uid)
+            if any(_gv2_lists(gv2)):
+                flow["GV2"] = json.dumps(gv2, **_COMPACT)
+            else:
+                self.remove_element(flow["A2"])
 
     def _require(self, element: dict, cls: str, what: str) -> None:
         if short_type(element) != cls:
@@ -379,10 +473,28 @@ class ProcessSchema(Schema):
         """The designer's serialised empty filter group of a data element (compact JSON, or the platform picks the legacy reader)."""
         return filters.build(root_schema, [], {})
 
+    def _entity(self, entity: str) -> tuple[str, str]:
+        """(UId, name) of an entity given by name or UId: the workspace, else the site's SysSchema when `rows_of` is set.
+        Without a site a UId the workspace does not hold keeps no name, as before."""
+        try:
+            uid = self.workspace.uid_of(entity, "EntitySchemaManager")
+        except KeyError as e:
+            if self.rows_of is None:
+                raise KeyError(f"{e.args[0]}; or give --env <env> to resolve {entity} from the site") from None
+            uid = None
+        name = ((self.workspace.name_of(entity) or "") if is_uid(entity) else entity) if uid else ""
+        if name or self.rows_of is None:
+            return uid, name
+        column, value = ("UId", entity.lower()) if is_uid(entity) else ("Name", entity.replace("'", "''"))
+        rows = self.rows_of(f'select "Name", "UId" from "SysSchema" where "{column}" = \'{value}\' '
+                            "and \"ManagerName\" = 'EntitySchemaManager' and \"ExtendParent\" = false")
+        if not rows:
+            raise KeyError(f"entity {entity} is neither in the workspace nor on the site")
+        return str(rows[0]["UId"]).lower(), str(rows[0]["Name"])
+
     def set_entity(self, element: dict, entity: str) -> None:
-        """Point a data element (read/add/modify/delete) or a record-signal start at an entity (name from the workspace, or UId)."""
-        uid = self.workspace.uid_of(entity, "EntitySchemaManager")
-        name = (self.workspace.name_of(entity) or "") if is_uid(entity) else entity  # L16 (the schema name) is needed by the run
+        """Point a data element (read/add/modify/delete) or a record-signal start at an entity (name or UId; see `_entity`)."""
+        uid, name = self._entity(entity)  # L16 (the schema name) is needed by the run
         if short_type(element) == "ProcessSchemaStartSignalEvent":
             element["FC2"] = uid
             element["DZ13"] = self.empty_filter(name)
@@ -574,8 +686,7 @@ class ProcessSchema(Schema):
             entity = self.workspace.name_of(current) or (current if current and current != EMPTY_GUID else None)
             if not entity:
                 raise ValueError(f"{element['A2']} has no entity yet: give --entity")
-        uid = self.workspace.uid_of(entity, "EntitySchemaManager")
-        name = self.workspace.name_of(uid) or ("" if is_uid(entity) else entity)
+        uid, name = self._entity(entity)
         element[keys["entity"]] = uid
         element[keys["record"]] = True
         element[keys["random"]] = False
@@ -801,6 +912,8 @@ class ProcessSchema(Schema):
                     continue
                 if p.get("L8"):
                     lines.append(f"        {p['A2']} = {self.describe_value(p['L8'])}")
+            lines += [f"        button {b['code']} {b['caption']!r} -> " + (", ".join(f"{fl} to {to}" for fl, to in b["flows"]) or "(no flow)")
+                      for b in self.buttons(e)]
             if cls == "ProcessSchemaScriptTask":
                 lines.append(f"        script: {len(e.get('CH1', ''))} chars")
             if cls == "ProcessSchemaSubProcess":

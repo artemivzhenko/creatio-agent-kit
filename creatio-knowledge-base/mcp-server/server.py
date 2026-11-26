@@ -655,7 +655,7 @@ def push_package(package: str, env: str, probe: bool = False, dry_run: bool = Fa
                  project: str = "", tasks: str = "", task: str = "", force: bool = False,
                  baseline: str = "", skip_drift: bool = False, skip_foreign_files: bool = False,
                  skip_sql_dates: bool = False, skip_compile_package: bool = False, allow_removed: str = "", page: str = "",
-                 skip_stale_bin: bool = False) -> str:
+                 skip_stale_bin: bool = False, build: bool = False) -> str:
     """
     Install a package with the push CLI's checks around it: drift (schemas modified on the site after the package's last
     commit), dropped dependencies, task ownership (`project` + `task`, or `tasks`), SQL dates, IsChanged cleared, push-pkg,
@@ -666,7 +666,7 @@ def push_package(package: str, env: str, probe: bool = False, dry_run: bool = Fa
     value the site holds otherwise. `allow_removed` ("UsrOrder,UsrShipment"): the schemas a merge took out of this package
     on purpose - pushed only when each is absent from the folder and no site row references it (the merge's check). A failed
     compile names whose errors: `compile FAILED: N error(s) in <Pkg>, ...`. An assembly package whose `Files/Bin/<Pkg>.dll` is older
-    than `Files/cs` stops (push-pkg would install the old dll); build it, or `skip_stale_bin` on purpose. `page` ("UsrOrder_FormPage"): no install - that ONE
+    than `Files/cs` stops (push-pkg would install the old dll); build it, or `skip_stale_bin` on purpose. `build`: the CLI's `--build` - the dll compiled against the project's `paths.platformBin` before the install (needs `project`; its `environment.platformVersion` must match the bin). `page` ("UsrOrder_FormPage"): no install - that ONE
     Freedom UI page of the package saved with clio update-page (replace, into this package, against the checksum get-page
     reads) and then verified; the package's bindings and other schemas are not touched (a push cannot skip a binding,
     P-2.18). The site must let the designer edit the package (its Maintainer, not an archive install), else it says so.
@@ -700,7 +700,7 @@ def push_package(package: str, env: str, probe: bool = False, dry_run: bool = Fa
                           baseline=Path(baseline) if baseline else None, skip_drift=skip_drift,
                           skip_foreign_files=skip_foreign_files, skip_sql_dates=skip_sql_dates,
                           skip_compile_package=skip_compile_package, allow_removed=allow_removed.split(","),
-                          skip_stale_bin=skip_stale_bin, **details)
+                          skip_stale_bin=skip_stale_bin, build=build, **details)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         lines.append(f"error: {e.args[0] if e.args else e}")
         code = 2

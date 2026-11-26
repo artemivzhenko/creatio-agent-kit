@@ -499,6 +499,151 @@ def test_filter_accepts_lookup_rows_named_in_a_localization_file_and_count_sets_
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_system_variable_is_the_designers_macro():
+    # S47-T01: the designer's own text on a page task's owner (a bed process written by hand); stored as given, the run failed
+    macro = "[#SysVariable.CurrentUserContact#]"
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        p = ProcessSchema.create(pkg, "UsrSysVar_Process", "SysVar", ["en-US"])
+        assert p.expressions.encode("{SysVariable.CurrentUserContact}") == macro
+        assert p.expressions.decode(macro) == "{SysVariable.CurrentUserContact}"
+        page = p.add_element("preconfiguredPage", "Page", after="StartEvent1", before="TerminateEvent1")
+        p.set_value(page, "OwnerId", "{SysVariable.CurrentUserContact}")  # has_names: an expression without --expr
+        owner = p.element_param(page, "OwnerId")
+        mapping = next(m for m in p.mappings if m.get("GT3") == owner["UId"])
+        assert owner["L8"]["GS1"] == 3 and owner["L8"]["GS2"] == macro and mapping["GT1"] == owner["L8"], (owner, mapping)
+        assert p.validate() == [], p.validate()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# S47-T02: the designer's forms of a page task's buttons (a bed process the designer reads, its button flows run)
+DESIGNER_BUTTON = ('{"ItemUId":"@B@","Caption":{"isLczValue":true},"Name":{"value":"SaveButton"},"Id":{"value":"@B@"},'
+                   '"Tag":{"value":"SaveButton_clicked"},"Event":{"value":"clicked"},"PerformClosePage":{"value":"True"},'
+                   '"PerformValidation":{"value":"True"}}')
+DESIGNER_GV2 = ('{"$type":"System.Collections.Generic.Dictionary`2[[System.Guid, mscorlib],[System.Collections.ObjectModel.Collection`1'
+                '[[System.Guid, mscorlib]], mscorlib]], mscorlib","@E@":{"$type":"System.Collections.ObjectModel.Collection`1'
+                '[[System.Guid, mscorlib]], mscorlib","$values":["@B@"]}}')
+DESIGNER_AUTO_ITEM = ('{"$type":"System.Collections.Generic.Dictionary`2[[System.String, mscorlib],[System.Object, mscorlib]], mscorlib",'
+                      '"Id":"@B@","isEnabled":true,"performValidation":true,"caption":"OK","name":"OkButton","style":"primary","generateSignal":""}')
+
+
+def test_page_task_buttons_with_their_flows_and_captions():
+    import contextlib
+    import io
+    sys.path.insert(0, str(HERE.parent))
+    import proc
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        name = "UsrButtons_Process"
+
+        def run(*args):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                assert proc.main([args[0], str(pkg), name, *args[1:]]) == 0, args
+            return out.getvalue()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert proc.main(["new", str(pkg), name, "--caption", "Buttons", "--cultures", "en-US", "ru-RU"]) == 0
+        run("element", "add", "Page", "--kind", "preconfiguredPage", "--after", "StartEvent1", "--before", "TerminateEvent1")
+        run("element", "add", "Done", "--kind", "formula")
+        run("flow", "add", "Done", "TerminateEvent1")
+        run("element", "buttons", "Page", "add", "SaveButton", "--caption", "Save", "--to", "Done")              # a new flow
+        run("element", "buttons", "Page", "add", "CancelButton", "--caption", "Cancel", "--to", "TerminateEvent1")  # the plain one, promoted
+        run("element", "buttons", "Page", "add", "RetryButton", "--caption", "Retry", "--to", "Done")            # the same flow, a second button
+        p = ProcessSchema(pkg, name)
+        page = p.element("Page")
+        save = next(b for b in p.buttons(page) if b["code"] == "SaveButton")
+        items = json.loads(p.element_param(page, "Buttons")["L8"]["GS2"])
+        assert json.dumps(items["$values"][0], separators=(",", ":")) == DESIGNER_BUTTON.replace("@B@", save["uid"])
+        to_done = next(f for f in p.flows() if f["CI2"] == p.element("Done")["UId"])
+        assert short_type(to_done) == "ProcessSchemaConditionalFlow" and to_done["CI4"] == 2 and to_done["CI3"] == "null"
+        retry = next(b for b in p.buttons(page) if b["code"] == "RetryButton")["uid"]
+        assert to_done["GV2"] == DESIGNER_GV2.replace("@E@", page["UId"]).replace('"@B@"', f'"{save["uid"]}","{retry}"'), to_done["GV2"]
+        key = f"BaseElements.Page.Parameters.Buttons.Value.{save['uid']}.Caption"
+        assert [p.resources.get(key, c) for c in ("en-US", "ru-RU")] == ["Save | SaveButton"] * 2
+        assert f"button SaveButton 'Save | SaveButton' -> {to_done['A2']} to Done" in run("inspect")
+        assert p.validate() == [], p.validate()
+
+        # remove: the item, its caption and a flow that waits for it alone; a flow shared with another button stays
+        run("element", "buttons", "Page", "remove", "RetryButton")
+        run("element", "buttons", "Page", "remove", "CancelButton")
+        p = ProcessSchema(pkg, name)
+        page = p.element("Page")
+        assert [b["code"] for b in p.buttons(page)] == ["SaveButton"]
+        assert [b["flows"] for b in p.buttons(page)] == [[(to_done["A2"], "Done")]]
+        assert not any(f["CI2"] == p.element("TerminateEvent1")["UId"] and f["CI1"] == page["UId"] for f in p.flows())
+        assert not [k for k in p.resources.cultures["en-US"] if "Buttons.Value." in k and save["uid"] not in k]
+
+        # an auto-generated page: the list in the resources of every culture, with its style
+        run("element", "add", "Form", "--kind", "userTask:AutoGeneratedPageUserTask")
+        run("element", "buttons", "Form", "add", "OkButton", "--caption", "OK", "--style", "primary")
+        p = ProcessSchema(pkg, name)
+        ok = p.buttons(p.element("Form"))[0]
+        for culture in ("en-US", "ru-RU"):
+            stored = json.loads(p.resources.get("BaseElements.Form.Parameters.Buttons.Value", culture))["$values"]
+            assert json.dumps(stored[0], separators=(",", ":")) == DESIGNER_AUTO_ITEM.replace("@B@", ok["uid"])
+        with contextlib.redirect_stderr(io.StringIO()):  # a button only on a page task, a style only on an auto-generated one
+            assert proc.main(["element", str(pkg), name, "buttons", "Done", "add", "X", "--caption", "X"]) == 2
+            assert proc.main(["element", str(pkg), name, "buttons", "Page", "add", "X", "--caption", "X", "--style", "primary"]) == 2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_an_entity_the_workspace_does_not_hold_comes_from_the_sites_sys_schema():
+    # S47-T03: a platform object (Contact) is not in the workspace; the site's SysSchema names it (a fake `rows_of` here)
+    contact = "16be3651-8fe2-4159-8dd0-a803d4683dd3"
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        p = ProcessSchema.create(pkg, "UsrSite_Process", "Site", ["en-US"])
+        read_el = p.add_element("readData", "ReadContact", after="StartEvent1", before="TerminateEvent1")
+        try:
+            p.set_entity(read_el, "Contact")
+            raise AssertionError("no site: the stop it was")
+        except KeyError as e:
+            assert "give --env <env> to resolve Contact from the site" in str(e), str(e)
+        queries = []
+        site = {"Contact": [{"Name": "Contact", "UId": contact.upper()}], contact: [{"Name": "Contact", "UId": contact}]}
+        p.rows_of = lambda sql: queries.append(sql) or next((rows for k, rows in site.items() if f"= '{k}'" in sql), [])
+        result = p.element_param(read_el, "ResultEntity")
+        p.set_entity(read_el, contact)  # a UId: its name (L16) from the site
+        assert (result["L9"], result["L16"]) == (contact, "Contact") and f'"UId" = \'{contact}\'' in queries[-1]
+        del result["L16"]
+        p.set_entity(read_el, "Contact")  # a name: its UId from the site
+        assert (result["L9"], result["L16"]) == (contact, "Contact") and '"Name" = \'Contact\'' in queries[-1]
+        assert "\"ManagerName\" = 'EntitySchemaManager' and \"ExtendParent\" = false" in queries[-1]
+        assert json.loads(json.loads(p.element_param(read_el, "DataSourceFilters")["L8"]["GS2"])["dataSourceFilters"])["rootSchemaName"] == "Contact"
+        n = len(queries)
+        p.set_entity(read_el, "UsrPkg")  # the workspace answers first: no select
+        assert len(queries) == n and result["L16"] == "UsrPkg"
+        try:
+            p.set_entity(read_el, "UsrNowhere")
+            raise AssertionError("neither knows it")
+        except KeyError as e:
+            assert "neither in the workspace nor on the site" in str(e)
+        # the command line: --env opens the site through clio's select (Clio(env).execute_sql_rows)
+        import contextlib
+        import io
+        from unittest.mock import patch
+        sys.path.insert(0, str(HERE.parent))
+        import proc
+        p.save()
+        with patch.object(proc, "Clio") as clio, contextlib.redirect_stdout(io.StringIO()):
+            clio.return_value.execute_sql_rows.side_effect = p.rows_of
+            assert proc.main(["element", str(pkg), "UsrSite_Process", "add", "ReadAgain", "--kind", "readData", "--after", "ReadContact",
+                              "--entity", "Contact", "--env", "dev"]) == 0
+        clio.assert_called_once_with("dev")
+        q = ProcessSchema(pkg, "UsrSite_Process")
+        assert q.element_param(q.element("ReadAgain"), "ResultEntity")["L16"] == "Contact"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def proc_disagree(value, mapping):
     from creatio_schemas.process.schema import _disagree
     return _disagree(value, mapping)

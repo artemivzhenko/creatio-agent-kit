@@ -63,14 +63,6 @@ python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf
 python call.py -e <env> POST rest/UsrParseService/Parse --upload invoice.pdf --field content '{"kind": "invoice"}'
 ```
 
-### env site
-
-```
-python site.py -e <env> restart [--wait 120]         prints "restarted in <n> s" or "not up after <wait> s" (exit 1); a restart is site-wide
-python site.py -e <env> process-off <ProcessName>    DisableProcess; prints "<Process> off (SysProcessDisabled rows: n)"
-python site.py -e <env> process-on <ProcessName>     EnableProcess
-```
-
 ### env proc-run
 
 ```
@@ -177,6 +169,14 @@ python proc-runs.py error -e <env> <log id>
 | `timers` | the pending timers of a process |
 | `fire` | move a pending timer to now + --delay seconds (dev environments only) |
 | `error` | one run's error without stack frames, and the element it stopped on |
+
+### env site
+
+```
+python site.py -e <env> restart [--wait 120]       clio restart-web-app, then waits until the site answers
+python site.py -e <env> process-off <ProcessName>  ProcessEngineService.svc/DisableProcess, read back from SysProcessDisabled
+python site.py -e <env> process-on <ProcessName>   EnableProcess
+```
 <!-- commands:end -->
 
 ## The platform's client code: shell_source

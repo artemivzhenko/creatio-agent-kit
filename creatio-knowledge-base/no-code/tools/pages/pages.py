@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Freedom UI pages stored in a package (library: ../creatio_schemas/page).
 
-    python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list]
+    python pages.py new       <package> <Page> --entity UsrOrder [--fields UsrName,UsrAmount] [--caption "Order form"] [--template form|list|mini]
                               [--cultures en-US,ru-RU] [--dry-run]
     python pages.py inspect   <package> <Page>
     python pages.py add-field <package> <Page> <Column> [--parent SideAreaProfileContainer] [--row N] [--col N] [--span N]
@@ -15,7 +15,9 @@
 
 `new` makes a page for an object that already exists (scaffold makes pages only with a new object): the template's page,
 then a field per --fields column (default: every own column of the object); an existing page is refused. It is built in
-a scratch copy and validated first; --dry-run lists the files it would write.
+a scratch copy and validated first; --dry-run lists the files it would write. `--template mini` makes a process's
+pre-configured page (parent BaseMiniPageTemplate, no --entity, one label showing --caption): a page task opens it and
+completes on its buttons (`proc.py element ... buttons`).
 
 The page body (<Page>.js) is edited through its JSON marker sections; a bound field gets the
 control the designer would give the column's type and a PDS attribute, a grid gets its data
@@ -51,12 +53,14 @@ def new(_, a):
     ws = Workspace(package)
     if ws.find(a.page, "ClientUnitSchemaManager") or (package / "Schemas" / a.page).exists():
         raise FileExistsError(f"{a.page} exists")
-    found = ws.find(a.entity, "EntitySchemaManager")
-    if not found:
-        raise KeyError(f"object {a.entity} is not in the workspace")
     if a.fields and a.template != "form":
         raise ValueError("--fields goes with --template form")
-    caption = a.caption
+    if (a.template == "mini") == bool(a.entity):
+        raise ValueError("--template mini takes no --entity" if a.entity else "--entity is required")
+    found = ws.find(a.entity, "EntitySchemaManager") if a.entity else None
+    if a.entity and not found:
+        raise KeyError(f"object {a.entity} is not in the workspace")
+    caption = a.caption or (a.page if a.template == "mini" else "")
     if not caption:
         try:
             base = Resources(found[0]["dir"].parent.parent / "Resources" / f"{a.entity}.Entity").get("Caption", "en-US") or a.entity
@@ -65,7 +69,7 @@ def new(_, a):
         caption = base + (" form" if a.template == "form" else "")
     scratch = scratch_copy(package)
     try:
-        page = PageSchema.create(scratch, a.page, a.entity, a.template, caption, a.cultures.split(",") if a.cultures else None)
+        page = PageSchema.create(scratch, a.page, a.entity or "", a.template, caption, a.cultures.split(",") if a.cultures else None)
         if a.template == "form":
             for col in a.fields.split(",") if a.fields else [c for c in page.workspace.columns(a.entity) if c not in BASE_COLUMNS]:
                 page.add_field(col.strip())
@@ -154,11 +158,11 @@ def audit(page, a):
 
 def build() -> CommandLine:
     c = CommandLine(__doc__, "page")
-    p = c.command("new", new, "a form or list page for an object that exists")
-    p.add_argument("--entity", required=True)
+    p = c.command("new", new, "a form or list page for an object that exists; a process's mini page")
+    p.add_argument("--entity", help="the object (form and list)")
     p.add_argument("--fields", help="comma-separated columns, in this order; default every own column of the object")
-    p.add_argument("--caption", help="default: the object's caption + ' form'")
-    p.add_argument("--template", choices=["form", "list"], default="form")
+    p.add_argument("--caption", help="default: the object's caption + ' form'; mini: the page name")
+    p.add_argument("--template", choices=["form", "list", "mini"], default="form")
     p.add_argument("--cultures", help="comma-separated; default the package's cultures")
     p.add_argument("--dry-run", action="store_true", help="list the files, write nothing")
     c.command("inspect", inspect, "elements, attributes, data sources and problems")

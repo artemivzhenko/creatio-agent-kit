@@ -52,7 +52,9 @@ DVT_CODE = {"Guid": 0, "Text": 1, "Integer": 4, "Float": 5, "Money": 6, "DateTim
 
 # template -> (asset, parent UId, parent name) of the empty pages clio's create-page writes on 8.2.3
 PAGE_TEMPLATES = {"form": ("FormPage", "3b2e117f-8c6b-4ca5-80a2-7ebb497cddf9", "PageWithTabsFreedomTemplate"),
-                  "list": ("ListPage", "3334b6c0-c8ab-4b59-a367-0c9182102552", "ListPageV2Template")}
+                  "list": ("ListPage", "3334b6c0-c8ab-4b59-a367-0c9182102552", "ListPageV2Template"),
+                  # a process's pre-configured page (P-8.16): no object, one label; what the S45-T09 bed page carries
+                  "mini": ("MiniPage", "ecdcc8ff-272c-4957-9381-7d74ce17e140", "BaseMiniPageTemplate")}
 
 DEFAULT_FIELD_PARENT = "SideAreaProfileContainer"
 DEFAULT_GRID_PARENT = "GeneralInfoTabContainer"
@@ -705,7 +707,8 @@ class PageSchema(Schema):
     def create(cls, package: Path, name: str, entity: str, template: str = "form", caption: str = "",
                cultures: list[str] | None = None, version: str = "8.2.3.1351") -> "PageSchema":
         """An empty form page (PageWithTabsFreedomTemplate) or list page (ListPageV2Template) of `entity`, byte for byte what
-        clio's create-page writes (assets/new_FormPage.*, new_ListPage.*); fields go on with add_field."""
+        clio's create-page writes (assets/new_FormPage.*, new_ListPage.*); fields go on with add_field. A mini page
+        (BaseMiniPageTemplate, assets/new_MiniPage.*) has no object and one label showing `caption`."""
         from ..schema import Descriptor
         from ..workspace import Package
         if template not in PAGE_TEMPLATES:
@@ -718,7 +721,8 @@ class PageSchema(Schema):
             raise FileExistsError(sdir)
         asset, parent_uid, parent = PAGE_TEMPLATES[template]
         pkg, uid = Package(package), new_uid()
-        values = {"@NAME@": name, "@ENTITY@": entity, "@UID@": uid, "@CREATED_IN@": pkg.created_in_uid(), "@PACKAGE@": pkg.uid}
+        values = {"@NAME@": name, "@ENTITY@": entity, "@UID@": uid, "@CREATED_IN@": pkg.created_in_uid(), "@PACKAGE@": pkg.uid,
+                  "@CAPTION@": json.dumps(caption or name)[1:-1]}
 
         def fill(text: str) -> str:
             for k, v in values.items():
@@ -730,7 +734,8 @@ class PageSchema(Schema):
         desc = Descriptor.new(sdir / "descriptor.json", {"UId": uid, "Name": name, "ModifiedOnUtc": "", "Parent": {"UId": parent_uid, "Name": parent},
                                                           "ManagerName": "ClientUnitSchemaManager", "Caption": caption or name, "DependsOn": []})
         write_text(desc.path, desc.text, True)
-        write_text(sdir / "properties.json", dump_json({"Properties": {"CreatedInVersion": version, "Group": "Page", "SchemaType": "AngularSchema"}}), True)
+        write_text(sdir / "properties.json", dump_json({"Properties": {"CreatedInVersion": version, "Group": "MiniPage" if template == "mini" else "Page",
+                                                                        "SchemaType": "AngularSchema"}}), True)
         page = cls(package, name)
         known = sorted({p.name[len("resource."):-len(".xml")] for p in package.glob("Resources/*/resource.*.xml")})
         page.resources = Resources.empty(page.resources.folder, cultures or known or ["en-US"])

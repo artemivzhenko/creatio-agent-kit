@@ -1,13 +1,18 @@
-"""Process expressions: the designer's UId meta paths <-> readable names (`{Parameter:Name}`, `{Element:El.Parameter:P}`).
+"""Process expressions: the designer's UId meta paths <-> readable names (`{Parameter:Name}`, `{Element:El.Parameter:P}`,
+`{SysVariable.CurrentUserContact}` for the designer's macro `[#SysVariable.CurrentUserContact#]`).
 
 The codec itself is `expressions.metapath`; `ExpressionCodec` is its `Names` for one process and adds `check`.
 """
 
 from __future__ import annotations
 
+import re
+
 from ..expressions import metapath
 from ..expressions.metapath import LEFTOVER_RE, META_PATH_RE, SUGAR_RE
 from ..files import GUID_RE
+
+SYS_VARIABLE_RE = re.compile(r"\{SysVariable\.([A-Za-z0-9_]+)\}")  # decode needs nothing: metapath turns [#X#] back into {X}
 
 
 class ExpressionCodec:
@@ -58,9 +63,9 @@ class ExpressionCodec:
         return uids[ref]
 
     def encode(self, text: str) -> str:
-        """{Parameter:Name} / {Element:El.Parameter:P[.EntityColumn:C]} -> meta paths; the rest of the text is kept.
-        A `{...}` reference the codec cannot resolve raises - it would reach the platform as text."""
-        return metapath.encode(text, self)
+        """{Parameter:Name} / {Element:El.Parameter:P[.EntityColumn:C]} -> meta paths, {SysVariable.X} -> [#SysVariable.X#];
+        the rest of the text is kept. A `{...}` reference the codec cannot resolve raises - it would reach the platform as text."""
+        return metapath.encode(SYS_VARIABLE_RE.sub(r"[#SysVariable.\1#]", text), self)
 
     def check(self, text, where: str) -> list[str]:
         """Problems of a stored expression: a name reference left unencoded, a meta path to an element or parameter
@@ -79,4 +84,4 @@ class ExpressionCodec:
 
     @staticmethod
     def has_names(text) -> bool:
-        return isinstance(text, str) and bool(SUGAR_RE.search(text))
+        return isinstance(text, str) and bool(SUGAR_RE.search(text) or SYS_VARIABLE_RE.search(text))
