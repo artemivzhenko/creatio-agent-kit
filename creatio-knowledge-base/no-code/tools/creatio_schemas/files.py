@@ -41,6 +41,11 @@ def read_text(path: Path) -> tuple[str, bool]:
     (written back, it becomes UTF-8)."""
     with open(path, "rb") as fh:
         raw = fh.read()
+    return decode_text(raw, path)
+
+
+def decode_text(raw: bytes, path: Path) -> tuple[str, bool]:
+    """read_text over bytes already in hand (a reader that checked them for binary first)."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:

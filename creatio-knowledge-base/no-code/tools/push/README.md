@@ -31,7 +31,9 @@ python push.py deps <package> -e <environment> [--add <Package>[,<Package>]] [--
 ## How it works
 
 The command checks environment drift since the package's last git commit (the schemas of the package
-- joined through `SysPackage` by the descriptor's `UId` - modified on the environment after that commit),
+- joined through `SysPackage` by the descriptor's `UId` - modified on the environment after that commit; a schema whose
+folder descriptor is dated at or after the site's `ModifiedOn` is the push's own: the install stamps the site with that date and a
+download writes the site's date into the folder, so a schema pulled after a designer save and edited here passes),
 checks that no dependency was dropped (a `DependsOn` entry of `descriptor.json` or a `Reference` /
 `ProjectReference` of `Files/*.csproj` that git HEAD has and the working copy lost; `--force` lets it
 through), checks changed files against other active task locks, and updates the dates of changed SQL

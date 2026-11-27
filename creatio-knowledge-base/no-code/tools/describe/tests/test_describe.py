@@ -1097,6 +1097,7 @@ def test_uids_resolve_both_ways_and_name_a_text():
     from creatio_schemas.workspace import Workspace
     ws = Workspace(PAGES)
     order = ws.find("UsrOrder", "EntitySchemaManager")[0]["uid"]
+    assert ws.find(order) == ws.find("usrorder") == ws.find("UsrOrder") and ws.find("UsrOrder", "ProcessSchemaManager") == []  # by UId, name (case-blind), manager
     status = ws.column_uids("UsrOrder")["UsrStatus"]
     assert resolve(PAGES, order).startswith(f"{order}  schema UsrOrder (Entity) in UsrPkg"), resolve(PAGES, order)
     assert resolve(PAGES, status) == f"{status}  column UsrOrder.UsrStatus"
@@ -2802,6 +2803,8 @@ def test_find_text_over_the_indexed_files():
         assert find_text(pkg, "UsrOnlyInResources", kind="resource").startswith("1 lines match")
         many = find_text(pkg, '"A2"', kind="object", limit=2).splitlines()
         assert len(many) == 4 and many[-1].startswith("  ... ") and many[-1].endswith("more; add limit=0 for all"), many
+        anchored = find_text(pkg, r"^\s+handlers:", kind="page").splitlines()  # a line anchor survives the whole-file prefilter
+        assert anchored[0].startswith("2 lines match") and anchored[2].endswith("handlers: /**SCHEMA_HANDLERS*/[]/**SCHEMA_HANDLERS*/,"), anchored
         try:
             find_text(pkg, "(")
             raise AssertionError("a bad regex must be refused")

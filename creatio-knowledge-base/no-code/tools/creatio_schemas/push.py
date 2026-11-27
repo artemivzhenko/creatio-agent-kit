@@ -14,7 +14,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -195,14 +195,29 @@ DRIFT_SQL = ('select s."Name", s."ModifiedOn"::text "modifiedOn", coalesce(c."Na
              "where p.\"UId\" = '{uid}' and s.\"ModifiedOn\" > '{commit}'")
 
 
+def _dated_after(descriptor: Path, site: str | None) -> bool:
+    """The folder's ModifiedOnUtc (`/Date(ms)/`, UTC) is at or after the site row's ModifiedOn (UTC text, fraction dropped):
+    the install stamps the site with the descriptor's date and a download writes the site's date into it, so the folder
+    holds that state of the site or a later one."""
+    try:
+        ms = int(re.search(r"/Date\((\d+)", descriptor.read_text(encoding="utf-8-sig")).group(1))
+        site_s = datetime.fromisoformat(str(site).split(".")[0]).replace(tzinfo=timezone.utc).timestamp()
+    except (OSError, AttributeError, ValueError, TypeError):
+        return False
+    return ms // 1000 >= int(site_s)
+
+
 def _same_as_working_copy(package: Path, row: dict) -> bool:
-    """A site schema newer than the commit is this push's own (an earlier uncommitted push, a merge pushed unchanged) when
-    its MetaData and largest body have the md5 of the folder's metadata.json and .js/.cs (line endings tolerated) and it is
-    not `IsChanged` (the push clears it; a designer save sets it - E10's one real change was such a page)."""
+    """A site schema newer than the commit is this push's own when the folder's descriptor is dated at or after it (downloaded
+    from that state, maybe edited since: nothing of the site's is lost), or when its MetaData and largest body have the md5 of
+    the folder's metadata.json and .js/.cs (line endings tolerated) and it is not `IsChanged` (the push clears it; a designer
+    save sets it - E10's one real change was such a page)."""
     from .verify import _body_file, _compare
+    folder = package / "Schemas" / str(row.get("Name"))
+    if _dated_after(folder / "descriptor.json", row.get("modifiedOn")):
+        return True
     if str(row.get("isChanged")).lower() in ("true", "1"):
         return False
-    folder = package / "Schemas" / str(row.get("Name"))
     meta, body = folder / "metadata.json", _body_file(folder, folder.name)
     if not row.get("meta") or not meta.is_file() or _compare(str(row["meta"]), meta.read_bytes()) not in (None, "line endings"):
         return False
@@ -704,7 +719,7 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
                  + (", IsChanged)" if str(r.get("isChanged")).lower() in ("true", "1") else ")") for r in foreign]
         if lines and not force:
             raise RuntimeError(", ".join(lines))
-        ours = f" ({len(rows) - len(foreign)} newer than the commit, same as the working copy)" if len(rows) > len(foreign) else ""
+        ours = f" ({len(rows) - len(foreign)} newer than the commit, dated before the folder or same as the working copy)" if len(rows) > len(foreign) else ""
         return f"forced ({len(foreign)} changed: {', '.join(lines)})" if lines else "ok" + ours
 
     def package_schemas():

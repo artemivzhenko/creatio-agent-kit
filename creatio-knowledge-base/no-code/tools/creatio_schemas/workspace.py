@@ -89,6 +89,15 @@ class Package:
         return self.uid
 
 
+def _by_key(schemas: list[dict]) -> dict[str, list[dict]]:
+    """{name (lower) | uid | base uid: schemas in list order} - what `find` answers from."""
+    by_key: dict[str, list[dict]] = {}
+    for s in schemas:
+        for k in {s["name"].lower(), s["uid"], s["base"]}:
+            by_key.setdefault(k, []).append(s)
+    return by_key
+
+
 class Workspace:
     """Every schema descriptor in the packages folder that holds a package (the clio workspace layout)."""
 
@@ -99,7 +108,7 @@ class Workspace:
         fp = _fingerprint(self.root)
         
         if fp and fp in _CACHE:
-            cached_schemas, _ = _CACHE[fp]
+            cached_schemas, by_key = _CACHE[fp]
             self.schemas = list(cached_schemas)
         else:
             self.schemas: list[dict] = []
@@ -113,8 +122,10 @@ class Workspace:
                                      "base": (d.get("Parent") or {}).get("UId", uid).lower() if d.get("ExtendParent") else uid,
                                      "caption": d.get("Caption", d["Name"])})
             Workspace.scans += 1
+            by_key = _by_key(self.schemas)
             if fp:
-                _CACHE[fp] = (self.schemas, fp)
+                _CACHE[fp] = (self.schemas, by_key)
+        self._by_key = (self.schemas, by_key)  # shared by every Workspace of the root: who_sets opens one per process
 
     @staticmethod
     def forget(root: Path | None = None) -> None:
@@ -132,8 +143,9 @@ class Workspace:
 
     def find(self, name_or_uid: str, manager: str | None = None) -> list[dict]:
         """Every copy of a schema (own and replacing), matched by name, UId or base UId."""
-        key = name_or_uid.lower()
-        return [s for s in self.schemas if key in (s["name"].lower(), s["uid"], s["base"]) and (manager is None or s["manager"] == manager)]
+        if self._by_key[0] is not self.schemas:  # whoever assigns `schemas` gets a fresh index
+            self._by_key = (self.schemas, _by_key(self.schemas))
+        return [s for s in self._by_key[1].get(name_or_uid.lower(), []) if manager is None or s["manager"] == manager]
 
     _GUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b")
 

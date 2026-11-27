@@ -22,7 +22,7 @@ import traceback
 from pathlib import Path
 
 from ..csharp import csharp_files
-from ..files import LEGACY_ENCODED, read_text
+from ..files import LEGACY_ENCODED, decode_text, read_text
 from ..resources import Resources
 from ..workspace import Workspace
 from . import platform, store
@@ -866,6 +866,7 @@ def find_text(path: Path | str, pattern: str, kind: str = "", context: int = 0, 
     from .core import QueryError
     try:
         rx = re.compile(pattern)
+        whole = re.compile(pattern, re.MULTILINE)  # one search over the whole file first: `^`/`$` still mean a line's ends
     except re.error as exc:
         raise QueryError(f"not a regex: {pattern} ({exc})") from exc
     if context < 0:
@@ -883,9 +884,12 @@ def find_text(path: Path | str, pattern: str, kind: str = "", context: int = 0, 
             raw = (package / rel).read_bytes()
             if b"\0" in raw[:8000]:
                 continue  # binary
-            lines = read_text(package / rel)[0].splitlines()
+            text = decode_text(raw, package / rel)[0]
         except UNREADABLE:
             continue
+        if not whole.search(text):
+            continue  # shortcut: `\A` and `\Z` are judged against the file, not each line; split the lines when a pattern needs them
+        lines = text.splitlines()
         shown = -1
         for i, text in enumerate(lines):
             if not rx.search(text):

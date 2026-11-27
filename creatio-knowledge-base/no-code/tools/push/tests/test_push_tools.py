@@ -1022,7 +1022,7 @@ def test_drift_lets_a_site_schema_equal_to_the_working_copy_pass_and_names_a_rea
         fake.rows = [ours]
         with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
             assert push(pkg, "dev", fake, log=logs.append) == 0, logs
-        assert "drift: ok (1 newer than the commit, same as the working copy)" in logs, logs
+        assert "drift: ok (1 newer than the commit, dated before the folder or same as the working copy)" in logs, logs
         assert 'md5(s."MetaData")' in fake.calls[0][0][1] and '"IsChanged"' in fake.calls[0][0][1]
         fake.rows, logs = [dict(ours, isChanged="true")], []  # the same body, but a designer save since: not ours
         with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
@@ -1031,6 +1031,13 @@ def test_drift_lets_a_site_schema_equal_to_the_working_copy_pass_and_names_a_rea
         with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
             assert push(pkg, "dev", fake, log=logs.append) == 1
         assert "drift: FAILED UsrOrderPage (changed on the site 2026-11-26 10:12 by Supervisor, IsChanged)" in logs, logs
+        from datetime import datetime, timezone
+        site_ms = int(datetime(2026, 11, 26, 10, 12, 33, tzinfo=timezone.utc).timestamp()) * 1000
+        for ms, exit_code in ((site_ms, 0), (site_ms - 1000, 1)):  # downloaded from that state of the site, edited here: ours; a second older: foreign
+            (page / "descriptor.json").write_bytes(b'{"Descriptor": {"ModifiedOnUtc": "\\/Date(%d)\\/"}}\r\n' % ms)
+            fake.rows, logs = [dict(ours, content=md5(b"changed on the site"), isChanged="true")], []
+            with patch("creatio_schemas.push._git", side_effect=fake_git(root)):
+                assert push(pkg, "dev", fake, log=logs.append) == exit_code, (ms, logs)
 
 
 def test_stale_bin_tolerates_one_checkout_and_a_clean_git_and_build_names_foreign_errors():
