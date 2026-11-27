@@ -2,7 +2,7 @@
 
 References read from the files: Freedom page attributes (`DS.Column.Sub` through the data source's object) and the data
 sources' own attribute paths, process filters and Add / Modify data columns, C# `AddColumn("a.b")` after the nearest
-preceding `new EntitySchemaQuery(..., "Root")`. Not read: Classic rules and `bindTo`. Each root object is asked of the site once
+preceding `new EntitySchemaQuery(..., "Root")`. A Classic page: the `bindTo` of its diff values and the column keys of its rules, through the page's own `entitySchemaName`. Each root object is asked of the site once
 (its table's columns and foreign keys, read-only); a lookup column `X` is the table column `XId`; a path is followed through the
 foreign keys and left unchecked where the site has none.
 """
@@ -78,6 +78,32 @@ def _page(item) -> list[tuple[str, str, str]]:
     return out
 
 
+def _classic(item) -> list[tuple[str, str, str]]:
+    """`bindTo` of the diff values (nested too) and the columns of `businessRules` / `rules`; a lower-case name (a method, a handler), a name the page declares itself or a resource string is no column.
+    shortcut: a replacing layer with no `entitySchemaName` of its own is skipped, read the entity from the parent when it matters."""
+    from ..classicui.layout import _tree
+
+    entity, own, out = item.entity, set(item.attributes()), []
+    if not entity:
+        return out
+
+    def walk(node, where):
+        for k, v in (node.items() if isinstance(node, dict) else []):
+            if k == "bindTo" and isinstance(v, str) and re.fullmatch(r"[A-Z]\w*(\.\w+)*", v) and not v.startswith("Resources.") and v.split(".")[0] not in own:
+                out.append((f"{where} bindTo", entity, v))
+            else:
+                walk(v, where)
+
+    for op in item.diff_operations():
+        values = item._object(op["at"]).get("values")
+        walk(_tree(item, *values) if values else {}, f"diff {op['name']}")
+    for section in ("businessRules", "rules"):
+        span = item.sections.get(section)
+        tree = _tree(item, *span) if span else {}
+        out += [(f"{section} column", entity, c) for c in (tree if isinstance(tree, dict) else {}) if c not in own]
+    return out
+
+
 def _process(item) -> list[tuple[str, str, str]]:
     out = []
     for el in item.elements:
@@ -115,7 +141,7 @@ def references(package: Path, schema: str | None = None) -> list[tuple[str, str,
         except FileNotFoundError:
             continue
         kind = kind_of(item)
-        found = _page(item) if kind == "page" else _process(item) if kind == "process" else []
+        found = _page(item) if kind == "page" else _classic(item) if kind == "classic" else _process(item) if kind == "process" else []
         out += [(folder.name, *r) for r in found]
     for path in csharp_files(package):
         if not schema or path.stem == schema:

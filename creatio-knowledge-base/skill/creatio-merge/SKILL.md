@@ -88,5 +88,5 @@ Run from `creatio-knowledge-base/no-code/tools`. `E` is the evidence folder.
 - read or copy a client's record values into a case: the fixture's values are made up; `sample_records` is for looking;
 - commit, branch or push to git.
 
-No tool answers a step? Call `report_gap(kind="missing"|"misbehaved"|"by-hand", need, instead, script=<the file you wrote>)`
+No tool answers a step? Call `report_gap(kind="missing"|"misbehaved"|"by-hand", need, instead, script=<the file you wrote>, text=<a one-line query or command with no file>, task=)`
 before going on; a merge step done by hand that is not recorded does not become a tool.

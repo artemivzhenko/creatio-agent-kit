@@ -168,7 +168,10 @@ class Workspace:
 
     def lookup_captions(self) -> dict[str, str]:
         """{row Id (lower case): Name} over every lookup the bindings hold."""
-        return {i: n for rows in self.lookup_rows().values() for i, n in rows.items() if n}
+        rows = self.lookup_rows()
+        if getattr(self, "_captions", (None,))[0] is not rows:  # keyed on the rows object: whoever assigns `_rows` (proc.py find: {}) resets the cache
+            self._captions = (rows, {i: n for r in rows.values() for i, n in r.items() if n})
+        return self._captions[1]
 
     def lookup_value(self, schema: str | None, text: str) -> tuple[str, str] | None:
         """(row Id, Name) of a lookup row given by its Id or its Name (case-blind) in the bindings of `schema` (any lookup when None), else None."""

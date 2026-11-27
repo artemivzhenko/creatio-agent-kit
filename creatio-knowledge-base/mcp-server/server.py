@@ -864,7 +864,8 @@ def run_process(env: str, process: str, params: str = "", results: str = "") -> 
     status, start, end and the first line of the error (`process_error` gives the whole error and the element it stopped
     on). `params` is a JSON object (`{"OrderId": "<guid>", "Quantity": 3}`), `results` a comma list of result parameter
     names. Ends with `exit code 1` when the engine refused it or the run is not completed (failed, or still waiting).
-    Runs the process: whatever it writes is written."""
+    A process whose only start is a timer is refused (`only contains automatic start events`) with the line `the process starts
+    by timer: process_timers / fire_timer move its next fire to now + N s`. Runs the process: whatever it writes is written."""
     import json
     from creatio_schemas.runs import render_log
     try:
@@ -877,7 +878,7 @@ def run_process(env: str, process: str, params: str = "", results: str = "") -> 
 
     def work(e):
         run = e.run_process(process.strip(), values, names)
-        lines = [f"{process}: {'ok' if run['success'] else 'FAILED ' + str(run['error'])}  processId {run['processId'] or '-'}"]
+        lines = [f"{process}: ok  processId {run['processId'] or '-'}" if run["success"] else f"{process}: FAILED {run['error']}"]
         lines += [f"  {n} = {json.dumps(run['results'].get(n), ensure_ascii=False)}" for n in names]
         log = None
         if run["processId"]:
@@ -895,7 +896,7 @@ def run_process(env: str, process: str, params: str = "", results: str = "") -> 
 def process_runs(env: str, process: str = "", record: str = "", since: str = "", until: str = "", limit: int = 20,
                  window: int = 30, time_zone: str = "", noise: str = "", steps: bool = False, element: str = "", status: str = "") -> str:
     """What ran when this record changed (`record=UsrOrder:<id>`), or the runs of one process: the business-process runs of `SysProcessLog`, each with its start (UTC and `time_zone`), process, status,
-    log id, owner and the first line of its error. `process` (name or UId - every copy of that schema) gives its newest
+    log id, owner and the first line of its error; the state in brackets is completed, running, failed or cancelled. `process` (name or UId - every copy of that schema) gives its newest
     `limit` runs; `record` (`<Entity>:<Id>`) gives every run that started within `window` seconds of a change of that
     record or of a row pointing at it (its details), oldest first - "what ran when the manager pressed the button".
     `since` / `until` (`2026-11-11T08:00`, UTC unless a zone is written) bound the start. `noise` (comma list of names or
@@ -916,8 +917,10 @@ def process_runs(env: str, process: str = "", record: str = "", since: str = "",
 def process_timers(env: str, process: str, record: str = "", window: int = 30, time_zone: str = "") -> str:
     """The pending timers of a process (every copy of its schema), soonest first: the fire time in UTC and `time_zone`, the
     timer element's caption, its state, and the run and element ids. A timer is a Quartz trigger (`qrtz_triggers`) whose group is
-    the id of the run's element in `SysProcessElementLog`; its time is .NET ticks, converted here. `record` (`<Entity>:<Id>`) keeps
-    the runs that started within `window` seconds of a change of that record or of a row pointing at it. Read-only."""
+    the id of the run's element in `SysProcessElementLog`; its time is .NET ticks, converted here. A timer-started process with no
+    run is listed too: its CRON start trigger (group = the schema UId) as `(start timer)` with its CRON and trigger name, no run.
+    `record` (`<Entity>:<Id>`) keeps the run timers of the runs that started within `window` seconds of a change of that record or
+    of a row pointing at it. Read-only."""
     from creatio_schemas.runs import process_timers as _timers, render_timers
     return _answer(env, lambda e: render_timers(_timers(e, process.strip(), record.strip() or None, max(0, window), time_zone or None)))
 
@@ -925,9 +928,11 @@ def process_timers(env: str, process: str, record: str = "", window: int = 30, t
 @mcp.tool()
 def fire_timer(env: str, process: str, record: str, project: str, timer: str = "", delay: int = 20, time_zone: str = "") -> str:
     """Moves one pending timer of the run around `record` (`<Entity>:<Id>`) to now + `delay` seconds, so the step after it can be
-    checked without waiting a day: `update qrtz_triggers set next_fire_time = <ticks> where trigger_name = ... and job_group = <element id>`.
+    checked without waiting a day, or, with `record` empty, the CRON start trigger of a timer-started process, so its first run starts
+    now: `update qrtz_triggers set next_fire_time = <ticks> where trigger_name = ... and job_group = <element id>` (`trigger_group =
+    <schema UId>` for a start trigger), then the row read back (`read back: due ... (<state>)`).
     WRITES to the site, and is refused unless `project` (a project.json path) marks the environment `"kind": "dev"` with a `clioName`
-    equal to `env`: `refused: <env> is not a dev environment`. `timer` (a part of the element's caption, or its id) picks one when
+    equal to `env`: `refused: <env> is not a dev environment`. `timer` (a part of the element's caption, `start`, or its id) picks one when
     several timers wait. The only tool of this server that changes a site's scheduler."""
     from creatio_schemas.runs import fire_timer as _fire, render_fire
 

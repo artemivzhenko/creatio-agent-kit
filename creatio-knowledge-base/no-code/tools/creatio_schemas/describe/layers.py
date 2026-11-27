@@ -46,13 +46,9 @@ def rule_state(body: str, uid: str) -> str:
     """absent / enabled / disabled / removed of a business rule (by UId) in a Classic UI body; `no body` when empty."""
     if not body.strip():
         return "no body"
-    from ..classicui.schema import ClassicSchema
-    from ..text import mask
+    from ..classicui.methods import view as reader
 
-    view = ClassicSchema.__new__(ClassicSchema)  # the reader's parse over a text, without package files
-    view.body, view.masked, view.name = body, mask(body), "layer"
-    view.module_name, view.dependencies, view.sections, view._return_at, view._deps_at = None, [], {}, None, None
-    view._parse()
+    view = reader(body, "layer")
     hit = view._rule_at(uid)
     if not hit:
         return "absent"

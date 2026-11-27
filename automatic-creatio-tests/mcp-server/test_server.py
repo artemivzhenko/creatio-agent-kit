@@ -64,6 +64,9 @@ def test_run_forwards_the_task_folder_without_running():
         out = server.run("contact", task_folder="C:/tasks/012", task="012")
     assert out == "--filter contact --task-folder C:/tasks/012 --task 012", out
     assert cli.call_count == 1
+    with patch.object(server, "_cli", return_value="rebuilt the stale exe: ok\n\nsite: https://dev.example.com (clio dev)\nrunning\n\nexit code 0"):
+        out = server.run()
+    assert out.splitlines()[:3] == ["site: https://dev.example.com (clio dev)", "rebuilt the stale exe: ok", ""], out
 
 
 def test_stale_exe_is_rebuilt_or_warned():

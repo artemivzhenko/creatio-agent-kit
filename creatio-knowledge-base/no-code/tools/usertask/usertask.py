@@ -4,7 +4,7 @@
     python usertask.py inspect      <package> <Task>
     python usertask.py validate     <package> <Task>
     python usertask.py method       <package> <Task> <Method>                      # one method's C#
-    python usertask.py new          <package> <Task> --caption "Notify owner" [--param RecordId:Guid:In:required] [--param Note:Text] [--interactive] [--cultures en-US]
+    python usertask.py new          <package> <Task> --caption "Notify owner" [--param RecordId:Guid:In:required] [--param Order:Lookup:In:required:UsrOrder] [--param Note:Text] [--env dev] [--interactive] [--cultures en-US]
     python usertask.py add-param    <package> <Task> <Name> <Type> [--direction In|Out|Variable] [--caption C] [--required] [--ref UsrOrder [--env dev]]
     python usertask.py remove-param <package> <Task> <Name>
     python usertask.py rename-param <package> <Task> <Old> <New>
@@ -75,11 +75,12 @@ def set_source(task, a):
 
 
 def parse_param(spec: str) -> tuple:
-    """Name:Type[:Direction[:required]]."""
+    """Name:Type[:Direction[:required[:RefObject]]]; the fifth segment names the object of a Lookup parameter."""
     parts = spec.split(":")
-    if len(parts) < 2:
-        raise ValueError(f"--param expects Name:Type[:Direction[:required]], got {spec!r}")
-    return (parts[0], parts[1], parts[2] if len(parts) > 2 and parts[2] else "In", "", len(parts) > 3 and parts[3].lower() == "required")
+    if not 2 <= len(parts) <= 5:
+        raise ValueError(f"--param expects Name:Type[:Direction[:required[:RefObject]]], got {spec!r}")
+    return (parts[0], parts[1], parts[2] if len(parts) > 2 and parts[2] else "In", "", len(parts) > 3 and parts[3].lower() == "required",
+            parts[4] if len(parts) > 4 and parts[4] else None)
 
 
 def build() -> CommandLine:
@@ -90,9 +91,10 @@ def build() -> CommandLine:
     p.add_argument("method")
     p = c.command("new", new, "a user task with a C# skeleton")
     p.add_argument("--caption", required=True)
-    p.add_argument("--param", action="append", default=[], metavar="NAME:TYPE[:DIRECTION[:required]]")
+    p.add_argument("--param", action="append", default=[], metavar="NAME:TYPE[:DIRECTION[:required[:REFOBJECT]]]")
     p.add_argument("--interactive", action="store_true")
     p.add_argument("--cultures", default="en-US")
+    p.add_argument("--env", help="a Lookup parameter's platform object: look it up on this environment")
     p = c.command("add-param", add_param, "a parameter", writes=True)
     p.add_argument("name")
     p.add_argument("type")
@@ -115,7 +117,7 @@ def build() -> CommandLine:
 
 def open_schema(a):
     if a.command == "new":
-        return UserTaskSchema.create(a.package, a.task, a.caption, [parse_param(s) for s in a.param], a.cultures.split(","), a.interactive)
+        return UserTaskSchema.create(a.package, a.task, a.caption, [parse_param(s) for s in a.param], a.cultures.split(","), a.interactive, env=a.env)
     return UserTaskSchema(a.package, a.task)
 
 

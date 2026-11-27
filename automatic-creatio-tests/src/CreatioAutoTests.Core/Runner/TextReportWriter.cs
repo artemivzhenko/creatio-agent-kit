@@ -84,6 +84,11 @@ public sealed class TextReportWriter : IReportWriter
     {
         var builder = new StringBuilder();
 
+        if (result.Site is not null)
+        {
+            builder.AppendLine(result.Site);
+        }
+
         builder.AppendLine("Creatio automated tests");
         builder.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         builder.AppendLine("Cases: " + result.Cases.Count + "   passed: " + result.Passed +

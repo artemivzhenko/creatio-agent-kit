@@ -51,7 +51,7 @@ def test_new_config_and_missing_environment():
         source = root / "project.json"
         source.write_text(json.dumps({"environment": {"url": "https://example.test", "login": "x", "password": "y"},
                                       "paths": {"testFramework": "framework"}}), encoding="utf-8")
-        assert project.sync(source) == ["BaseUrl", "Users", "CasesFolders"]
+        assert project.sync(source) == ["BaseUrl", "Users", "CasesFolders", "AllowDevOnly"]
         target = root / "framework" / "Configuration" / "creatio.env.config.json"
         assert json.loads(target.read_text(encoding="utf-8"))["CasesFolders"] == ["./Cases"]
         before = target.read_bytes()
@@ -59,6 +59,34 @@ def test_new_config_and_missing_environment():
         with contextlib.redirect_stderr(io.StringIO()):
             assert project.main(["sync", str(source)]) == 1
         assert target.read_bytes() == before
+
+
+def test_sync_writes_the_dev_keys_both_ways_and_keeps_the_other_users():  # S49-T03
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "framework" / "Configuration").mkdir(parents=True)
+        target = root / "framework" / "Configuration" / "creatio.env.config.json"
+        target.write_text(json.dumps({"Users": [{"Username": "UsrTestOperator", "Password": "a"},
+                                                {"Username": "supervisor", "Password": "old"}]}), encoding="utf-8")
+        source = root / "project.json"
+        env = {"url": "https://dev.example.com", "login": "Supervisor", "password": "p", "kind": "dev", "clioName": "dev"}
+        source.write_text(json.dumps({"environment": env, "paths": {"testFramework": "framework"}}), encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert project.main(["sync", "--project", str(source)]) == 0
+        data = json.loads(target.read_text(encoding="utf-8"))
+        assert data["Users"] == [{"Username": "Supervisor", "Password": "p"}, {"Username": "UsrTestOperator", "Password": "a"}]
+        assert data["AllowDevOnly"] is True and data["ClioEnvironment"] == "dev"
+        source.write_text(json.dumps({"environment": {**env, "kind": "client", "clioName": ""},
+                                      "paths": {"testFramework": "framework"}}), encoding="utf-8")
+        assert project.sync(source) == ["AllowDevOnly", "ClioEnvironment"]
+        data = json.loads(target.read_text(encoding="utf-8"))
+        assert data["AllowDevOnly"] is False and "ClioEnvironment" not in data and len(data["Users"]) == 2
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                project.main(["sync", str(source), "--project", str(source)])
+                raise AssertionError("both forms accepted")
+            except SystemExit as exc:
+                assert exc.code == 2
 
 
 def test_launcher_falls_back_to_py_and_check_is_read_only():

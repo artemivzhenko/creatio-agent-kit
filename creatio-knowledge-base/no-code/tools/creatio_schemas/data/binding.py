@@ -78,6 +78,9 @@ def site_table(env: str, schema_name: str, package: str) -> dict:
             "columns": {c["A2"]: {k: c[k] for k in ("UId", "S2", "E21") if k in c} for c in found["schema"].get("D2", [])}}
 
 
+SYSTEM_COLUMNS = ("CreatedOn", "CreatedBy", "ModifiedOn", "ModifiedBy", "ProcessListeners")
+
+
 def object_columns(workspace: Workspace, schema_name: str) -> dict[str, dict]:
     """name -> column (UId, S2 type, E21 localizable) of an object over its copies in the workspace; {} when it is not there."""
     from ..entity import EntitySchema  # local: the entity toolkit is only needed to create rows
@@ -328,7 +331,7 @@ class DataBinding(PackageItem):
 
     @classmethod
     def create(cls, package: Path, name: str, schema_name: str, key_columns: list[str], rows: list[dict],
-               cultures: list[str] | None = None, columns: list[str] | None = None, env: str | None = None) -> "DataBinding":
+               cultures: list[str] | None = None, columns: list[str] | None = None, env: str | None = None, all_columns: bool = False) -> "DataBinding":
         """A binding of `schema_name` with the key columns, `columns` and the columns the rows use, as the designer writes it.
         The columns come from the object in the workspace, else from the site (`env`), else from the platform catalog."""
         package = Path(package)
@@ -346,6 +349,8 @@ class DataBinding(PackageItem):
                 raise KeyError(f"object {schema_name} is neither in the workspace nor in the platform catalog ({', '.join(tables)}); "
                                "--env <env> reads its columns from the site")
         known = table["columns"] if table else object_columns(workspace, schema_name)
+        if all_columns:  # `data.py new` without --columns: every column of the table but the system ones
+            columns = [n for n in known if n not in SYSTEM_COLUMNS]
         used = list(dict.fromkeys(list(key_columns) + list(columns or []) + [n for r in rows for n in r]))
         missing = [n for n in used if n not in known]
         if missing:

@@ -107,6 +107,26 @@ def test_lookup_param_writes_the_reference_uid_and_name():
         shutil.rmtree(tmp.parent, ignore_errors=True)
 
 
+def test_new_param_names_the_object_of_a_lookup():
+    from usertask import parse_param
+
+    assert parse_param("Owner:Lookup:In:required:Contact") == ("Owner", "Lookup", "In", "", True, "Contact")
+    assert parse_param("Owner:Lookup:::Contact")[2:] == ("In", "", False, "Contact")
+    try:
+        parse_param("a:b:c:d:e:f")
+        raise AssertionError("six segments must be refused")
+    except ValueError as err:
+        assert "Name:Type[:Direction[:required[:RefObject]]]" in str(err)
+    tmp = Path(tempfile.mkdtemp()) / "packages"
+    shutil.copytree(FIXTURES, tmp / "UsrPkg")
+    try:
+        UserTaskSchema.create(tmp / "UsrPkg", "UsrPick_UserTask", "Pick", [parse_param("Owner:Lookup:In:required:Contact")])
+        p = UserTaskSchema(tmp / "UsrPkg", "UsrPick_UserTask").params[0]
+        assert p["L16"] == "Contact" and p["L9"] and p["L6"] is True
+    finally:
+        shutil.rmtree(tmp.parent, ignore_errors=True)
+
+
 def test_cli():
     out = io.StringIO()
     with contextlib.redirect_stdout(out):

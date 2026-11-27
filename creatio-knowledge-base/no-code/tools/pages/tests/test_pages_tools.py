@@ -458,6 +458,23 @@ def test_a_resource_string_value_gets_its_metadata_entry_and_its_string():
         shutil.rmtree(pkg.parent, ignore_errors=True)
 
 
+def test_validate_exits_1_on_a_javascript_syntax_error():
+    import contextlib
+    import io
+    if not shutil.which("node"):
+        return
+    pkg = copy()
+    try:
+        body = pkg / "Schemas" / "UsrTests_FormPage" / "UsrTests_FormPage.js"
+        body.write_bytes(body.read_bytes() + b"\nvar = ;\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["validate", str(pkg), "UsrTests_FormPage"]) == 1
+        assert "js syntax: ERROR" in out.getvalue(), out.getvalue()
+    finally:
+        shutil.rmtree(pkg.parent, ignore_errors=True)
+
+
 def test_new_makes_a_page_for_an_existing_object_and_refuses_an_existing_one():
     import contextlib
     import io

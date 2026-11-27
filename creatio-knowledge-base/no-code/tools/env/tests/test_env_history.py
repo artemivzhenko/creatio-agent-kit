@@ -1,4 +1,4 @@
-"""Checks for S33-T06: record_history, column_transitions, process_runs steps, process_timers, fire_timer.
+"""Checks for S33-T06 and S49-T02: record_history, column_transitions, process_runs steps, process_timers, fire_timer.
 python tests/test_env_history.py  (a scripted clio; no site)."""
 
 import json
@@ -182,6 +182,9 @@ ELEMENT = "99999999-9999-4999-8999-999999999999"
 TIMER = [{"trigger": "t-1", "state": "WAITING", "next": 639308422800000000, "element_id": ELEMENT, "caption": "1 d.", "element_start": "2026-11-20T07:18:00",
           "run_id": RUN, "run_start": "2026-11-20T07:18:00", "process": "UsrOrder_Process"}]
 TIMER_NEEDLE = "from qrtz_triggers t"
+START_NEEDLE = "union all select q.trigger_name"  # longer than TIMER_NEEDLE: answers the statement with both
+START = [{"trigger": "5d2a1c3e-0000-4000-8000-000000000001", "group": "A1000000-0000-4000-8000-000000000001", "state": "WAITING",
+          "next": 639308422800000000, "cron": "0 0 0 1 1 ? *", "cron_zone": "UTC"}]
 
 
 def test_process_timers_show_the_fire_time_in_the_project_zone():
@@ -189,7 +192,7 @@ def test_process_timers_show_the_fire_time_in_the_project_zone():
     timers = runs.process_timers(e, "UsrOrder_Process", zone="+02:00")
     assert timers[0]["fires"] == "2026-11-21 07:18:00 UTC (09:18 +02:00)" and timers[0]["element"] == "1 d." and timers[0]["run"] == RUN, timers
     statement = clio.statements[-1]
-    assert 'e."Id"::text = t.job_group' in statement and "l.\"SysSchemaId\" in ('c1000000-0000-4000-8000-000000000001')" in statement and "order by t.next_fire_time" in statement, statement
+    assert 'e."Id"::text = t.job_group' in statement and "l.\"SysSchemaId\" in ('c1000000-0000-4000-8000-000000000001')" in statement and 'order by "next"' in statement and START_NEEDLE in statement, statement
     assert runs.render_timers(timers) == f"2026-11-21 07:18:00 UTC (09:18 +02:00)  UsrOrder_Process  1 d.  (WAITING)  run {RUN} started 2026-11-20 07:18:00 UTC (09:18 +02:00)  element {ELEMENT}"
     assert runs.render_timers([]) == "(no pending timers)"
     e, _ = env({COPIES_NEEDLE: []})
@@ -198,6 +201,42 @@ def test_process_timers_show_the_fire_time_in_the_project_zone():
     assert code == 0 and "1 d." in out, out
     code, out = run_cli("proc-runs", ["timers", "-e", "dev", "--process", "UsrOrder_Process"], {TIMER_NEEDLE: [], COPIES_NEEDLE: COPIES[:1]})
     assert code == 1 and "(no pending timers)" in out
+
+
+def test_process_timers_list_the_cron_start_trigger_of_a_timer_started_process():
+    e, clio = env({TIMER_NEEDLE: TIMER, COPIES_NEEDLE: COPIES, START_NEEDLE: TIMER + START})
+    timers = runs.process_timers(e, "UsrOrder_Process", zone="+02:00")
+    start = [t for t in timers if t["element"] == "(start timer)"]
+    assert len(timers) == 2 and len(start) == 1, timers
+    s = start[0]
+    assert s["run"] == "" and s["cron"] == "0 0 0 1 1 ? *" and s["group"] == "a1000000-0000-4000-8000-000000000001" and s["process"] == "UsrOrder_Process", s
+    assert "where q.trigger_group in ('a1000000-0000-4000-8000-000000000001') order by" in clio.statements[-1], clio.statements[-1]  # one UId for three copies
+    assert runs.render_timers(start) == ("2026-11-21 07:18:00 UTC (09:18 +02:00)  UsrOrder_Process  (start timer)  (WAITING)  cron 0 0 0 1 1 ? * (UTC)  "
+                                         "trigger 5d2a1c3e-0000-4000-8000-000000000001")
+    e, clio = env({TIMER_NEEDLE: TIMER, COPIES_NEEDLE: COPIES[:1], START_NEEDLE: TIMER + START, 'select "ModifiedOn" from "UsrOrder" where': [{"ModifiedOn": "2026-11-20T07:18:00"}],
+                   "ccu.table_name = 'UsrOrder'": []})
+    assert [t["element"] for t in runs.process_timers(e, "UsrOrder_Process", f"UsrOrder:{ID}")] == ["1 d."]  # record: run timers only
+    assert not any(START_NEEDLE in s for s in clio.statements)
+
+
+def test_fire_timer_without_a_record_moves_the_start_trigger_and_reads_it_back():
+    now = datetime(2026, 11, 21, 7, 0, 0)
+    project = project_file("dev")
+    try:
+        back = [{"state": "WAITING", "next": runs.utc_to_ticks(datetime(2026, 11, 21, 7, 0, 20))}]
+        answers = {TIMER_NEEDLE: [], COPIES_NEEDLE: COPIES[:1], START_NEEDLE: START, "update qrtz_triggers": 1, "from qrtz_triggers t where": back}
+        e, clio = env(answers)
+        answer = runs.fire_timer(e, "UsrOrder_Process", "", str(project), "dev", zone="+02:00", now=now)
+        where = "where trigger_name = '5d2a1c3e-0000-4000-8000-000000000001' and trigger_group = 'a1000000-0000-4000-8000-000000000001'"
+        assert clio.statements[-2] == f"update qrtz_triggers set next_fire_time = {runs.utc_to_ticks(datetime(2026, 11, 21, 7, 0, 20))} {where}", clio.statements[-2]
+        assert clio.statements[-1].startswith("select trigger_state") and clio.statements[-1].endswith(where), clio.statements[-1]
+        assert answer["after"] == {"fires": "2026-11-21 07:00:20 UTC (09:00 +02:00)", "state": "WAITING"}, answer
+        text = runs.render_fire(answer)
+        assert "(start timer)  trigger 5d2a1c3e-0000-4000-8000-000000000001" in text and "read back: due 2026-11-21 07:00:20" in text, text
+        code, out = run_cli("proc-runs", ["fire", "--project", str(project), "--process", "UsrOrder_Process"], {**answers, "information_schema": []})
+        assert code == 0 and "read back: due" in out, out
+    finally:
+        shutil.rmtree(project.parent, ignore_errors=True)
 
 
 def project_file(kind, clio="dev"):
@@ -239,7 +278,7 @@ def test_fire_timer_on_a_dev_environment_sets_the_next_fire_time():
                    "ccu.table_name = 'UsrOrder'": [], "update qrtz_triggers": 1}
         e, clio = env(answers)
         answer = runs.fire_timer(e, "UsrOrder_Process", f"UsrOrder:{ID}", str(project), "dev", delay=20, zone="+02:00", now=now)
-        update = clio.statements[-1]
+        update = clio.statements[-2]
         assert update == f"update qrtz_triggers set next_fire_time = {runs.utc_to_ticks(datetime(2026, 11, 21, 7, 0, 20))} where trigger_name = 't-1' and job_group = '{ELEMENT}'", update
         assert answer["was"] == "2026-11-21 07:18:00 UTC (09:18 +02:00)" and answer["now"] == "2026-11-21 07:00:20 UTC (09:00 +02:00)"
         assert "was due 2026-11-21 07:18:00" in runs.render_fire(answer) and "now due 2026-11-21 07:00:20" in runs.render_fire(answer)

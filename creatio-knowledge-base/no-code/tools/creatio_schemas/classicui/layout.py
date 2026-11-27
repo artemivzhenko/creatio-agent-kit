@@ -260,5 +260,9 @@ def rule_lines(package, name: str, env=None, rule: str | None = None) -> list[st
             cmp = _name(p.get("comparisonType", "3"), COMPARISONS)
             line += (f"  filter {column}.{p.get('baseAttributePatch', '?')} {_SYMBOL.get(cmp, cmp)} {_expr(p)}"
                      + "".join(f", {f}" for f in ("autoClean", "autocomplete") if p.get(f) == "true"))
-        lines.append(line + "  layers: " + " > ".join(f"{pkg} {st}" for pkg, st in r["layers"]))
+        defined = changed = r["layers"][0][0]
+        before = None
+        for pkg, st in r["layers"]:
+            changed, before = (pkg if st != before else changed), st
+        lines.append(line + f"  defined in {defined}, state last changed in {changed}  layers: " + " > ".join(f"{pkg} {st}" for pkg, st in r["layers"]))
     return lines

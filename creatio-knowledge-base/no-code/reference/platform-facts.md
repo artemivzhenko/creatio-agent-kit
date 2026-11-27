@@ -317,6 +317,8 @@ binaries, build (S46-T11, the pilot). used by: CS code style (Platform facts), `
 over the same table (filtered by the parent), and a number the client sent is overwritten.** A second child sent with
 number 99 and a typed label was saved as 2 and `<parent label>/2`. 8.2.3, run (S46-T11, the pilot). used by: -.
 
+**P-3.17 A record created before the record-permissions flag of its object was turned on has no `Sys<Object>Right` rows:** a user other than the admin is refused it, so a rights case grants the user and creates its records after the flag. A rights-denied PATCH may answer a validation message and leave the record unchanged. 8.2.3, run + sql (a benchmark task).
+
 **P-B1 An ESQ on a column that does not exist on this site fails the whole query**
 (`ItemNotFoundException: column at path X not found in schema Y`), including every message built from it. The
 usual cause: a designer column in a package of one site only, never exported. 8.3, run + sql. used by:
@@ -545,6 +547,12 @@ toolkit's user task catalog (`result`), `pages.py from-schema` (the template's b
 **P-8.19 A Read data result gives one level of columns:** a two-level `EntityColumn` path (`[EntityColumn:{UsrContact}].[EntityColumn:{Contact.Name}]`) over the result answers an empty string, with the default column fetch and with `EntityColumnMetaPathes` set. Read the related object with a second Read data (or a script task). 8.3.2, run (S48-T13).
 
 **P-8.20 A Freedom UI `crt-data-grid` row carries the classes `mat-mdc-row mdc-data-table__row cdk-row ng-star-inserted`; the clicked row gains `crt-data-table-row-active`, none is marked before a click; the grid renders one extra `role=row` of empty cells.** 8.3.2, run (S48-T12; the framework's `row has class` and `active row` asserts).
+
+**P-8.21 The start timer of a timer-started process is a Quartz CRON trigger named after the process:** `qrtz_triggers.trigger_group` and `job_group` = the process schema UId, `trigger_name` and `job_name` = the start timer element's UId, `trigger_type` `CRON`, state `WAITING`, the element's CRON and zone in `qrtz_cron_triggers` (`cron_expression`, `time_zone_id`), job class `Terrasoft.Core.Scheduler.RunAppJob`; it exists right after the push with compile and publish, before any run. `next_fire_time` is .NET ticks in UTC. 8.3.2, sql (S49-T02; `process_timers` lists it as `(start timer)`).
+
+**P-8.22 `RunProcess` refuses a process whose only start is a timer:** `success: false`, `processId` the empty GUID, `errorInfo.message` `You cannot run this process manually because it only contains automatic start events`; no `SysProcessLog` row. 8.3.2, run (S49-T02; `run_process` adds the `process_timers / fire_timer` hint).
+
+**P-8.23 Moving a start trigger's `next_fire_time` to now + 20 s starts the process:** the run (owner Supervisor) started 33 s after the new time (the scheduler's poll), completed, and the trigger read `WAITING` again with `next_fire_time` back on the CRON's next date. No restart was tried. 8.3.2, run (S49-T02; `fire_timer` with an empty record).
 
 **P-C1 `Model.create('<Entity>')` then `model.load({attributes: [...]})` from an Angular element** returns rows as
 plain objects keyed by attribute; only text columns and the no-filter call were exercised (N-3). 8.3, run.

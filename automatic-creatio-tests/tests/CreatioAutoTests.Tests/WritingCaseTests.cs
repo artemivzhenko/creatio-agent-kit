@@ -4,6 +4,7 @@ using CreatioAutoTests.Commands;
 using CreatioAutoTests.Configuration;
 using CreatioAutoTests.Execution;
 using CreatioAutoTests.Frontend;
+using CreatioAutoTests.Frontend.Registry;
 using CreatioAutoTests.Runner;
 using CreatioAutoTests.Session;
 using CreatioAutoTests.Tests.Support;
@@ -335,6 +336,34 @@ public sealed class WritingCaseTests
         Assert.That(stub.Requests.Single(r => r.Method == "PATCH").Path, Is.EqualTo("/0/odata/UsrOrder(" + id + ")"));
         Assert.That(stub.Requests.Where(r => r.Path.Contains("count", StringComparison.Ordinal)).Select(r => r.Path.Split('?')[0]),
             Is.EqualTo(new[] { "/0/odata/UsrOrderLog/$count", "/0/odata/UsrOrderLog" }));
+    }
+
+    [Test]
+    public async Task Use_in_a_backend_case_signs_the_OData_calls_in_as_that_user_and_opens_no_browser()
+    {
+        var stub = new StubHandler();
+        var environment = new EnvironmentConfig
+        {
+            BaseUrl = "https://dev.example",
+            Users = { new UserCredentials { Username = "Supervisor", Password = "x" }, new UserCredentials { Username = "UsrTestOperator", Password = "y" } },
+        };
+        using var client = new CreatioODataClient(environment, new SiteConfig(), NullLogger<CreatioODataClient>.Instance, stub);
+        await using var pool = new BrowserSessionPool(_ => throw new AssertionException("a backend case opened a browser"),
+            new CreatioAuthenticator(environment, new SiteConfig(), NullLogger<CreatioAuthenticator>.Instance), NullLogger<BrowserSessionPool>.Instance);
+        var registry = new UiElementRegistry(Array.Empty<UiElementRegistration>());
+        await using var session = new ExecutionSession(pool, new UiElementFactory(registry, NullLoggerFactory.Instance), client,
+            ElementCatalog.Build(Array.Empty<PageDefinition>(), registry), new RunSettings(), new Dictionary<string, string>(),
+            new Dictionary<string, ObjectDefinition>(), new Dictionary<string, ProcessDefinition>(), NullLogger<ExecutionSession>.Instance);
+
+        await session.CountRecordsAsync("UsrOrder", "UsrName eq 'Bed'");
+        await session.UseUserAsync("UsrTestOperator");
+        await session.InsertRecordAsync("UsrOrder", new[] { new RecordAssignment("UsrName", "Bed") }, keep: false);
+        await session.UseUserAsync("UsrTestOperator");
+        await session.CountRecordsAsync("UsrOrder", "UsrName eq 'Bed'");
+
+        Assert.That(stub.Requests.Where(r => r.Path.Contains("AuthService", StringComparison.Ordinal))
+                .Select(r => System.Text.Json.JsonDocument.Parse(r.Body!).RootElement.GetProperty("UserName").GetString()),
+            Is.EqualTo(new[] { "Supervisor", "UsrTestOperator" }));
     }
 
     [Test]

@@ -14,6 +14,9 @@ public sealed class RunResult
     /// </summary>
     public IReadOnlyList<TestCaseResult> AnalysisScripts { get; init; } = Array.Empty<TestCaseResult>();
 
+    /// <summary>The site the run hit (<see cref="TestRunner.SiteLine"/>), the report's first line; null when unknown.</summary>
+    public string? Site { get; init; }
+
     /// <summary>Total elapsed duration of both requested run phases.</summary>
     public TimeSpan Duration { get; init; }
 

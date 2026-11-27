@@ -10,7 +10,7 @@ Copy the `.act.exp` examples under `Cases/` and `ProcessCases/` to `.act` files 
 
 | Command | Syntax | Target | Example |
 | --- | --- | --- | --- |
-| use | `use <user>` (a browser opens at the first page, never for a backend case) | none | `use testUser` |
+| use | `use <user>` (a browser opens at the first page; in a backend case the OData calls run as that user; no browser) | none | `use testUser` |
 | open | `open <page> [for <record>]` (no record: a Freedom UI card address `#Card/<Page>` opens in add mode, `/add`) \| `open process-task <process> on <page>` | none | `open ContactForm for ContactRecord` |
 | check | `check <code> [not] exists` \| `check <code> is [not] required\|readonly\|editable\|shown` \| `check <code> columns` \| `check console\|network no errors [except "<regex>"]` \| `check dialog [not] shown\|contains "<text>"\|matches "<regex>"\|count <op> <n>` | `IExistable`; `required`/`readonly` need `IStateAware`, `editable` needs `IEditableAware`, `shown` needs `IVisibilityAware`, `columns` needs `IColumned`; `console` none | `check Input_Text is required` |
 | check-value | `check-value <code> eq|ne|gt|ge|lt|le|contains|startswith|endswith <value>` | `IValueElement` | `check-value Input_Text eq "Sample Name 123"` |

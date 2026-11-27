@@ -29,8 +29,13 @@ STEP_SELECT = ('select e."SysProcessId", e."Caption", st."Name" as "Status", e."
                'from "SysProcessElementLog" e left join "SysProcessStatus" st on st."Id" = e."StatusId" ')
 TIMERS_SQL = ('select t.trigger_name as "trigger", t.trigger_state as "state", t.next_fire_time as "next", e."Id"::text as "element_id", '
               'e."Caption" as "caption", e."StartDate" as "element_start", l."Id"::text as "run_id", l."StartDate" as "run_start", '
-              's."Name" as "process" from qrtz_triggers t join "SysProcessElementLog" e on e."Id"::text = t.job_group '
+              's."Name" as "process", null::text as "cron", null::text as "cron_zone", null::text as "group" '
+              'from qrtz_triggers t join "SysProcessElementLog" e on e."Id"::text = t.job_group '
               'join "SysProcessLog" l on l."Id" = e."SysProcessId" left join "SysSchema" s on s."Id" = l."SysSchemaId" where ')
+# the start trigger of a timer-started process: a CRON trigger whose trigger_group is the process schema UId (8.3.2)
+START_TIMERS_SQL = (' union all select q.trigger_name, q.trigger_state, q.next_fire_time, null, null, null, null, null, null, '
+                    'c.cron_expression, c.time_zone_id, q.trigger_group from qrtz_triggers q left join qrtz_cron_triggers c '
+                    'on c.sched_name = q.sched_name and c.trigger_name = q.trigger_name and c.trigger_group = q.trigger_group where q.trigger_group in ')
 _TICKS_AT_EPOCH = 621355968000000000  # .NET ticks (100 ns since 0001-01-01) at 1970-01-01 UTC
 _FRAME_RE = re.compile(r"^\s*(at |--- End of )")
 
@@ -54,11 +59,13 @@ def _moment(value) -> datetime | None:
 
 
 def state(row: dict) -> str:
-    """`completed`, `running` or `failed`, from the dates and the error (the status name is the site's language)."""
+    """`completed`, `running`, `failed` or `cancelled`, from the dates and the error (the status name is the site's language)."""
     if row.get("ErrorDescription"):
         return "failed"
     name = str(row.get("Status") or "").lower()
-    if any(w in name for w in ("error", "cancel")):
+    if "cancel" in name:
+        return "cancelled"
+    if "error" in name:
         return "failed"
     return "completed" if row.get("CompleteDate") else "running"
 
@@ -248,8 +255,10 @@ def utc_to_ticks(moment: datetime) -> int:
 
 def process_timers(env, process: str, record: str | None = None, window: int = 30, zone: str | None = None) -> list[dict]:
     """The pending timers of a process (every copy of its schema): [{trigger, state, fires, fires_utc, element, element_id, run, run_start,
-    process}] soonest first. A timer is a `qrtz_triggers` row whose `job_group` is the id of the run's element in `SysProcessElementLog`.
-    `record` (`<Entity>:<Id>`) keeps the runs that started within `window` seconds of a change of that record or of a row pointing at it."""
+    process, cron, group}] soonest first. A run timer is a `qrtz_triggers` row whose `job_group` is the id of the run's element in
+    `SysProcessElementLog`; a start trigger (a timer-started process, no run yet) is one whose `trigger_group` is the schema UId: element
+    `(start timer)`, run empty, its CRON in `cron`. `record` (`<Entity>:<Id>`) keeps the run timers of the runs that started within
+    `window` seconds of a change of that record or of a row pointing at it."""
     copies = schema_copies(env, process)
     if not copies:
         raise KeyError(f"no process {process} on this site")
@@ -259,13 +268,22 @@ def process_timers(env, process: str, record: str | None = None, window: int = 3
         if not windows:
             return []
         where.append("(" + " or ".join(f"l.\"StartDate\" between '{lo:%Y-%m-%d %H:%M:%S}' and '{hi:%Y-%m-%d %H:%M:%S}'" for lo, hi in windows) + ")")
-    rows = env.sql(TIMERS_SQL + " and ".join(where) + " order by t.next_fire_time")
+    names: dict = {}
+    for c in copies:  # the name of the first copy (the base package) when a layer renamed it
+        names.setdefault(c["uid"].lower(), c["name"])
+    starts = "" if record else START_TIMERS_SQL + "(" + ", ".join(f"'{guid(u)}'" for u in names) + ")"
+    rows = env.sql(TIMERS_SQL + " and ".join(where) + starts + ' order by "next"')
     out = []
     for r in rows:
-        at = ticks_to_utc(r["next"])
-        out.append({"trigger": r["trigger"], "state": r["state"], "fires": local_time(at.isoformat(), zone), "fires_utc": at,
-                    "element": r.get("caption"), "element_id": str(r["element_id"]).lower(), "run": str(r["run_id"]).lower(),
-                    "run_start": local_time(r.get("run_start"), zone), "process": r.get("process")})
+        at, group = ticks_to_utc(r["next"]), str(r.get("group") or "").lower()
+        t = {"trigger": r["trigger"], "state": r["state"], "fires": local_time(at.isoformat(), zone), "fires_utc": at, "cron": "", "group": ""}
+        if group:
+            t.update(element="(start timer)", element_id="", run="", run_start="", process=names.get(group), cron=r.get("cron") or "",
+                     cron_zone=r.get("cron_zone") or "", group=group)
+        else:
+            t.update(element=r.get("caption"), element_id=str(r["element_id"]).lower(), run=str(r["run_id"]).lower(),
+                     run_start=local_time(r.get("run_start"), zone), process=r.get("process"))
+        out.append(t)
     return out
 
 
@@ -282,27 +300,32 @@ def environment_is_dev(project: str | None, env_name: str | None) -> bool:
 def fire_timer(env, process: str, record: str, project: str | None, env_name: str | None = None, timer: str = "", delay: int = 20,
                zone: str | None = None, now: datetime | None = None) -> dict:
     """Moves one pending timer of the run around `record` to now + `delay` seconds: `update qrtz_triggers set next_fire_time = <ticks>
-    where trigger_name = ... and job_group = <element id>` - the statement S34-T08's `fire-timer` reuses. Refused (PermissionError) unless
-    the project.json marks the environment `kind: dev`; `timer` (a part of the element's caption, or its id) picks one when several wait."""
+    where trigger_name = ... and job_group = <element id>` - the statement S34-T08's `fire-timer` reuses. An empty `record` also reaches the
+    start trigger of a timer-started process (`and trigger_group = <schema UId>`). The row is read back after (`after`: fires, state).
+    Refused (PermissionError) unless the project.json marks the environment `kind: dev`; `timer` (a part of the element's caption,
+    `start` for the start trigger, or the element id) picks one when several wait."""
     name = env_name or getattr(env, "clio_name", None) or "this environment"
     if not environment_is_dev(project, env_name or getattr(env, "clio_name", None)):
         raise PermissionError(f"refused: {name} is not a dev environment (project.json environment.kind must be \"dev\" for it)")
-    timers = [t for t in process_timers(env, process, record, zone=zone) if t["state"] in ("WAITING", "ACQUIRED", "PAUSED")]
+    timers = [t for t in process_timers(env, process, record or None, zone=zone) if t["state"] in ("WAITING", "ACQUIRED", "PAUSED")]
     if timer:
         timers = [t for t in timers if timer.lower() in str(t["element"] or "").lower() or timer.lower() == t["element_id"]]
+    of = f"{process} for {record}" if record else process
     if not timers:
-        raise KeyError(f"no pending timer of {process} for {record}" + (f" matching {timer!r}" if timer else ""))
+        raise KeyError(f"no pending timer of {of}" + (f" matching {timer!r}" if timer else ""))
     if len(timers) > 1:
-        raise ValueError(f"{len(timers)} pending timers of {process} for {record}: name one with timer=<part of the caption or the element id>: "
-                         + "; ".join(f"{t['element']} ({t['element_id']}, fires {t['fires']})" for t in timers))
+        raise ValueError(f"{len(timers)} pending timers of {of}: name one with timer=<part of the caption, start, or the element id>: "
+                         + "; ".join(f"{t['element']} ({t['element_id'] or t['trigger']}, fires {t['fires']})" for t in timers))
     t = timers[0]
     moment = (now or datetime.now(timezone.utc).replace(tzinfo=None)) + timedelta(seconds=max(0, delay))
+    where = f"trigger_name = {quote(t['trigger'])} and " + (f"trigger_group = '{guid(t['group'])}'" if t.get("group") else f"job_group = '{guid(t['element_id'])}'")
     counts: list = []
-    env.sql(f"update qrtz_triggers set next_fire_time = {utc_to_ticks(moment)} where trigger_name = {quote(t['trigger'])} "
-            f"and job_group = '{guid(t['element_id'])}'", counts)
+    env.sql(f"update qrtz_triggers set next_fire_time = {utc_to_ticks(moment)} where {where}", counts)
     if counts and counts[-1] is not None and int(counts[-1]) != 1:
         raise RuntimeError(f"the trigger {t['trigger']} was not updated ({counts[-1]} rows)")
-    return {"timer": t, "was": t["fires"], "now": local_time(moment.isoformat(), zone), "delay": delay}
+    back = env.sql(f"select trigger_state as \"state\", next_fire_time as \"next\" from qrtz_triggers t where {where}")
+    after = {"fires": local_time(ticks_to_utc(back[0]["next"]).isoformat(), zone), "state": back[0]["state"]} if back else None
+    return {"timer": t, "was": t["fires"], "now": local_time(moment.isoformat(), zone), "delay": delay, "after": after}
 
 
 CANCEL = "ServiceModel/ProcessEngineService.svc/CancelExecution"
@@ -351,7 +374,7 @@ def process_error(env, log_id: str, zone: str | None = None) -> dict:
     if not rows:
         raise KeyError(f"no SysProcessLog row {log_id}")
     elements = env.sql(ELEMENT_SELECT + f"where e.\"SysProcessId\" = '{guid(log_id)}' order by e.\"StartDate\" desc")
-    stopped = next((e for e in elements if e.get("ErrorDescription") or state(e) == "failed"), None) \
+    stopped = next((e for e in elements if e.get("ErrorDescription") or state(e) in ("failed", "cancelled")), None) \
         or next((e for e in elements if not e.get("CompleteDate")), None)
     element = None
     if stopped:
@@ -409,10 +432,13 @@ def render_error(answer: dict) -> str:
 def render_timers(timers: list[dict]) -> str:
     if not timers:
         return "(no pending timers)"
-    return "\n".join(f"{t['fires']}  {t['process']}  {t['element'] or '?'}  ({t['state']})  run {t['run']} started {t['run_start']}  element {t['element_id']}"
+    return "\n".join(f"{t['fires']}  {t['process']}  {t['element'] or '?'}  ({t['state']})  "
+                     + (f"cron {t['cron'] or '?'} ({t.get('cron_zone') or '?'})  trigger {t['trigger']}" if t.get("group") else f"run {t['run']} started {t['run_start']}  element {t['element_id']}")
                      for t in timers)
 
 
 def render_fire(answer: dict) -> str:
-    t = answer["timer"]
-    return f"{t['process']}  {t['element'] or '?'}  run {t['run']}\n  was due {answer['was']}\n  now due {answer['now']} (in {answer['delay']} s)"
+    t, after = answer["timer"], answer.get("after")
+    return (f"{t['process']}  {t['element'] or '?'}  " + (f"trigger {t['trigger']}" if t.get("group") else f"run {t['run']}")
+            + f"\n  was due {answer['was']}\n  now due {answer['now']} (in {answer['delay']} s)"
+            + (f"\n  read back: due {after['fires']} ({after['state']})" if after else "\n  read back: no row"))

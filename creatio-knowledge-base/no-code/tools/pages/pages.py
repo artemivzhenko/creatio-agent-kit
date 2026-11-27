@@ -120,8 +120,9 @@ def validate(page, a):
     for p in problems:
         print(p)
     print("ok" if not problems else f"{len(problems)} problem(s)")
-    print("\n".join(jscheck.lines(page.body_path)))
-    return 1 if page.errors() else 0
+    js = jscheck.lines(page.body_path)
+    print("\n".join(js))
+    return 1 if page.errors() or any(x.startswith("js syntax: ERROR") for x in js) else 0
 
 
 def add_field(page, a):
@@ -207,7 +208,7 @@ def build() -> CommandLine:
     p.add_argument("--container", required=True)
     p.add_argument("--env", help="clio environment: the site's copies too, each body read from the site")
     c.command("inspect", inspect, "elements, attributes, data sources and problems")
-    c.command("validate", validate, "problems; exit code 1 on errors")
+    c.command("validate", validate, "problems; exit code 1 on errors or a JavaScript syntax error")
     p = c.command("add-field", add_field, "a field bound to a column of the page's object", writes=True)
     p.add_argument("column")
     p.add_argument("--parent", default="SideAreaProfileContainer")

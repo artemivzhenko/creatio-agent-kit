@@ -3109,6 +3109,21 @@ def test_find_in_processes_reads_the_lookup_rows_once_per_workspace():
         _rm_tree(root)
 
 
+def test_lookup_captions_are_built_once_until_the_rows_are_replaced():
+    import tempfile
+    from creatio_schemas.workspace import Workspace
+
+    root = Path(tempfile.mkdtemp())
+    try:
+        ws = Workspace(_writes_workspace(root) / "packages" / "UsrPkg")
+        first = ws.lookup_captions()
+        assert first and ws.lookup_captions() is first  # one build for two calls
+        ws._rows = {}  # what `proc.py find` does while matching: the cache follows
+        assert ws.lookup_captions() == {}
+    finally:
+        _rm_tree(root)
+
+
 def test_who_sets_opens_no_resource_file_and_reads_the_bindings_only_for_a_caption():
     """Four packages, 29 s: the resources of every process (every culture), the bindings of every package and the columns of every
     written entity were read before a single hit. Now a search with no hit opens none of them; a hit reads the bindings once."""
@@ -3471,6 +3486,30 @@ def test_columns_check_names_a_missing_column_and_follows_a_lookup_path():
     (cs / "Files" / "cs" / "UsrQ.cs").write_text('var q = new EntitySchemaQuery(m, "UsrPkg"); q.AddColumn("UsrName"); q.AddColumn("UsrContact.Name");', encoding="utf-8")
     assert references(cs) == [("UsrQ", "AddColumn", "UsrPkg", "UsrName"), ("UsrQ", "AddColumn", "UsrPkg", "UsrContact.Name")]
     shutil.rmtree(cs.parent, ignore_errors=True)
+
+
+def test_columns_check_reads_classic_bindto_and_rule_columns():
+    import tempfile
+    from creatio_schemas.describe.columns_check import columns_check
+    body = ('define("UsrOrderPage", [], function() {\n\treturn {\n\t\tentitySchemaName: "UsrOrder",\n\t\tattributes: {"UsrLocal": {}},\n'
+            '\t\tbusinessRules: /**SCHEMA_BUSINESS_RULES*/{\n\t\t\t"UsrGone": {"u1": {"uId": "u1", "enabled": true}},\n\t\t\t"UsrLocal": {"u2": {"uId": "u2"}}\n'
+            '\t\t}/**SCHEMA_BUSINESS_RULES*/,\n\t\tdiff: /**SCHEMA_DIFF*/[\n\t\t\t{"operation": "insert", "name": "UsrName", "values": {"bindTo": "UsrName",\n'
+            '\t\t\t\t"visible": {"bindTo": "isShown"}, "caption": {"bindTo": "UsrCaptionGone"}, "click": {"bindTo": "onUsrClick"}}}\n\t\t]/**SCHEMA_DIFF*/\n\t};\n});\n')
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        shutil.copytree(TOOLS / "classicui" / "tests" / "fixtures" / "UsrPkg", tmp / "UsrPkg")  # the Classic fixture, its body replaced
+        (tmp / "UsrPkg" / "Schemas" / "UsrOrderPage" / "UsrOrderPage.js").write_text(body, encoding="utf-8")
+
+        class Env:
+            def sql(self, text):
+                return [] if "pg_constraint" in text else [{"object": "UsrOrder", "column": c} for c in ("Id", "UsrName")]
+
+        text, code = columns_check(tmp / "UsrPkg", Env(), "UsrOrderPage")
+        assert code == 1 and text.splitlines() == [
+            "UsrOrderPage: diff UsrName bindTo: UsrOrder.UsrCaptionGone is missing on the site (path UsrOrder.UsrCaptionGone)",
+            "UsrOrderPage: businessRules column: UsrOrder.UsrGone is missing on the site (path UsrOrder.UsrGone)"], text
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_descriptor_touch_keeps_the_date_form_the_file_has():

@@ -131,7 +131,7 @@ python pages.py from-schema <package> <Page> [--name UsrOrderForm] [--out Config
 | `replace` | a replacing copy of a base Freedom page: descriptor, diff metadata, properties, resources, empty body |
 | `layout` | a grid container over every layer (site copies with --env): the element in each cell, free cells |
 | `inspect` | elements, attributes, data sources and problems |
-| `validate` | problems; exit code 1 on errors |
+| `validate` | problems; exit code 1 on errors or a JavaScript syntax error |
 | `add-field` | a field bound to a column of the page's object |
 | `add-grid` | a grid listing another object's records |
 | `grid-caption` | a grid column's caption as a page string, in each culture given |

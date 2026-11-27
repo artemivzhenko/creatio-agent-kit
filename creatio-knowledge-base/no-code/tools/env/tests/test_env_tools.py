@@ -189,6 +189,9 @@ def test_run_process():
     assert failed["success"] is False and failed["error"] == "Schema not found"
     e, _ = env({("POST", "/0/ServiceModel/ProcessEngineService.svc/RunProcess"): (200, "not json")})
     raises(lambda: e.run_process("UsrX"), RuntimeError, "not JSON")
+    refusal = "You cannot run this process manually because it only contains automatic start events"  # S49-T02: 8.3.2's answer to a timer start
+    e, _ = env({("POST", "/0/ServiceModel/ProcessEngineService.svc/RunProcess"): (200, json.dumps({"success": False, "errorInfo": {"message": refusal}}))})
+    assert e.run_process("UsrTimer_Process")["error"].splitlines() == [refusal, "the process starts by timer: process_timers / fire_timer move its next fire to now + N s"]
 
 
 def test_sql_rows_keep_a_raw_newline_inside_a_value():
@@ -533,6 +536,13 @@ def test_site_process_off_and_on_post_the_service_and_read_the_table_back():
     raises(lambda: site.switch(e, "x'; drop", True), ValueError, "letters")
 
 
+def test_run_state_reads_cancel_as_cancelled_and_an_error_as_failed():
+    from creatio_schemas import runs
+    assert runs.state({"Status": "Canceled", "CompleteDate": "2026-11-26T10:05:00"}) == "cancelled"
+    assert runs.state({"Status": "Canceled", "ErrorDescription": "boom"}) == "failed" and runs.state({"Status": "Error"}) == "failed"
+    assert runs.state({"Status": "Running"}) == "running" and runs.state({"Status": "Done", "CompleteDate": "x"}) == "completed"
+
+
 def test_cancel_runs_posts_cancel_execution_on_a_dev_project_and_reads_the_log_back():
     # S48-T13 (D14): stuck page tasks are cancelled by their runs; a project that is not `kind: dev` is refused before any call
     from creatio_schemas import runs
@@ -555,7 +565,7 @@ def test_cancel_runs_posts_cancel_execution_on_a_dev_project_and_reads_the_log_b
         post = [r for r in opener.requests if "CancelExecution" in r["path"]]
         assert len(post) == 1 and post[0]["body"] == {"processDataIds": f"{one};{two}"}, post
         assert slept == [1] and [x["status"] for x in logs] == ["Canceled", "Canceled"]
-        assert runs.render_cancel(logs).splitlines()[0].startswith(f"{one}  UsrP  Canceled (failed), ended 2026-11-26 10:05:01")
+        assert runs.render_cancel(logs).splitlines()[0].startswith(f"{one}  UsrP  Canceled (cancelled), ended 2026-11-26 10:05:01")
         # the command line: a run still running after --wait is exit 1
         project.write_text(json.dumps({"environment": {"clioName": "dev", "kind": "dev", "url": "https://site.example", "login": "u",
                                                        "password": "p"}}), encoding="utf-8")

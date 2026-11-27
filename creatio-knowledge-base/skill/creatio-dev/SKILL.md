@@ -60,7 +60,7 @@ change.
 3. **Push.** `python no-code/tools/push/push.py <package> -e <clioName> --probe` does the whole sequence: clears
    the modified flag, `push-pkg`, reads the compilation log, runs `compile-configuration` when a process has a
    script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects
-   and SQL scripts (a package with processes may need `env/site.py restart`). `--dry-run` prints the commands; an empty `DependsOn` UId is filled by `push/push.py deps <pkg> -e <env> [--add <Package>]`. Then `probe` of anything else the plan lists (rules with values).
+   and SQL scripts (a package with processes may need `env/site.py restart`); a push that stops after `push-pkg: ok` has landed: its failure line says to run `compile-configuration` and `push.py verify`, not to push again. `--dry-run` prints the commands; an empty `DependsOn` UId is filled by `push/push.py deps <pkg> -e <env> [--add <Package>]`. Then `probe` of anything else the plan lists (rules with values).
    `page_audit` over a page before its push and `precommit_check` over the package before every push find what the push would only report later.
 4. **Done.** Report to the author: what was built (the artifacts table with what was really built by which tool, or by
    hand with the `report_gap` line), the push's step lines, the `verify_pushed` line, the unit tests' line, every gap,
@@ -82,7 +82,7 @@ package or in Custom, or a push whose changes are not visible - `schema_layers`;
 `resolve_uid`, which lookup holds a status - `list_lookups`; the rows a lookup holds on the site - `lookup_values`;
 records of an object with their lookups named - `sample_records`, its columns - `describe_table`; text inside schemas - `find_text`; a column's writers
 - `who_sets` (when it lands). A process script body is changed with `proc.py script set`, never by a patch over
-the JSON. SQL is for what no tool answers, and a writing statement needs `write=true`. One record written or changed from a tool is `env_call POST|PATCH|DELETE odata/<Object>` (`env/call.py` on the CLI); `env_odata` reads; a table with no object is read with `env_sql`; a backend case's `seed` line (dev-only) writes a fixture row, `make_fixture` gives its shape.
+the JSON. A process whose only start is a timer has no run until it fires and `run_process` refuses it: `process_timers` lists its start trigger and `fire_timer` (dev sites only) moves it to now + N s, firing it with an empty record. SQL is for what no tool answers, and a writing statement needs `write=true`. One record written or changed from a tool is `env_call POST|PATCH|DELETE odata/<Object>` (`env/call.py` on the CLI); `env_odata` reads; a table with no object is read with `env_sql`; a backend case's `seed` line (dev-only) writes a fixture row, `make_fixture` gives its shape.
 
 No tool answers? Call `report_gap(kind, need, instead, script=, text=, task=)` before you go around it: `missing` before
 your own script or query, `by-hand` after a value found by trial, `misbehaved` after a tool you worked around. Pass

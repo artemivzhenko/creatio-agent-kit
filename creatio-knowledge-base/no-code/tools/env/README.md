@@ -161,7 +161,7 @@ python proc-runs.py runs  -e <env> --process UsrOrder_Process [--limit 20] [--si
 python proc-runs.py runs  -e <env> --record UsrOrder:<id> [--window 30] [--steps]
 python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<caption or element UId>" [--status running]
 python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
-python proc-runs.py fire  --project project.json --process UsrOrder_Process --record UsrOrder:<id> [--timer "1 d."] [--delay 20]
+python proc-runs.py fire  --project project.json --process UsrOrder_Process [--record UsrOrder:<id>] [--timer "1 d." | start] [--delay 20]
 python proc-runs.py error -e <env> <log id>
 python proc-runs.py cancel --project project.json <run id> [<run id> ..] [--wait 10]
 ```
@@ -353,7 +353,7 @@ from "SysProcessElementLog" e left join "SysProcessStatus" st on st."Id" = e."St
 where e."SysProcessId" = '<id>' order by e."StartDate" desc
 ```
 
-A run is `failed` when it has an `ErrorDescription` or its status name says error or cancel, `completed` when it has a
+A run is `failed` when it has an `ErrorDescription` or its status name says error, `cancelled` when it says cancel, `completed` when it has a
 `CompleteDate`, else `running` (a process waiting on a signal or a user task); the status name itself is printed as the
 site has it, in its language. `proc-run.py` exits 1 unless the run is completed; with no log row it says so and
 keeps the engine's answer. `error` drops the stack frames (`   at ...`, `--- End of inner exception stack trace ---`) and
@@ -394,22 +394,35 @@ A pending timer is a Quartz trigger whose `job_group` is the `Id` of the run's e
 
 ```sql
 select t.trigger_name "trigger", t.trigger_state "state", t.next_fire_time "next", e."Id"::text "element_id", e."Caption" "caption",
-       e."StartDate" "element_start", l."Id"::text "run_id", l."StartDate" "run_start", s."Name" "process"
+       e."StartDate" "element_start", l."Id"::text "run_id", l."StartDate" "run_start", s."Name" "process",
+       null::text "cron", null::text "cron_zone", null::text "group"
 from qrtz_triggers t join "SysProcessElementLog" e on e."Id"::text = t.job_group
 join "SysProcessLog" l on l."Id" = e."SysProcessId" left join "SysSchema" s on s."Id" = l."SysSchemaId"
 where l."SysSchemaId" in (<the copies of the process>) [and (l."StartDate" between '<lo>' and '<hi>' or ...)]   -- --record: the windows of runs --record
-order by t.next_fire_time
+union all select q.trigger_name, q.trigger_state, q.next_fire_time, null, null, null, null, null, null,     -- left out with --record
+       c.cron_expression, c.time_zone_id, q.trigger_group
+from qrtz_triggers q left join qrtz_cron_triggers c on c.sched_name = q.sched_name and c.trigger_name = q.trigger_name and c.trigger_group = q.trigger_group
+where q.trigger_group in ('<the schema UId of the process>')
+order by "next"
 ```
 
-`fire` / `fire_timer` (the statement S34-T08's `fire-timer` reuses; now + `--delay` seconds, default 20, because a trigger set to the past is a misfire):
+The second half is the start trigger of a timer-started process (S49-T02): a process whose only start is a timer
+(`ProcessSchemaStartTimerEvent`) has no run until it fires, and `RunProcess` refuses it (`only contains automatic start events`;
+`run_process` / `proc-run.py` then add the line `the process starts by timer: process_timers / fire_timer move its next fire to now + N s`).
+Its CRON trigger's `trigger_group` (and `job_group`) is the process schema UId, its state `WAITING`; the line reads
+`<fires>  <process>  (start timer)  (WAITING)  cron 0 0 0 1 1 ? * (UTC)  trigger <trigger name>`.
+
+`fire` / `fire_timer` (the statement S34-T08's `fire-timer` reuses; now + `--delay` seconds, default 20, because a trigger set to the past is a misfire;
+without `--record` the start trigger is reached, `trigger_group = '<schema UId>'` in place of `job_group`), then the row read back (`read back: due ... (<state>)`):
 
 ```sql
 update qrtz_triggers set next_fire_time = <ticks of now + delay, UTC> where trigger_name = '<trigger>' and job_group = '<element id>'
+select trigger_state "state", next_fire_time "next" from qrtz_triggers t where trigger_name = '<trigger>' and job_group = '<element id>'
 ```
 
 It is refused (`refused: <env> is not a dev environment`, exit 2, nothing read or written) unless the `--project` has `environment.kind` = `"dev"` and
 `environment.clioName` equal to the environment asked for; add `"kind": "dev"` to the `environment` of the project.json of a development site by hand.
-Several pending timers for the record: `--timer <part of the caption | element id>` picks one, else the error lists them. An update that touches no row is an error.
+Several pending timers for the record: `--timer <part of the caption | start | element id>` picks one, else the error lists them. An update that touches no row is an error.
 
 ### The change log (S33-T06)
 

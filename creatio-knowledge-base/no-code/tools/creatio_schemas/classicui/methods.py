@@ -21,11 +21,7 @@ def view(body: str, name: str):
     """The Classic reader over a text that is not a package file (a site layer's body)."""
     from .schema import ClassicSchema
 
-    v = ClassicSchema.__new__(ClassicSchema)
-    v.body, v.masked, v.name = body, mask(body), name
-    v.module_name, v.dependencies, v.sections, v._return_at, v._deps_at = None, [], {}, None, None
-    v._parse()
-    return v
+    return ClassicSchema.from_text(body, name)
 
 
 def _method(c, method: str) -> tuple[int, str] | None:

@@ -25,6 +25,13 @@ public sealed class ReportWriterTests
     }
 
     [Test]
+    public void The_text_report_names_the_site_on_its_first_line()
+    {
+        var report = TextReportWriter.Render(new RunResult { Cases = Array.Empty<TestCaseResult>(), Site = "site: https://dev.example.com (clio dev)" });
+        Assert.That(report.Split('\n')[0].TrimEnd(), Is.EqualTo("site: https://dev.example.com (clio dev)"));
+    }
+
+    [Test]
     public async Task JUnit_reports_cases_validation_failures_and_analysis_separately()
     {
         var result = Result();

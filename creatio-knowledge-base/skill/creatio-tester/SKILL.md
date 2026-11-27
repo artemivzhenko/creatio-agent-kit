@@ -17,7 +17,9 @@ say so in chat and stop.
    as `blocked` with its output before any criterion is tested. Then, for every schema of
    `schemas.json`: `describe.py layers <Schema> --project <project.json> --json > evidence/layers-<Schema>.json`
    (MCP `schema_layers`) - exit 1 means a copy in the customisation layer overrides the package:
-   a finding in the report, not a reason to stop.
+   a finding in the report, not a reason to stop. `project.py sync --project <project.json>` points the framework at the
+   site (`AllowDevOnly` and `ClioEnvironment` from `environment.kind` and `clioName`, the other users kept), and a run's
+   first line `site: <url> (clio <env>)` says which site it hit - the env config is shared, so read that line first.
 2. **Map.** One criterion of `plan.md` at a time: what proves it and with which tool (tier table
    in the contract). Compare the criteria with `task.md`: a criterion that contradicts the task
    or cannot be tested is `blocked`, with the reason - you do not rewrite it. Then the plan's
@@ -27,7 +29,7 @@ say so in chat and stop.
    `dcm.py inspect`; a dependent you cannot exercise is a `not tested` row with its name, never silence. A criterion
    about rights is proved through clio's MCP: `inspect-role` / `inspect-user` / `inspect-access` read who may do what (`role_members`, `user_roles` and `role_diff` answer from the site's tables when the roles of one user or two roles are the question),
    `manage-role` / `manage-access` / `set-record-rights` set a role up for a case (through `clio-run` when the tool is not
-   in the list; `env_sql` only for what they do not answer).
+   in the list; `env_sql` only for what they do not answer). A new user who logs in still gets 403 on OData until the system operation `CanUseODataService` is granted to it (`manage-access grant-operation`); a rights-denied PATCH may answer a validation message, so a rights case asserts "error, and the record unchanged as the admin", not the wording; records created before record permissions were turned on have no rights rows, so grant the user first and insert after.
    `describe.py diff <package>` (MCP `schema_diff`) shows what the dev changed in schema terms - a `+`
    column or element the plan does not mention is a criterion to ask about, not to skip. `describe_item(path, Page, "where <name>")`
    is the call before touching a page element: its caption, control, column and parent chain; `about <name>` adds the rules, handlers,
@@ -37,7 +39,7 @@ say so in chat and stop.
 3. **Write the tests.** Any tier, every tool: `.act` cases in the test framework (`Cases/`,
    `ProcessCases/`; `get_recipe("tools/uitests")`, the `creatio-tests` MCP: `dsl`, `cases`,
    `validate`, `run`, `analyse`, `schemas`, `last_report`). A page file comes from the package first - `pages.py from-schema <pkg> <Page> --out
-   <testFramework>/Configuration/pages/<Name>.json` (its labels are the primary-culture captions `describe_item <Page> "where <name>"` prints, so a case can be written from `where` alone; read its `# label unknown` lines) - and from `analyse`
+   <testFramework>/Configuration/pages/<Name>.json` (its labels are the primary-culture captions `describe_item <Page> "where <name>"` prints, so a case can be written from `where` alone; read its `# label unknown` lines) - and from `analyse` (under Git Bash set `MSYS_NO_PATHCONV=1`, or `/0/Shell/...` becomes `C:/Program Files/Git/0/Shell/...`)
    second, when the page is not in a package or the parent's buttons and tabs matter; `--compare` shows what
    the browser sees that the schema does not. An entity event listener or a SQL script is proved by a backend case
    (`ProcessCases/`, `# writes`): `insert` / `update` over OData, then `check-record ... has` / `check-count` on what the

@@ -21,7 +21,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     private readonly CreatioODataClient _backend;
     private readonly ILogger<ExecutionSession> _logger;
 
-    private readonly List<(string Entity, Guid Id)> _cleanup = new();
+    private readonly List<(string Entity, Guid Id, CreatioODataClient Client)> _cleanup = new();
     private readonly List<string> _consoleErrors = new();
     private readonly List<string> _consoleLog = new();
     private readonly List<NetworkEntry> _network = new();
@@ -66,6 +66,9 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     private Tab? CurrentTab => _tabs.Count > 0 ? _tabs[_active] : null;
 
     private IPage? _page => CurrentTab?.Page;
+
+    // The OData calls run as the case's 'use' user; before any 'use', as the first configured user.
+    private CreatioODataClient Backend => _currentUser is null ? _backend : _backend.ForUser(_currentUser);
 
     /// <summary>Initializes isolated per-case state over shared authenticated browser contexts.</summary>
     public ExecutionSession(
@@ -144,7 +147,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     /// <summary>Outcome of the last 'start' in this case.</summary>
     public ProcessRunResult? LastProcess { get; private set; }
 
-    /// <summary>Starts the process over the engine service as the first configured user and keeps the result.</summary>
+    /// <summary>Starts the process over the engine service as the case's user and keeps the result.</summary>
     public async Task<ProcessRunResult> StartProcessAsync(
         string process,
         IReadOnlyDictionary<string, string> values,
@@ -156,14 +159,14 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         }
 
         var outputs = definition.Outputs.Select(p => p.Code).ToArray();
-        LastProcess = await _backend.RunProcessAsync(process, values, outputs, cancellationToken).ConfigureAwait(false);
+        LastProcess = await Backend.RunProcessAsync(process, values, outputs, cancellationToken).ConfigureAwait(false);
         return LastProcess;
     }
 
     /// <summary>Reads at most one row of the object with the filter over OData.</summary>
     public async Task<bool> RecordExistsAsync(string entity, string filter, CancellationToken cancellationToken = default)
     {
-        var rows = await _backend.QueryAsync(entity, new[] { "Id" }, filter, top: 1, cancellationToken).ConfigureAwait(false);
+        var rows = await Backend.QueryAsync(entity, new[] { "Id" }, filter, top: 1, cancellationToken).ConfigureAwait(false);
         return rows.Count > 0;
     }
 
@@ -179,10 +182,11 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     /// <summary>Inserts over OData; the record is deleted at the end of the case unless kept.</summary>
     public async Task<string> InsertRecordAsync(string entity, IReadOnlyList<RecordAssignment> values, bool keep, CancellationToken cancellationToken = default)
     {
-        var id = await _backend.InsertAsync(entity, ODataValues.Body(values), cancellationToken).ConfigureAwait(false);
+        var backend = Backend;
+        var id = await backend.InsertAsync(entity, ODataValues.Body(values), cancellationToken).ConfigureAwait(false);
         if (!keep)
         {
-            _cleanup.Add((entity, id));
+            _cleanup.Add((entity, id, backend));
         }
 
         _logger.LogDebug("Inserted {Entity} {Id}{Keep}.", entity, id, keep ? " (kept)" : string.Empty);
@@ -193,9 +197,10 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     public async Task UpdateRecordAsync(string entity, string id, IReadOnlyList<RecordAssignment> values, CancellationToken cancellationToken = default)
     {
         var guid = ParseId(id);
-        if (await _backend.UpdateAsync(entity, guid, ODataValues.Body(values), cancellationToken).ConfigureAwait(false))
+        var backend = Backend;
+        if (await backend.UpdateAsync(entity, guid, ODataValues.Body(values), cancellationToken).ConfigureAwait(false))
         {
-            _cleanup.Add((entity, guid));
+            _cleanup.Add((entity, guid, backend));
         }
     }
 
@@ -203,7 +208,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     public async Task DeleteRecordAsync(string entity, string id, CancellationToken cancellationToken = default)
     {
         var guid = ParseId(id);
-        await _backend.DeleteAsync(entity, guid, cancellationToken).ConfigureAwait(false);
+        await Backend.DeleteAsync(entity, guid, cancellationToken).ConfigureAwait(false);
         _cleanup.RemoveAll(r => r.Id == guid && string.Equals(r.Entity, entity, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -211,7 +216,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
     public async Task<IReadOnlyList<IReadOnlyDictionary<string, string>>> QueryRecordsAsync(
         string entity, IReadOnlyList<string> select, string filter, int top, CancellationToken cancellationToken = default)
     {
-        var rows = await _backend.QueryAsync(entity, select, filter, top, cancellationToken).ConfigureAwait(false);
+        var rows = await Backend.QueryAsync(entity, select, filter, top, cancellationToken).ConfigureAwait(false);
         return rows.Select(row => (IReadOnlyDictionary<string, string>)select.ToDictionary(
             column => column,
             column => row.TryGetProperty(column, out var value) ? AsText(value) : string.Empty,
@@ -220,7 +225,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
 
     /// <summary>Counts the records matching the filter over OData.</summary>
     public Task<long> CountRecordsAsync(string entity, string filter, CancellationToken cancellationToken = default) =>
-        _backend.CountAsync(entity, filter, cancellationToken);
+        Backend.CountAsync(entity, filter, cancellationToken);
 
     /// <summary>Deletes the inserted records the case left, newest first; reports the ones that stayed.</summary>
     public async Task<IReadOnlyList<string>> CleanupAsync(CancellationToken cancellationToken = default)
@@ -228,10 +233,11 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         var failures = new List<string>();
         for (var i = _cleanup.Count - 1; i >= 0; i--)
         {
-            var (entity, id) = _cleanup[i];
+            // The user who created the record deletes it: a record right granted to its creator may be all there is.
+            var (entity, id, backend) = _cleanup[i];
             try
             {
-                await _backend.DeleteAsync(entity, id, cancellationToken).ConfigureAwait(false);
+                await backend.DeleteAsync(entity, id, cancellationToken).ConfigureAwait(false);
                 _logger.LogDebug("Cleanup deleted {Entity} {Id}.", entity, id);
                 DevNotes.Add("cleanup: deleted " + entity + " " + id);
             }
@@ -475,7 +481,7 @@ public sealed class ExecutionSession : IExecutionSession, IAsyncDisposable
         await CloseAllTabsAsync().ConfigureAwait(false);
         await StopTraceAsync().ConfigureAwait(false);
 
-        // No browser yet: a backend case only needs the name (its OData calls log in on their own); the first page that is opened asks for the context.
+        // No browser yet: a backend case only needs the name (its OData calls sign in as this user, see Backend); the first page that is opened asks for the context.
         _currentUser = username;
         _traceStarted = false;
 

@@ -60,7 +60,7 @@ python classicui.py set-message <package> <Schema> <Name> --mode PTP|BROADCAST -
 | command | what it does |
 | --- | --- |
 | `inspect` | kind, object, parent, sections with sizes, diff elements, warnings |
-| `validate` | warnings; exit code 0 (nothing here blocks) |
+| `validate` | warnings; exit code 1 on a JavaScript syntax error |
 | `methods` | one line per method: name, line, size |
 | `method` | one method's source |
 | `diff` | one line per diff operation |

@@ -51,6 +51,10 @@ public sealed class TestRunner
         _logger = loggerFactory.CreateLogger<TestRunner>();
     }
 
+    /// <summary>The site a run hits: <c>site: &lt;BaseUrl&gt; (clio &lt;ClioEnvironment&gt;)</c>.</summary>
+    public string SiteLine => "site: " + _configuration.Environment.BaseUrl + " (clio " +
+                              (string.IsNullOrWhiteSpace(_configuration.Environment.ClioEnvironment) ? "none" : _configuration.Environment.ClioEnvironment) + ")";
+
     /// <summary>Analysis scripts, in the folders configured for them. Empty when none are set up.</summary>
     public IReadOnlyList<string> DiscoverAnalysisFiles() =>
         DiscoverIn(_configuration.AnalysisFolders, nameFilter: null, warnWhenMissing: true);
@@ -151,7 +155,7 @@ public sealed class TestRunner
         if (analysisFiles.Count == 0 && testFiles.Count == 0 && processFiles.Count == 0)
         {
             _logger.LogWarning("Nothing to do: no {Extension} files were found.", TestFileExtension);
-            return new RunResult { Cases = Array.Empty<TestCaseResult>(), Duration = stopwatch.Elapsed };
+            return new RunResult { Cases = Array.Empty<TestCaseResult>(), Site = SiteLine, Duration = stopwatch.Elapsed };
         }
 
         var analysisResults = new List<TestCaseResult>();
@@ -186,6 +190,7 @@ public sealed class TestRunner
                 {
                     Cases = caseResults,
                     AnalysisScripts = analysisResults,
+                    Site = SiteLine,
                     Duration = stopwatch.Elapsed,
                 };
             }
@@ -215,6 +220,7 @@ public sealed class TestRunner
         {
             Cases = caseResults,
             AnalysisScripts = analysisResults,
+            Site = SiteLine,
             Duration = stopwatch.Elapsed,
         };
     }

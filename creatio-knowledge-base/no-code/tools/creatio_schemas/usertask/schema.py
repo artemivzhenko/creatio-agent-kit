@@ -345,8 +345,8 @@ class UserTaskSchema(Schema):
 
     @classmethod
     def create(cls, package: Path, name: str, caption: str, params: list[tuple] | None = None, cultures: list[str] | None = None,
-               interactive: bool = False, version: str = DEFAULT_VERSION) -> "UserTaskSchema":
-        """A user task with a C# skeleton; `params` are (name, type[, direction[, caption[, required]]]) tuples."""
+               interactive: bool = False, version: str = DEFAULT_VERSION, env: str | None = None) -> "UserTaskSchema":
+        """A user task with a C# skeleton; `params` are (name, type[, direction[, caption[, required[, ref object]]]]) tuples."""
         package = Path(package)
         sdir = package / "Schemas" / name
         if sdir.exists():
@@ -366,6 +366,7 @@ class UserTaskSchema(Schema):
         task.resources.set("Caption", caption)
         for spec in params or []:
             pname, ptype = spec[0], spec[1]
-            task.add_param(pname, ptype, spec[2] if len(spec) > 2 else "In", spec[3] if len(spec) > 3 else "", bool(spec[4]) if len(spec) > 4 else False)
+            task.add_param(pname, ptype, spec[2] if len(spec) > 2 else "In", spec[3] if len(spec) > 3 else "", bool(spec[4]) if len(spec) > 4 else False,
+                           spec[5] if len(spec) > 5 else None, env=env)
         task.save()
         return task

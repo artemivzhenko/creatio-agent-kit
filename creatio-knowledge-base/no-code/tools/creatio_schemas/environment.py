@@ -32,6 +32,7 @@ from typing import Any
 
 AUTH_PATH = "ServiceModel/AuthService.svc/Login"  # at the site root on both platforms, never under 0/
 RUN_PROCESS = "ServiceModel/ProcessEngineService.svc/RunProcess"
+TIMER_START_HINT = "the process starts by timer: process_timers / fire_timer move its next fire to now + N s"
 APP_PATHS = ("odata", "ServiceModel", "rest", "DataService", "conf")  # the paths that live under /0/ on .NET Framework
 
 
@@ -294,8 +295,10 @@ class Environment:
         if not isinstance(answer, dict):
             raise RuntimeError(f"run {name}: the engine's answer is not JSON")
         info = answer.get("errorInfo") if isinstance(answer.get("errorInfo"), dict) else {}
-        return {"process": name, "processId": answer.get("processId", ""), "success": answer.get("success") is True,
-                "error": None if answer.get("success") is True else (info.get("message") or json.dumps(info) if info else "not started"),
+        error = None if answer.get("success") is True else (info.get("message") or json.dumps(info) if info else "not started")
+        if error and "only contains automatic start events" in error:  # a timer start: RunProcess refuses it (gap 63)
+            error += "\n" + TIMER_START_HINT
+        return {"process": name, "processId": answer.get("processId", ""), "success": answer.get("success") is True, "error": error,
                 "results": answer.get("resultParameterValues") or {}}
 
     def process_log(self, process_id: str, zone: str | None = None) -> dict | None:

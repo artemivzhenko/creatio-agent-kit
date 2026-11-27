@@ -136,6 +136,20 @@ def test_edit_rows_and_save():
         assert again.diff() == ""
 
 
+def test_create_without_columns_binds_every_column_but_the_system_ones():
+    with workspace() as pkg:
+        own = DataBinding.create(pkg, "UsrAll", "UsrOrderStatus", ["Id"], [], all_columns=True)
+        assert sorted(c["ColumnName"] for c in own.descriptor.data["Columns"]) == ["Description", "Id", "Name"]
+        plat = DataBinding.create(pkg, "UsrLookupAll", "Lookup", ["Id"], [], all_columns=True)
+        names = [c["ColumnName"] for c in plat.descriptor.data["Columns"]]
+        assert "Name" in names and not {"CreatedOn", "CreatedBy", "ModifiedOn", "ModifiedBy", "ProcessListeners"} & set(names), names
+        narrow = DataBinding.create(pkg, "UsrNarrow", "UsrOrderStatus", ["Id"], [], columns=["Name"])
+        assert [c["ColumnName"] for c in narrow.descriptor.data["Columns"]] == ["Id", "Name"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert main(["new", str(pkg), "UsrCli", "--table", "UsrOrderStatus"]) == 0
+        assert sorted(c["ColumnName"] for c in DataBinding(pkg, "UsrCli").descriptor.data["Columns"]) == ["Description", "Id", "Name"]
+
+
 def test_create_binds_an_object_of_the_workspace():
     with workspace() as pkg:
         b = DataBinding.create(pkg, "UsrPriority", "UsrOrderStatus", ["Id"], [{"Name": "High"}, {"Name": {"en-US": "Low", "ru-RU": "Низкий"}}],

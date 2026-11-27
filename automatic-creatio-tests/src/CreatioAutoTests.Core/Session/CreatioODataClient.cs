@@ -21,7 +21,10 @@ public sealed class CreatioODataClient : IDisposable
     private readonly CookieContainer _cookies = new();
     private readonly HttpMessageHandler _handler;
     private readonly HttpClient _client;
+    private readonly HttpMessageHandler? _injected;
+    private readonly Dictionary<string, CreatioODataClient> _byUser = new(StringComparer.OrdinalIgnoreCase);
 
+    private string? _username;
     private bool _authenticated;
     private string? _csrf;
 
@@ -57,6 +60,7 @@ public sealed class CreatioODataClient : IDisposable
 
         BaseUrl = _environment.BaseUrl.TrimEnd('/');
 
+        _injected = handler;
         _handler = handler ?? new HttpClientHandler
         {
             CookieContainer = _cookies,
@@ -76,10 +80,28 @@ public sealed class CreatioODataClient : IDisposable
     public string BaseUrl { get; }
 
     /// <summary>
+    /// The client that signs in as the named configured user: one per user, created on first use and signed in
+    /// once, with its own cookies. Disposed with this client.
+    /// </summary>
+    /// <param name="username">A configured user.</param>
+    public CreatioODataClient ForUser(string username)
+    {
+        lock (_byUser)
+        {
+            if (!_byUser.TryGetValue(username, out var client))
+            {
+                _byUser[username] = client = new CreatioODataClient(_environment, _site, _logger, _injected) { _username = username };
+            }
+
+            return client;
+        }
+    }
+
+    /// <summary>
     /// Signs in, once per client. Creatio answers 200 even for a rejected login, so the verdict is
     /// taken from the body rather than the status code.
     /// </summary>
-    /// <param name="username">User to sign in as, or null for the first configured user.</param>
+    /// <param name="username">User to sign in as, or null for this client's user (<see cref="ForUser"/>), else the first configured one.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <exception cref="InvalidOperationException">The user is unknown, or Creatio refused the login.</exception>
     public async Task AuthenticateAsync(string? username = null, CancellationToken cancellationToken = default)
@@ -89,6 +111,7 @@ public sealed class CreatioODataClient : IDisposable
             return;
         }
 
+        username ??= _username;
         var credentials = username is null
             ? _environment.Users.FirstOrDefault()
             : _environment.Users.FirstOrDefault(
@@ -356,6 +379,11 @@ public sealed class CreatioODataClient : IDisposable
     /// <summary>Releases the underlying HTTP client.</summary>
     public void Dispose()
     {
+        foreach (var client in _byUser.Values)
+        {
+            client.Dispose();
+        }
+
         _client.Dispose();
         _handler.Dispose();
     }

@@ -251,6 +251,8 @@ public static class Program
         string? taskFolder,
         string? taskId)
     {
+        // The env config is shared by every checkout's runs: the first line says which site this run hits.
+        Console.WriteLine(runner.SiteLine);
         var result = await runner
             .RunAsync(filter, runAnalysis ? true : null, analysisOnly)
             .ConfigureAwait(false);

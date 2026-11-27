@@ -1,9 +1,14 @@
 # Project environment synchronization
 
-`python no-code/tools/project.py sync <project.json> [--framework <folder>]`
+`python no-code/tools/project.py sync <project.json> | --project <project.json> [--framework <folder>]`
 copies `environment.url`, `login`, and `password` from the project into the test
 framework's `Configuration/creatio.env.config.json`. The framework defaults to
 `paths.testFramework`, relative to `project.json` when not absolute.
+
+`Users` is merged by `Username` (S49-T03): the project's login is updated or added as the first user (the framework's
+default), every other configured user is kept, so a task's test users survive a sync. `AllowDevOnly` is written both ways
+(`true` when `environment.kind` is `dev`), `ClioEnvironment` is `environment.clioName` and is removed when the project has
+none. The config is one file for every site: a run prints `site: <BaseUrl> (clio <ClioEnvironment>)` as its first line.
 
 `paths.platform` (optional, S31-T09): the local platform install (its root, `Packages`, or `Terrasoft.Configuration/Pkg`);
 `describe.py index` reads the base captions from it once (`describe/README.md`, "The platform captions").

@@ -15,7 +15,8 @@
 A row's key is the value of its key column (several key columns: joined by "|"). "null" is a null
 value; a lookup takes the record's UId. A localised column (Name, Description of a lookup) lives in
 Localization/data.<culture>.json: `set` needs --culture for it, `add-row Name=x` writes x to every
-culture. `new` binds an object of the workspace (column UIds come from it) or a platform table
+culture. `new` without --columns binds every column of the table but CreatedOn, CreatedBy, ModifiedOn, ModifiedBy and ProcessListeners;
+--columns narrows it. `new` binds an object of the workspace (column UIds come from it) or a platform table
 (Lookup, SysEntitySchemaOperationRight, SysSettings, SysModule ...: --env reads it from the site,
 else data/assets/platform_bindings.json); rows.json is a list of {Column: value} objects. Writing commands accept --dry-run. `clio push-pkg` installs the rows.
 
@@ -116,7 +117,7 @@ def build() -> CommandLine:
     p.add_argument("--table", required=True)
     p.add_argument("--env", help="a platform table: read its columns from this environment (else the bundled catalog)")
     p.add_argument("--key", default="Id", help="key columns, comma-separated")
-    p.add_argument("--columns", default="", help="more columns, comma-separated (the rows add theirs)")
+    p.add_argument("--columns", default="", help="only these columns besides the key (default: every column of the table but CreatedOn/CreatedBy/ModifiedOn/ModifiedBy/ProcessListeners); the rows add theirs")
     p.add_argument("--cultures", default="en-US")
     p.add_argument("--rows", help="a JSON file: [{Column: value}, ...]")
     p = c.command("set", lambda b, a: b.set_value(a.key, a.column, a.value, a.culture), "one value of one row", writes=True)
@@ -147,7 +148,7 @@ def open_binding(a):
     if a.command == "new":
         data = json.loads(Path(a.rows).read_text(encoding="utf-8-sig")) if a.rows else []
         return DataBinding.create(Path(a.package), a.binding, a.table, a.key.split(","), data, a.cultures.split(","),
-                                  [n for n in a.columns.split(",") if n], a.env)
+                                  [n for n in a.columns.split(",") if n], a.env, all_columns=not a.columns)
     return DataBinding(Path(a.package), a.binding)
 
 

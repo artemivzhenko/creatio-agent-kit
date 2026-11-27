@@ -638,6 +638,31 @@ def _classic_body(rules: str, ops: list[str]) -> str:
             + '\t\tdiff: /**SCHEMA_DIFF*/[\n\t\t\t' + ",\n\t\t\t".join(ops) + '\n\t\t]/**SCHEMA_DIFF*/\n\t};\n});\n')
 
 
+def test_validate_exits_1_on_a_javascript_syntax_error():
+    import shutil as _sh
+    if not _sh.which("node"):
+        return  # jscheck prints `node not found` and cannot fail
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        assert main(["validate", str(pkg), "UsrOrderSection"]) == 0
+        body = pkg / "Schemas" / "UsrOrderSection" / "UsrOrderSection.js"
+        body.write_bytes(body.read_bytes() + b"\nvar = ;\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["validate", str(pkg), "UsrOrderSection"]) == 1
+        assert "js syntax: ERROR" in out.getvalue(), out.getvalue()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_rule_state_reads_through_the_methods_reader():
+    from creatio_schemas.describe.layers import rule_state
+    body = _classic_body('\t\tbusinessRules: /**SCHEMA_BUSINESS_RULES*/{\n\t\t\t"UsrX": {"u1": {"uId": "u1", "enabled": false}}\n\t\t}/**SCHEMA_BUSINESS_RULES*/,\n', [])
+    assert (rule_state(body, "u1"), rule_state(body, "u2"), rule_state("  ", "u1")) == ("disabled", "absent", "no body")
+
+
 def test_layout_and_rules_over_the_workspace_and_the_site_layers():
     import base64
     import hashlib
@@ -706,9 +731,9 @@ def test_layout_and_rules_over_the_workspace_and_the_site_layers():
         rules = rule_lines(top, "UsrOrderPage", env)
         assert rules == [
             "UsrOrderPage: 2 rule(s) over 3 layers (UsrA > UsrB > Custom (site)); column, UId, kind, state, conditions, filter, layers",
-            f"  UsrContract  {rule}  FILTRATION  removed  filter UsrContract.Account = UsrAccount, autoClean  layers: UsrA enabled > UsrB disabled > Custom removed",
-            "  UsrStatus  UsrStatusRequired  BINDPARAMETER REQUIRED  enabled  (rules section)  when UsrType.Code = 'A'  layers: UsrA enabled"], rules
-        assert rule_lines(top, "UsrOrderPage", None, rule.upper())[1].endswith("layers: UsrA enabled > UsrB disabled")
+            f"  UsrContract  {rule}  FILTRATION  removed  filter UsrContract.Account = UsrAccount, autoClean  defined in UsrA, state last changed in Custom  layers: UsrA enabled > UsrB disabled > Custom removed",
+            "  UsrStatus  UsrStatusRequired  BINDPARAMETER REQUIRED  enabled  (rules section)  when UsrType.Code = 'A'  defined in UsrA, state last changed in UsrA  layers: UsrA enabled"], rules
+        assert rule_lines(top, "UsrOrderPage", None, rule.upper())[1].endswith("defined in UsrA, state last changed in UsrB  layers: UsrA enabled > UsrB disabled")
         refused(lambda: rule_lines(top, "UsrOrderPage", None, "UsrNope"), KeyError, "no rule UsrNope in the layers of UsrOrderPage (UsrA, UsrB)")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

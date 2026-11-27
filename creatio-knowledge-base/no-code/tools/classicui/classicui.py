@@ -52,8 +52,9 @@ def env_of(a):
 def validate(s, a):
     problems = s.validate()
     print("\n".join(problems) if problems else "ok")
-    print("\n".join(jscheck.lines(s.body_path)))
-    return 1 if s.errors() else 0
+    js = jscheck.lines(s.body_path)
+    print("\n".join(js))
+    return 1 if s.errors() or any(x.startswith("js syntax: ERROR") for x in js) else 0
 
 
 def methods(s, a):
@@ -144,7 +145,7 @@ def add_method(s, a):
 def build() -> CommandLine:
     c = CommandLine(__doc__, "schema")
     c.command("inspect", lambda s, a: print(s.describe()), "kind, object, parent, sections with sizes, diff elements, warnings")
-    c.command("validate", validate, "warnings; exit code 0 (nothing here blocks)")
+    c.command("validate", validate, "warnings; exit code 1 on a JavaScript syntax error")
     c.command("methods", methods, "one line per method: name, line, size")
     p = c.command("method", lambda s, a: print(s.method(a.name)), "one method's source")
     p.add_argument("name")

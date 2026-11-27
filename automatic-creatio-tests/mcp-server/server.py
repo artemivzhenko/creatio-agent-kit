@@ -168,12 +168,15 @@ def validate(filter: str = "") -> str:
 
 @mcp.tool()
 def run(filter: str = "", verbose: bool = False, task_folder: str = "", task: str = "") -> str:
-    """Runs the cases against the configured environment and returns the report. filter: part of a case name; runs everything when empty.
+    """Runs the cases against the configured environment and returns the report, its first line the site (`site: <url> (clio <env>)`). filter: part of a case name; runs everything when empty.
     task_folder: the loop's task folder - every case writes <task_folder>/evidence/<AC>-report-N.txt (from its `# ac:` line) and a draft
     report row; task: the task id named in that evidence."""
     args = (["--filter", filter] if filter else []) + (["--verbose"] if verbose else [])
     args += (["--task-folder", task_folder] if task_folder else []) + (["--task", task] if task else [])
-    return _cli(args)
+    out = _cli(args)
+    # the answer begins with the site the run hit, ahead of a rebuild note (the env config is shared, gap 70)
+    site = next((line for line in out.splitlines() if line.startswith("site: ")), None)
+    return site + "\n" + out.replace(site + "\n", "", 1) if site else out
 
 
 @mcp.tool()

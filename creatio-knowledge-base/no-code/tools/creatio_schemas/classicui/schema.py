@@ -73,6 +73,15 @@ class ClassicSchema(ClassicWriter, Schema):
     def render_metadata(self) -> str:
         return self.metadata_text
 
+    @classmethod
+    def from_text(cls, body: str, name: str):
+        """The reader over a body text that is not a package file (a site layer's body)."""
+        v = cls.__new__(cls)
+        v.body, v.masked, v.name = body, mask(body), name
+        v.module_name, v.dependencies, v.sections, v._return_at, v._deps_at = None, [], {}, None, None
+        v._parse()
+        return v
+
     def files(self):
         out = super().files()
         if self.body_path.is_file():

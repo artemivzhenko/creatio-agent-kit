@@ -20,7 +20,7 @@ Scripts that read and change user tasks as **package files** (`Schemas/<Task>/me
 python usertask.py inspect      <package> <Task>
 python usertask.py validate     <package> <Task>
 python usertask.py method       <package> <Task> <Method>                      # one method's C#
-python usertask.py new          <package> <Task> --caption "Notify owner" [--param RecordId:Guid:In:required] [--param Note:Text] [--interactive] [--cultures en-US]
+python usertask.py new          <package> <Task> --caption "Notify owner" [--param RecordId:Guid:In:required] [--param Order:Lookup:In:required:UsrOrder] [--param Note:Text] [--env dev] [--interactive] [--cultures en-US]
 python usertask.py add-param    <package> <Task> <Name> <Type> [--direction In|Out|Variable] [--caption C] [--required] [--ref UsrOrder [--env dev]]
 python usertask.py remove-param <package> <Task> <Name>
 python usertask.py rename-param <package> <Task> <Old> <New>

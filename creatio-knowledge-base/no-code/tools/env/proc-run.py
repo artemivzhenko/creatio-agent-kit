@@ -47,7 +47,7 @@ def main(argv=None, **env_kw) -> int:
     except (ValueError, KeyError, FileNotFoundError, RuntimeError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2
-    print(f"{a.process}: {'ok' if run['success'] else 'FAILED ' + str(run['error'])}  processId {run['processId'] or '-'}")
+    print(f"{a.process}: ok  processId {run['processId'] or '-'}" if run["success"] else f"{a.process}: FAILED {run['error']}")
     for name in a.result:
         print(f"  {name} = {json.dumps(run['results'].get(name), ensure_ascii=False)}")
     log = None

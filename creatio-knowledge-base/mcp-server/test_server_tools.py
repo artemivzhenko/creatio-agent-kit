@@ -501,6 +501,12 @@ def test_report_gap_keeps_a_typed_text_as_a_script_file():
         shutil.rmtree(folder, ignore_errors=True)
 
 
+def test_skills_show_the_current_report_gap_signature():
+    for name in ("author", "dev", "tester", "merge"):
+        text = (Path(__file__).resolve().parent.parent / "skill" / f"creatio-{name}" / "SKILL.md").read_text(encoding="utf-8")
+        assert "report_gap(" in text and "text=" in text and "task=" in text and "script=<" not in text.replace("script=<the file you wrote>, text=", ""), name
+
+
 def test_offset_reaches_the_describe_tools():
     pages = str(TOOLS / "pages" / "tests" / "fixtures" / "UsrPkg")
     first = server.describe_item(pages, "UsrOrder", "columns", 5).splitlines()
@@ -583,7 +589,7 @@ def test_process_tools_run_and_read_the_log():
         assert server.precommit_check(str(Path(tmp) / "none")).startswith("error: ")
     refused = ProcessEnv({}, success=False)
     with patch.object(env_module.Environment, "from_clio", staticmethod(lambda name, **kw: refused)):
-        assert server.run_process("dev", "UsrMissing") == "UsrMissing: FAILED Schema not found  processId -\nexit code 1"
+        assert server.run_process("dev", "UsrMissing") == "UsrMissing: FAILED Schema not found\nexit code 1"
 
 
 def test_merge_run_is_a_registered_rehearsal_that_names_an_unknown_environment():

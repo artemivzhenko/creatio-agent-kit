@@ -5,7 +5,7 @@
     python proc-runs.py runs  -e <env> --record UsrOrder:<id> [--window 30] [--steps]
     python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<caption or element UId>" [--status running]
     python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
-    python proc-runs.py fire  --project project.json --process UsrOrder_Process --record UsrOrder:<id> [--timer "1 d."] [--delay 20]
+    python proc-runs.py fire  --project project.json --process UsrOrder_Process [--record UsrOrder:<id>] [--timer "1 d." | start] [--delay 20]
     python proc-runs.py error -e <env> <log id>
     python proc-runs.py cancel --project project.json <run id> [<run id> ..] [--wait 10]
 
@@ -15,11 +15,13 @@ hidden from `--record` and the unfiltered list, with a line saying how many. Tim
 `--element` lists instead the tasks of that element (a page task, say) still open in `SysProcessElementLog`, newest first, the count in the first
 line, then per task its start, run id, the record the run holds and the owner.
 `--steps` prints under each run the elements it went through (`SysProcessElementLog`: caption, status, start .. end, UTC). `timers` lists the
-pending timers of a process (a `qrtz_triggers` row whose `job_group` is the run's element id) with the fire time in the project's zone. `fire`
-moves one pending timer to now + `--delay` seconds (default 20); it is refused (exit 2, `refused: <env> is not a dev environment`) unless the
+pending timers of a process (a `qrtz_triggers` row whose `job_group` is the run's element id) with the fire time in the project's zone, and the
+start trigger of a timer-started process (`trigger_group` = the schema UId; `(start timer)`, its CRON, no run). `fire`
+moves one pending timer to now + `--delay` seconds (default 20; without `--record` the start trigger too) and reads the row back; it is refused (exit 2, `refused: <env> is not a dev environment`) unless the
 `--project` marks the environment `"kind": "dev"`. `cancel` (dev environments only, refused the same way) posts the Process Log's
 cancel (`ProcessEngineService.svc/CancelExecution`) for the runs - the run ids `--element` lists - and prints each `SysProcessLog` row read
 back (polled up to `--wait` seconds). With no run on a site whose `SysProcessLog` is empty `runs` says `process logging is off`.
+A run's state is `completed`, `running`, `failed` or `cancelled`.
 Exit 1 when no run is found (`runs`, `timers`) or the run failed (`error`); 2 on a usage error or a refusal.
 """
 
@@ -63,8 +65,8 @@ def main(argv=None, **env_kw) -> int:
     timers.add_argument("--window", type=int, default=30)
     fire = commands.add_parser("fire", help="move a pending timer to now + --delay seconds (dev environments only)")
     fire.add_argument("--process", required=True)
-    fire.add_argument("--record", required=True, help="<Entity>:<Id>")
-    fire.add_argument("--timer", default="", help="part of the element's caption (or its id) when several timers wait")
+    fire.add_argument("--record", default="", help="<Entity>:<Id>; leave it out for the start trigger of a timer-started process")
+    fire.add_argument("--timer", default="", help="part of the element's caption, start, or its id when several timers wait")
     fire.add_argument("--delay", type=int, default=20, help="seconds from now (default 20)")
     error = commands.add_parser("error", help="one run's error without stack frames, and the element it stopped on")
     error.add_argument("log_id")

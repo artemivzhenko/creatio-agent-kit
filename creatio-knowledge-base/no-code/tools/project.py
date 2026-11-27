@@ -90,14 +90,25 @@ def sync(project_file: Path, framework: Path | None = None) -> list[str]:
         raise ValueError(f"framework Configuration directory not found: {framework}")
     target = framework / "Configuration" / "creatio.env.config.json"
     config = read_json(target) if target.exists() else {}
+    login = {"Username": env["login"], "Password": env["password"]}
+    # the project's login first (the framework's default user), the other users kept: a task's test users stay
+    others = [u for u in config.get("Users") or [] if not (isinstance(u, dict) and str(u.get("Username", "")).lower() == env["login"].lower())]
     updates = {
         "BaseUrl": env["url"],
-        "Users": [{"Username": env["login"], "Password": env["password"]}],
+        "Users": [login, *others],
         "CasesFolders": config.get("CasesFolders", ["./Cases"]),
+        "AllowDevOnly": env.get("kind") == "dev",
     }
     if not isinstance(updates["CasesFolders"], list) or not all(isinstance(p, str) for p in updates["CasesFolders"]):
         raise ValueError(f"{target}: CasesFolders must be a list of strings")
     changed = [key for key, value in updates.items() if config.get(key) != value]
+    clio_name = env.get("clioName")
+    if isinstance(clio_name, str) and clio_name.strip():
+        updates["ClioEnvironment"] = clio_name
+        changed += ["ClioEnvironment"] if config.get("ClioEnvironment") != clio_name else []
+    elif "ClioEnvironment" in config:
+        del config["ClioEnvironment"]
+        changed.append("ClioEnvironment")
     if not target.exists() or changed:
         config.update(updates)
         target.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -257,7 +268,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     command = sub.add_parser("sync", help="write the framework environment from project.json")
-    command.add_argument("project", type=Path)
+    command.add_argument("project", type=Path, nargs="?")
+    command.add_argument("--project", type=Path, dest="project_option", help="project.json (the positional is the same)")
     command.add_argument("--framework", type=Path)
     cmd = sub.add_parser("tasks-from-csv", help="one task folder per row of a tracker's CSV export")
     cmd.add_argument("csv_file", type=Path)
@@ -291,8 +303,10 @@ def main(argv=None) -> int:
             print(f"tasks-from-csv failed: {exc}", file=sys.stderr)
             return 1
         return 0
+    if (args.project is None) == (args.project_option is None):
+        parser.error("sync takes project.json once: positionally or as --project")
     try:
-        changed = sync(args.project, args.framework)
+        changed = sync(args.project or args.project_option, args.framework)
     except (OSError, ValueError) as exc:
         print(f"sync failed: {exc}", file=sys.stderr)
         return 1

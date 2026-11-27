@@ -501,13 +501,13 @@ def test_compile_failure_and_unreadable_baseline_errors_stop():
 
         logs = []
         assert push(pkg, "dev", BadCompile(), skip_drift=True, skip_sql_dates=True, log=logs.append) == 1
-        assert logs[-1] == "push FAILED at compile-package"
+        assert logs[-1].startswith("push FAILED at compile-package; the package is on the site (push-pkg ok)")
         baseline = root / "baseline.txt"
         logs.clear()
         summary = "Finished building project: Succeeded: False. Errors: 2. Warnings: 0."
         assert push(pkg, "dev", FakeClio(summary=summary), baseline=baseline, skip_drift=True,
                     skip_sql_dates=True, log=logs.append) == 1
-        assert not baseline.exists() and logs[-1] == "push FAILED at baseline"
+        assert not baseline.exists() and logs[-1].startswith("push FAILED at baseline; the package is on the site")
 
 
 def test_future_sql_date_is_not_moved_backwards():
@@ -596,7 +596,7 @@ def test_a_script_process_without_a_fresh_generated_source_stops_the_push():
             fake.sources = sources
             assert push(pkg, "dev", fake, log=logs.append) == 1
             assert f"  process UsrProcess: {line}" in logs
-            assert "push FAILED at script compile" in logs
+            assert any(l.startswith("push FAILED at script compile") for l in logs)
         fake, logs = FakeClio(), []
         assert push(pkg, "dev", fake, log=logs.append, dry_run=True) == 0 and "script compile: dry run" in logs
         assert not any(args[0] == "sql-rows" for args, _ in fake.calls)
@@ -625,7 +625,7 @@ def test_a_compiler_error_in_the_generated_source_stops_the_push_before_the_prob
             assert push(pkg, "dev", fake, log=logs.append, bin_dir=Path("C:/bin"), probe=True) == 1
             assert ("  process UsrProcess: script does not compile: CS0103: The name 'UsrMissingHelper' does not exist "
                     "in the current context") in logs
-            assert "push FAILED at script compile" in logs and not probes.called
+            assert any(l.startswith("push FAILED at script compile") for l in logs) and not probes.called
             assert not any(args[0] == "last-compilation-log" for args, _ in fake.calls)  # right after the install
 
 
@@ -914,7 +914,7 @@ def test_compile_package_without_wait_polls_the_compile_history():
             assert "\"CreatedOn\" > '2026-11-01 10:00:00'" in [a[1] for a, _ in fake.calls if a[0] == "sql-rows" and "CompilationHistory" in a[1]][1]
             fake, logs = OldClio(result=False, polls=0), []
             assert push(pkg, "dev", fake, log=logs.append, **quiet) == 1
-            assert logs[-2].startswith("compile-package: FAILED CompilationHistory: UsrPkg.csproj failed") and logs[-1] == "push FAILED at compile-package"
+            assert logs[-2].startswith("compile-package: FAILED CompilationHistory: UsrPkg.csproj failed") and logs[-1].startswith("push FAILED at compile-package; the package is on the site (push-pkg ok)")
             fake, logs = OldClio(polls=0, project="Terrasoft.Configuration.ODataEntities.csproj"), []  # D55: no <Pkg>.csproj row
             assert push(pkg, "dev", fake, log=logs.append, **quiet) == 0, logs
             assert any(l.endswith("; no UsrPkg.csproj row, Terrasoft.Configuration.ODataEntities.csproj ok)") for l in logs), logs
@@ -968,7 +968,7 @@ def test_compile_package_retries_a_busy_compiler_and_reads_build_result_0_as_suc
         assert push(pkg, "dev", Busy([zero.replace("result 0", "result 1")]), log=logs.append, **quiet) == 1
         logs = []
         assert push(pkg, "dev", Busy([zero + "\n(CS0103) in UsrClass.cs at (3,1): no UsrHelper"]), log=logs.append, **quiet) == 1
-        assert logs[-1] == "push FAILED at compile-package"
+        assert logs[-1].startswith("push FAILED at compile-package; the package is on the site (push-pkg ok)")
 
 
 def test_compilation_log_of_an_assembly_package_fails_on_its_own_error_only():
@@ -1293,7 +1293,7 @@ def test_a_publish_error_is_printed_whole_and_names_the_pushed_schema():
             assert push(pkg, "dev", Failing(), log=logs.append, skip_drift=True, skip_sql_dates=True) == 1
         failed = next(line for line in logs if line.startswith("publish: FAILED"))
         assert "x" * 300 + " in UsrProcess" in failed and "   at " not in failed, failed
-        assert "publish: pushed schemas among the failed: UsrProcess" in logs and logs[-1] == "push FAILED at publish"
+        assert "publish: pushed schemas among the failed: UsrProcess" in logs and logs[-1].startswith("push FAILED at publish; the package is on the site")
 
 
 def test_with_details_the_answer_is_the_summary_and_the_file_has_everything():
@@ -1688,6 +1688,46 @@ def test_verify_retries_the_site_sql_once_after_a_timeout():
                 raise AssertionError("no error")
             except RuntimeError:
                 pass
+
+
+def test_script_compile_references_every_managed_bin_dll_and_the_flag_wins_over_the_environment():
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("Terrasoft.Core.dll", "Newtonsoft.Json.dll", "UsrOther.dll", "e_sqlite3.dll", "Microsoft.Data.SqlClient.SNI.x64.dll"):
+            (Path(tmp) / name).write_bytes(b"")
+        seen = []
+
+        def fake_run(args, **kwargs):
+            seen.append(Path(args[-1][1:]).read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess([], 0, "", "")
+        with patch.object(push_module, "_csc", return_value=Path("csc.dll")), patch.object(push_module.subprocess, "run", fake_run):
+            assert compile_script(CLEAN, "UsrProcess", Path(tmp))[0] == "ok"
+        refs = [l for l in seen[0].splitlines() if l.startswith("-r:") and Path(tmp).name in l]
+        assert [Path(l[4:-1]).name for l in refs] == ["Newtonsoft.Json.dll", "Terrasoft.Core.dll", "UsrOther.dll"], refs
+        (Path(tmp) / "project.json").write_text(json.dumps({"paths": {"platformBin": "C:/proj/bin"}}), encoding="utf-8")
+        project = Path(tmp) / "project.json"
+        assert creatio_bin(Path(tmp), None, project) == Path("C:/proj/bin") and creatio_bin(Path(tmp), "D:/flag/bin", project) == Path("D:/flag/bin")
+        os.environ["CREATIO_BIN"] = "C:/env/bin"
+        assert creatio_bin(Path(tmp), None, project) == Path("C:/proj/bin")
+        try:
+            assert creatio_bin(Path(tmp), "D:/flag/bin") == Path("D:/flag/bin") and creatio_bin(Path(tmp)) == Path("C:/env/bin")
+        finally:
+            os.environ.pop("CREATIO_BIN", None)
+
+
+def test_a_failure_after_push_pkg_says_the_package_is_on_the_site():
+    def fail(source, name, bin_dir, extra=()):
+        return "failed", ["CS0234: no Linq"]
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        add_process(pkg)
+        with patch.object(push_module, "compile_script", fail):
+            logs = []
+            assert push(pkg, "dev", FakeClio(), log=logs.append, bin_dir=Path("C:/bin")) == 1
+            assert logs[-1] == ("push FAILED at script compile; the package is on the site (push-pkg ok): "
+                                "run clio compile-configuration -e dev and push.py verify UsrPkg")
+        logs = []
+        assert push(pkg, "dev", FakeClio(summary="Done. Errors: 1\nfoo.cs(1,1): error CS0103: x"), log=logs.append) == 1
+        assert logs[-1].startswith("push FAILED at") and logs[-1].endswith(": run the push again"), logs[-1]
 
 
 if __name__ == "__main__":
