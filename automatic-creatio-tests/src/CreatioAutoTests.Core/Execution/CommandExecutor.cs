@@ -43,6 +43,7 @@ public sealed class CommandExecutor
             FilePath = plan.FilePath,
             ValidationIssues = plan.Issues,
             AcceptanceCriterion = plan.AcceptanceCriterion,
+            Task = plan.Task,
         };
 
         if (!plan.IsValid)

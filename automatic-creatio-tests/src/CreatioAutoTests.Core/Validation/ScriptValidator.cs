@@ -167,6 +167,8 @@ public sealed class ScriptValidator
             : ExecutionPlan.Invalid(testName, filePath, issues, warnings);
         plan.StopOnFailure = writes;
         plan.AcceptanceCriterion = context.Directives.TryGetValue(AcDirective, out var ac) && ac.Length > 0 ? ac : null;
+        plan.Task = context.Directives.TryGetValue(TaskDirective, out var task) && task.Length > 0 ? task : null;
+        plan.FrameworkGap = context.Directives.TryGetValue(FrameworkDirective, out var gap) ? (gap.Length > 0 ? gap : "(no text)") : null;
         return plan;
     }
 
@@ -215,6 +217,12 @@ public sealed class ScriptValidator
 
     /// <summary>Header directive: the acceptance criterion the case proves, for its evidence files.</summary>
     public const string AcDirective = "ac";
+
+    /// <summary>Header directive: the task folder the case belongs to, kept in the evidence beside the AC.</summary>
+    public const string TaskDirective = "task";
+
+    /// <summary>Header directive: a step the DSL cannot express yet; the case is listed as not runnable and never started.</summary>
+    public const string FrameworkDirective = "framework";
 
     /// <summary>
     /// A <c>$name</c> in an unquoted argument must be defined by an earlier line; the token after <c>as</c> is the

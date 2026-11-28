@@ -72,7 +72,34 @@ def read_json(path: Path) -> dict:
     return value
 
 
-def sync(project_file: Path, framework: Path | None = None) -> list[str]:
+TIERS = {"CasesFolders": "e2e", "ProcessCasesFolders": "integration", "PagesFolders": "pages"}
+
+
+def package_folders(project: dict, base: Path, package: str | None = None) -> dict[str, list[str]] | None:
+    """The env config's folder keys for the project's layout <workspace>/tests/<Pkg>/{e2e,integration,pages} (S51-T01):
+    every package's, or `package`'s only; a missing folder is skipped with a line. None: no package.workspace or no tests/."""
+    ws = (project.get("package") or {}).get("workspace")
+    if not isinstance(ws, str) or not ws.strip():
+        if package:
+            raise ValueError("--package needs package.workspace in project.json")
+        return None
+    tests = (Path(ws) if Path(ws).is_absolute() else base / ws) / "tests"
+    if package and not (tests / package).is_dir():
+        raise ValueError(f"no tests folder {tests / package}")
+    if not tests.is_dir():
+        return None
+    packages = [tests / package] if package else sorted((p for p in tests.iterdir() if p.is_dir()), key=lambda p: p.name.lower())
+    folders: dict[str, list[str]] = {key: [] for key in TIERS}
+    for folder in packages:
+        for key, tier in TIERS.items():
+            if (folder / tier).is_dir():
+                folders[key].append(str(folder / tier))
+            else:
+                print(f"skipped {folder.name}/{tier}: no folder")
+    return folders
+
+
+def sync(project_file: Path, framework: Path | None = None, package: str | None = None) -> list[str]:
     project = read_json(project_file)
     env = project.get("environment")
     if not isinstance(env, dict) or any(not isinstance(env.get(k), str) or not env[k].strip()
@@ -101,6 +128,9 @@ def sync(project_file: Path, framework: Path | None = None) -> list[str]:
     }
     if not isinstance(updates["CasesFolders"], list) or not all(isinstance(p, str) for p in updates["CasesFolders"]):
         raise ValueError(f"{target}: CasesFolders must be a list of strings")
+    folders = package_folders(project, project_file.resolve().parent, package)
+    if folders is not None:  # the shared config serves the project: its tests folders replace the three lists
+        updates.update(folders)
     changed = [key for key, value in updates.items() if config.get(key) != value]
     clio_name = env.get("clioName")
     if isinstance(clio_name, str) and clio_name.strip():
@@ -160,6 +190,24 @@ def _app_config(identities: str) -> str:
             '\t\t</assemblyBinding>\n\t</runtime>\n</configuration>\n')
 
 
+def _move_to_unit(ws: Path, pkg: str) -> None:
+    """Moves what clio new-test-project wrote in tests/<Pkg>/ into tests/<Pkg>/unit/ (the other tier folders stay): the
+    project's relative `../../` paths get one level more, the solution's entry points into unit/."""
+    folder, unit = ws / "tests" / pkg, ws / "tests" / pkg / "unit"
+    unit.mkdir(exist_ok=True)
+    for entry in list(folder.iterdir()):
+        if entry.name not in ("unit", "integration", "e2e", "pages"):
+            shutil.move(str(entry), str(unit / entry.name))
+    project = unit / f"{pkg}.Tests.csproj"
+    text = project.read_bytes().decode("utf-8")
+    project.write_bytes(re.sub(r"(?<![\w.])\.\.([\\/])\.\.\1", lambda m: f"..{m[1]}..{m[1]}..{m[1]}", text).encode("utf-8"))
+    for solution in (ws / "tests").glob("*.sln*"):
+        text = solution.read_bytes().decode("utf-8")
+        for sep in ("\\", "/"):
+            text = text.replace(f"{pkg}{sep}{pkg}.Tests.csproj", f"{pkg}{sep}unit{sep}{pkg}.Tests.csproj")
+        solution.write_bytes(text.encode("utf-8"))
+
+
 def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
     """Make the package's workspace run `dotnet test` (S46-T09, gaps 12/13): a clio workspace, the package project
     Files/<Pkg>.csproj, `clio new-test-project`, the binaries under .application/net-framework, an app.config of binding
@@ -210,14 +258,19 @@ def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
                 shutil.copyfile(Path(tmp) / "tmpws" / "packages" / pkg / "Files" / n, files / n)
     lines.append("package project: " + (f"wrote {', '.join('Files/' + n for n in missing)}" if missing else "exists"))
 
-    tests = ws / "tests" / pkg
+    legacy = ws / "tests" / pkg  # where clio new-test-project writes; the S51 layout keeps it in tests/<Pkg>/unit
+    tests = legacy / "unit"
     if (tests / f"{pkg}.Tests.csproj").is_file():
         lines.append("test project: exists")
+    elif (legacy / f"{pkg}.Tests.csproj").is_file():
+        tests = legacy
+        lines.append(f"test project: exists at the legacy location tests/{pkg}/ - move it to unit/")
     else:
         clio(["new-test-project", "--package", pkg], ws)
-        if not (tests / f"{pkg}.Tests.csproj").is_file():
-            raise RuntimeError(f"clio new-test-project wrote no {tests / (pkg + '.Tests.csproj')}")
-        lines.append(f"test project: created tests/{pkg}")
+        if not (legacy / f"{pkg}.Tests.csproj").is_file():
+            raise RuntimeError(f"clio new-test-project wrote no {legacy / (pkg + '.Tests.csproj')}")
+        _move_to_unit(ws, pkg)
+        lines.append(f"test project: created tests/{pkg}/unit")
     solution = next(iter(sorted((ws / "tests").glob("*.sln*"))), tests / f"{pkg}.Tests.csproj")
 
     # the test csproj and .build-props/env.dev-nf.props read the binaries from clio's layout; a copy, not a link: a clio
@@ -271,6 +324,7 @@ def main(argv=None) -> int:
     command.add_argument("project", type=Path, nargs="?")
     command.add_argument("--project", type=Path, dest="project_option", help="project.json (the positional is the same)")
     command.add_argument("--framework", type=Path)
+    command.add_argument("--package", help="only this package's tests/<Pkg>/{e2e,integration,pages} into the env config")
     cmd = sub.add_parser("tasks-from-csv", help="one task folder per row of a tracker's CSV export")
     cmd.add_argument("csv_file", type=Path)
     cmd.add_argument("tasks", type=Path)
@@ -306,7 +360,7 @@ def main(argv=None) -> int:
     if (args.project is None) == (args.project_option is None):
         parser.error("sync takes project.json once: positionally or as --project")
     try:
-        changed = sync(args.project or args.project_option, args.framework)
+        changed = sync(args.project or args.project_option, args.framework, args.package)
     except (OSError, ValueError) as exc:
         print(f"sync failed: {exc}", file=sys.stderr)
         return 1

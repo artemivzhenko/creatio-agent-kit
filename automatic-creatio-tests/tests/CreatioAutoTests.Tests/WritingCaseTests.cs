@@ -85,6 +85,13 @@ public sealed class WritingCaseTests
             Assert.That(deleted.IsValid, Is.True, deleted.DescribeIssues());
             Assert.That(deleted.StopOnFailure, Is.True);
             Assert.That(deleted.AcceptanceCriterion, Is.EqualTo("AC-02"));
+            Assert.That(deleted.Task, Is.Null);
+            Assert.That(deleted.FrameworkGap, Is.Null);
+            var headed = Validate("# task: 012-shipment-label", "# ac: AC-04", "# framework: a step the DSL cannot express yet", "use Supervisor",
+                "insert UsrOrder as Order set UsrName=Bed");
+            Assert.That(headed.Task, Is.EqualTo("012-shipment-label"));
+            Assert.That(headed.FrameworkGap, Is.EqualTo("a step the DSL cannot express yet"));
+            Assert.That(headed.AcceptanceCriterion, Is.EqualTo("AC-04"));
             Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrName=Bed").StopOnFailure, Is.False, "automatic cleanup without the directive");
 
             Assert.That(Validate("use Supervisor", "insert UsrOrder as Order set UsrName=Bed", "check-count UsrOrder Id=$Order eq $Order+1").DescribeIssues(),

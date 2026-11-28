@@ -82,6 +82,7 @@ dotnet run --project src/CreatioAutoTests.Cli -- --root C:\path\to\workspace
 dotnet run --project src/CreatioAutoTests.Cli -- --filter contact-form-baseline
 dotnet run --project src/CreatioAutoTests.Cli -- --verbose
 dotnet run --project src/CreatioAutoTests.Cli -- --validate-only
+dotnet run --project src/CreatioAutoTests.Cli -- --package UsrOrder --project C:\path\to\project.json
 dotnet run --project src/CreatioAutoTests.Cli -- analyse "/0/Shell/#Card/Contacts_FormPage/edit/<id>" --name ContactForm
 dotnet run --project src/CreatioAutoTests.Cli -- --analyse
 dotnet run --project src/CreatioAutoTests.Cli -- --analyse-only
@@ -90,6 +91,21 @@ dotnet run --project src/CreatioAutoTests.Cli -- --analyse-only
 `--validate-only` checks every selected case, configuration reference, command shape, page transition, element capability, and value compatibility without opening a browser.
 
 **The gate.** What every change to the utility ends with, in one command: `py -3 scripts/gate.py --live-root <root> [--rename Usr=<prefix>] [--skip a,b]` builds, runs the unit tests, runs `--validate-only` over this repository's cases, then runs the same cases live on the test site of `<root>`. It exits 0 only when all four are green; without `--live-root` it says the live part was skipped. The live root is the gate's own: it deletes the `*.act` files of its `Cases/` and `ProcessCases/` and copies the repository's active cases in (`*.act.exp` are examples and stay out), with the repository's `Usr` names mapped to the prefix the site holds (`--rename`) (a case with `# bed bench` in its header is the benchmark package's and is copied unmapped; the summary prints the passes per bed), plus `TestData/`, `Configuration/processes/` and `Configuration/pages/*.json` (mapped like a test-package case, except the pages a `# bed bench` case names in its `open` / `on` lines, which are copied as they are). `Configuration/creatio.env.config.json`, `objects.config.json` and `pages/` of the root are the project's own.
+
+**A project's tests: one folder per package.** A project keeps its tests next to its packages, in
+`<workspace>/tests/<Package>/`: `unit/` (the C# test project of `Files/cs`, `dotnet test`), `integration/` (cases without a
+browser: OData, listeners, SQL scripts, process cases), `e2e/` (cases that drive pages) and `pages/` (the page files the e2e
+cases use). A case is `<task id>-<AC>.act` in the folder of its tier, with `# task:` and `# ac:` in its header.
+`project.py sync --project <project.json> [--package <Pkg>]` (the knowledge base's `no-code/tools/project.py`) writes
+`CasesFolders` = every package's `e2e/`, `ProcessCasesFolders` = every `integration/`, `PagesFolders` = every `pages/` into
+the env config. The re-test of a package is one command, `--package <Pkg> [--project <project.json>]`: `dotnet test` of
+`unit/` when it holds a project, then the cases of that package's `integration/` and `e2e/` only, one report whose head is
+`package:`, `unit: N passed, M failed` (or `no unit project`; a project still directly in `tests/<Pkg>/` runs with the line
+`unit: legacy location tests/<Pkg>/ - move it to unit/`), `integration: ...`, `e2e: ...` (`0 cases (no folder configured)` when
+the package has no such folder) and `not runnable: K (framework gaps)`; a case with `# framework: <text>` is listed, never run.
+A process case's process file may sit beside it in `integration/` (a `--package` run loads it whatever the env config names);
+only process configuration JSON belongs there - any other `.json` stops the configuration from loading. An empty folder list in the env config means none; only an
+absent key gives the default `Cases` / `ProcessCases`. The kit's own `Cases/` and `ProcessCases/` stay the benchmark's.
 
 `analyse` opens a page and writes `Configuration/pages/<name>.json`. `--analyse` runs configured analysis scripts before cases and reloads the catalog; `--analyse-only` runs that first phase without cases.
 

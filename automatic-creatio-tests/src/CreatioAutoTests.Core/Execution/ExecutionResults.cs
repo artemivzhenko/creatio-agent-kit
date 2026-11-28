@@ -40,6 +40,12 @@ public sealed class TestCaseResult
     /// <summary>The acceptance criterion the case proves (<c># ac:</c>), or null.</summary>
     public string? AcceptanceCriterion { get; init; }
 
+    /// <summary>The task folder of the case (<c># task:</c>), or null.</summary>
+    public string? Task { get; init; }
+
+    /// <summary>The framework gap of a case that was listed, not run (<c># framework:</c>), or null.</summary>
+    public string? FrameworkGap { get; init; }
+
     /// <summary>Browser console errors of the case, when the run settings ask to capture them.</summary>
     public IReadOnlyList<string> ConsoleErrors { get; set; } = Array.Empty<string>();
 

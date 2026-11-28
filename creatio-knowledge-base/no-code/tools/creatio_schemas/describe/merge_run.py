@@ -50,7 +50,7 @@ class Engines:
     def cases(self, child: str, out: Path) -> list[str]:
         from ..cases import cases_from_package
         from .merge import _context
-        return cases_from_package(_context(self.workspace).folders[child], out, self.env)
+        return cases_from_package(_context(self.workspace).folders[child], out, self.env, layout="root")
 
     def run_tests(self, root: Path, dest: Path) -> tuple[int, int, str]:
         """Runs every case under `root`; the report is copied to dest/report.*. -> (passed, failed, output)."""

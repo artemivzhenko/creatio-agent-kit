@@ -219,6 +219,29 @@ def test_process_timers_list_the_cron_start_trigger_of_a_timer_started_process()
     assert not any(START_NEEDLE in s for s in clio.statements)
 
 
+def test_process_timers_name_the_start_element_from_the_workspace():
+    with tempfile.TemporaryDirectory() as tmp:
+        schema = Path(tmp) / "packages" / "UsrPkg" / "Schemas" / "UsrOrder_Process"
+        schema.mkdir(parents=True)
+        (schema.parent.parent / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": "b1000000-0000-4000-8000-000000000001", "Name": "UsrPkg", "DependsOn": []}}), encoding="utf-8")
+        uid = "A1000000-0000-4000-8000-000000000001"
+        (schema / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": uid, "Name": "UsrOrder_Process", "ManagerName": "ProcessSchemaManager", "DependsOn": []}}), encoding="utf-8")
+        meta = {"MetaData": {"Schema": {"ManagerName": "ProcessSchemaManager", "UId": uid, "Name": "UsrOrder_Process",
+                                        "BK4": [{"UId": "5d2a1c3e-0000-4000-8000-000000000001", "A2": "UsrYearlyTimer"}]}}}
+        (schema / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+        answers = {TIMER_NEEDLE: [], COPIES_NEEDLE: COPIES[:1], START_NEEDLE: START}
+        for workspace in (Path(tmp) / "packages", Path(tmp) / "packages" / "UsrPkg"):  # a packages folder or a package
+            e, _ = env(answers)
+            assert runs.process_timers(e, "UsrOrder_Process", workspace=str(workspace))[0]["element"] == "UsrYearlyTimer"
+        meta["MetaData"]["Schema"]["BK4"][0]["UId"] = "5d2a1c3e-0000-4000-8000-0000000000ff"  # an element the workspace does not know
+        (schema / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+        e, _ = env(answers)
+        assert runs.process_timers(e, "UsrOrder_Process", workspace=tmp)[0]["element"] == "(start timer)"
+        assert runs.process_timers(env(answers)[0], "UsrOrder_Process")[0]["element"] == "(start timer)"  # no workspace: unchanged
+        code, out = run_cli("proc-runs", ["timers", "-e", "dev", "--process", "UsrOrder_Process", "--workspace", str(Path(tmp) / "packages")], answers)
+        assert code == 0 and "(start timer)" in out, out
+
+
 def test_fire_timer_without_a_record_moves_the_start_trigger_and_reads_it_back():
     now = datetime(2026, 11, 21, 7, 0, 0)
     project = project_file("dev")

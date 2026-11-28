@@ -4,7 +4,7 @@
     python proc-runs.py runs  -e <env> --process UsrOrder_Process [--limit 20] [--since 2026-11-11] [--until ...]
     python proc-runs.py runs  -e <env> --record UsrOrder:<id> [--window 30] [--steps]
     python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<caption or element UId>" [--status running]
-    python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
+    python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>] [--workspace <packages folder>]
     python proc-runs.py fire  --project project.json --process UsrOrder_Process [--record UsrOrder:<id>] [--timer "1 d." | start] [--delay 20]
     python proc-runs.py error -e <env> <log id>
     python proc-runs.py cancel --project project.json <run id> [<run id> ..] [--wait 10]
@@ -63,6 +63,7 @@ def main(argv=None, **env_kw) -> int:
     timers.add_argument("--process", required=True)
     timers.add_argument("--record", help="<Entity>:<Id>: only runs that started around its changes")
     timers.add_argument("--window", type=int, default=30)
+    timers.add_argument("--workspace", help="a packages folder or a package: names the start element of a timer-started process")
     fire = commands.add_parser("fire", help="move a pending timer to now + --delay seconds (dev environments only)")
     fire.add_argument("--process", required=True)
     fire.add_argument("--record", default="", help="<Entity>:<Id>; leave it out for the start trigger of a timer-started process")
@@ -85,7 +86,7 @@ def main(argv=None, **env_kw) -> int:
             print(render_runs(answer))
             return 0 if answer.get("runs", answer.get("tasks")) else 1
         if a.command == "timers":
-            timers = process_timers(env, a.process, a.record, a.window, zone)
+            timers = process_timers(env, a.process, a.record, a.window, zone, a.workspace)
             print(render_timers(timers))
             return 0 if timers else 1
         if a.command == "fire":

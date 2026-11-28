@@ -377,8 +377,11 @@ def test_cases_from_package_writes_cases_and_reports_stops():
     tmp = Path(tempfile.mkdtemp())
     try:
         text = server.cases_from_package(str(pages), str(tmp / "out"))
-        assert "wrote Cases/UsrPkg/UsrOrder.act" in text and "stop UsrOrder_FormPage:" in text and text.endswith("exit code 1")
-        assert (tmp / "out" / "Cases" / "UsrPkg" / "UsrOrder.act").is_file()
+        assert "wrote UsrPkg/integration/UsrOrder.act" in text and "stop UsrOrder_FormPage:" in text and text.endswith("exit code 1")
+        assert (tmp / "out" / "UsrPkg" / "integration" / "UsrOrder.act").is_file()
+        covered = server.cases_from_package(str(pages), str(tmp / "out"), report=True)
+        assert "UsrOrder (object): unit 0 | integration 1 | e2e 0" in covered and "not covered: UsrPkg (object)" not in covered
+        assert server.cases_from_package(str(pages)).startswith("error: give out or project")
         assert server.cases_from_package(str(tmp / "missing"), str(tmp / "out2")) == "(no schema to write cases for)"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -453,9 +456,10 @@ def test_report_gap_records_the_line_and_keeps_the_script():
             third = server.report_gap("by-hand", "the caption of a status", "read it in the designer", str(kept))
             assert third.endswith(f"line 3; script kept as {kept}") and len(list((folder / "gaps" / "scripts").iterdir())) == 2, third
             assert server.report_gap("missing", "a value", "typed it").endswith("line 4; no script, no text: the workaround is lost"), "no script is fine, with a warning"
+            assert server.report_gap("framework", "a step the DSL cannot express", "a probe", task="013-x") == f"recorded: {folder / 'gaps' / 'gaps.jsonl'} line 5", "framework needs no script"
             # refusals write nothing
             before = (folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8")
-            assert server.report_gap("other", "x", "y") == "refused: kind must be one of missing, misbehaved, by-hand"
+            assert server.report_gap("other", "x", "y") == "refused: kind must be one of missing, misbehaved, by-hand, framework"
             assert server.report_gap("missing", " ", "y") == "refused: need and instead must both say something"
             assert server.report_gap("missing", "x", "y", str(folder / "none.py")).startswith("refused: script is not a file")
             assert server.report_gap("missing", "x", "y", str(folder)).startswith("refused: script is not a file"), "a directory"
@@ -469,8 +473,22 @@ def test_report_gap_records_the_line_and_keeps_the_script():
                 fh.write("[1, 2]\n")
             # the summary ends with the count by kind and the last gap
             last = server.tool_stats(1).splitlines()[-2]  # the gaps line; the errors line follows it
-            assert last.startswith("gaps: 4 (missing 2, misbehaved 1, by-hand 1); last: ") and last.endswith(" missing a value"), last
+            assert last.startswith("gaps: 5 (missing 2, misbehaved 1, by-hand 1, framework 1); last: ") and last.endswith(" framework a step the DSL cannot express"), last
             assert tool_stats.summarise([], []) == "(no tool calls logged)\ngaps: 0"
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_report_gap_takes_the_framework_kind():
+    import json
+    folder = Path(tempfile.mkdtemp())
+    try:
+        with patch.dict(os.environ, {"CREATIO_KB_STATS_DIR": str(folder / "stats"), "CREATIO_KB_GAPS_DIR": str(folder / "gaps")}):
+            answer = server.report_gap("framework", "a drag between two lists", "a probe of the page file", task="013-x")
+            assert answer == f"recorded: {folder / 'gaps' / 'gaps.jsonl'} line 1", answer
+            line = json.loads((folder / "gaps" / "gaps.jsonl").read_text(encoding="utf-8"))
+            assert line["kind"] == "framework" and line["task"] == "013-x"
+            assert "framework 1); last: " in server.tool_stats(1)
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
@@ -905,6 +923,44 @@ def test_precommit_check_outside_git_answers_one_line_and_the_push_log_follows_t
             os.chdir(old)
         details = Path(next(line for line in output.splitlines() if line.startswith("details: "))[len("details: "):])
         assert details.parent == Path(tmp) / "tasks" / "011-shipments", details
+
+
+def test_schema_layers_takes_a_comma_list():
+    rows = [{"package": "Base", "extendParent": "false", "sl": "0", "pl": "0", "body": "", "size": 10, "md5": "a" * 32}]
+    fake = FakeEnv()
+    fake.sql = lambda text, counts=None: rows
+    with patch.object(env_module, "open_environment", lambda env, project, **kw: fake):
+        one, two = server.schema_layers("dev", "UsrA"), server.schema_layers("dev", "UsrA, UsrB")
+    assert one.startswith("UsrA on dev: 1 copy") and "\n" in one and two == "\n".join([one, one.replace("UsrA", "UsrB", 1)]), two
+
+
+def test_search_recipes_returns_a_single_hit_whole_and_lists_an_area():
+    base = server.kb()
+    top = base.search("HowToLoadDataWithSdkModel", area="FreedomUI", limit=1)
+    with patch.object(type(base), "search", lambda self, q, area=None, limit=8: top):
+        one = server.search_recipes("HowToLoadDataWithSdkModel", "FreedomUI")
+    many = server.search_recipes("lookup", "FreedomUI")
+    assert one.startswith('1 recipe for "HowToLoadDataWithSdkModel"') and "primaryColumnValue" in one and "viewConfigDiff" in one, one[:300]
+    assert "recipe(s) for" in many and "Use get_recipe(<id>)" in many and "viewConfigDiff" not in many
+    assert server.search_recipes("", "Tools").count("[Tools]") > 1 and not hasattr(server, "list_recipes")
+
+
+def test_verify_pushed_ends_with_each_schemas_layer_line():
+    rows = [{"package": "Base", "extendParent": "false", "sl": "0", "pl": "0", "body": "", "size": 10, "md5": "a" * 32},
+            {"package": "UsrCustom", "extendParent": "true", "sl": "1", "pl": "1", "body": "", "size": 5, "md5": "b" * 32}]
+    fake = FakeEnv()
+    fake.sql = lambda text, counts=None: rows
+    results = [("UsrOrder", "same"), ("UsrOrder_FormPage", "not on the site")]
+    with patch.object(env_module, "open_environment", lambda env, *a, **kw: fake), patch("creatio_schemas.cli.resolve_package", lambda p, project=None: p), \
+            patch("creatio_schemas.verify.verify", lambda *a, **kw: results):
+        lines = server.verify_pushed("UsrPkg", "dev").splitlines()
+        assert lines[-1] == "1 same, 1 not" and lines[2:4] == ["UsrOrder: UsrCustom < Base", "UsrOrder_FormPage: UsrCustom < Base"], lines
+
+        def failing(text, counts=None):
+            raise RuntimeError("sql: [ERR] boom")
+        fake.sql = failing
+        lines = server.verify_pushed("UsrPkg", "dev").splitlines()
+        assert lines[0].endswith("same") and lines[2].startswith("layers: not read (") and lines[-1] == "1 same, 1 not", lines
 
 
 if __name__ == "__main__":

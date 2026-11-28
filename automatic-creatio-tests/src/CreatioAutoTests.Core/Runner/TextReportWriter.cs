@@ -89,6 +89,11 @@ public sealed class TextReportWriter : IReportWriter
             builder.AppendLine(result.Site);
         }
 
+        foreach (var line in result.Head)
+        {
+            builder.AppendLine(line);
+        }
+
         builder.AppendLine("Creatio automated tests");
         builder.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         builder.AppendLine("Cases: " + result.Cases.Count + "   passed: " + result.Passed +
@@ -116,7 +121,7 @@ public sealed class TextReportWriter : IReportWriter
         foreach (var testCase in result.Cases)
         {
             builder.AppendLine((testCase.Success ? "PASS  " : "FAIL  ") + testCase.Name +
-                               "   (" + testCase.Duration.TotalSeconds.ToString("0.00") + "s)");
+                               "   (" + testCase.Duration.TotalSeconds.ToString("0.00") + "s)" + Labels(testCase));
 
             if (!testCase.IsValid)
             {
@@ -172,6 +177,24 @@ public sealed class TextReportWriter : IReportWriter
             builder.AppendLine();
         }
 
+        if (result.NotRunnable.Count > 0)
+        {
+            builder.AppendLine("Not runnable (framework gaps):");
+            foreach (var gap in result.NotRunnable)
+            {
+                builder.AppendLine("  " + gap.Name + Labels(gap) + ": " + gap.FrameworkGap);
+            }
+
+            builder.AppendLine();
+        }
+
         return builder.ToString();
+    }
+
+    /// <summary><c>  [task &lt;folder&gt;, &lt;AC&gt;]</c> from the case's headers, or empty.</summary>
+    private static string Labels(Execution.TestCaseResult testCase)
+    {
+        var labels = new[] { testCase.Task is null ? null : "task " + testCase.Task, testCase.AcceptanceCriterion }.Where(l => l is not null).ToArray();
+        return labels.Length == 0 ? string.Empty : "   [" + string.Join(", ", labels) + "]";
     }
 }

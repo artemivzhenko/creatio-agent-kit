@@ -142,6 +142,26 @@ def test_missing_summary_and_no_publish():
         assert any("summary not found" in line for line in logs)
 
 
+def test_publish_reason_is_logged_and_objects_and_timer_starts_need_none():
+    with tempfile.TemporaryDirectory() as tmp:  # P-2.26, P-2.27: a new object and a timer-only process are live without the compile
+        pkg = package(Path(tmp))
+        entity = pkg / "Schemas" / "UsrOrder"
+        entity.mkdir(parents=True)
+        (entity / "descriptor.json").write_text(json.dumps({"Descriptor": {"ManagerName": "EntitySchemaManager"}}))
+        proc = ProcessSchema.create(pkg, "UsrTimer", "Timer")
+        proc.add_element("startTimer", "Tick", "Tick", after="StartEvent1", before="TerminateEvent1")
+        proc.remove_element("StartEvent1")
+        proc.save()
+        fake, logs = FakeClio(), []
+        fake.site_schemas = []  # the object is new on the site
+        assert push(pkg, "dev", fake, log=logs.append) == 0
+        assert "publish: not needed" in logs and not any(line.startswith("publish: needed") for line in logs)
+        add_process(pkg)
+        fake, logs = FakeClio(), []
+        assert push(pkg, "dev", fake, log=logs.append) == 0
+        assert "publish: needed (script task UsrProcess)" in logs and "publish: started" in logs
+
+
 def test_dry_run_and_non_process_metadata():
     with tempfile.TemporaryDirectory() as tmp:
         pkg = package(Path(tmp))
@@ -1385,6 +1405,14 @@ def test_verify_says_per_schema_whether_the_site_runs_the_working_copy():
                 patch.object(verify_module, "served", served):
             assert cli.main(["verify", str(pkg), "-e", "dev", "UsrLf"]) == 0
             assert cli.main(["verify", str(pkg), "-e", "dev"]) == 1
+        # --project: paths.platformBin is the bin of the compile when there is no --bin
+        (Path(tmp) / "project.json").write_text(json.dumps({"paths": {"platformBin": "site-bin"}}), encoding="utf-8")
+        bins = []
+        with patch.object(verify_module, "compile_script", lambda text, name, bin_dir, extra=(): bins.append(bin_dir) or ("ok", [])):
+            verify(pkg, Site(fresh), ["UsrProcess"], project=Path(tmp) / "project.json")
+            with patch("creatio_schemas.environment.open_environment", lambda name, project=None: Site(fresh)):
+                assert cli.main(["verify", str(pkg), "-e", "dev", "UsrProcess", "--project", str(Path(tmp) / "project.json")]) == 0
+        assert bins == [(Path(tmp) / "site-bin").resolve()] * 2, bins
 
 
 def test_served_goes_through_environment_fetch():

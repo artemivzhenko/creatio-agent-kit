@@ -110,14 +110,18 @@ is a heads-up, not a lock.
 `plan.md` carries them as a table: `AC-nn`, the action, the expected result, the tier. The
 tester picks the tool; the tier says what kind of proof is enough.
 
-| Tier | Proves | Typical tool |
-|---|---|---|
-| unit | a class in `Files/cs` behaves, with no environment | `dotnet test tests/<Pkg>/` (get_recipe `clio-tests-and-devops`, "Unit tests without an instance") |
-| integration | a test that runs inside Creatio, where the project keeps a test base (`BaseTest`, a category, a runner process or service named in `project.json` `tests.runner`) | `unit.py run -e <env> --category <Cat>` (tools/env), evidence from its JSON |
-| probe | the artifact landed on the environment as written | `objects.py probe`, `rules.py probe`, `sqlscripts.py probe`, `proc.py probe` |
-| backend | listeners, triggers, defaults - the effect of a CRUD operation | a backend case of the test framework: `insert` / `update` / `delete` over OData, `check-record`, `check-count` |
-| process | a process started with parameters returns the expected results and records | a process case: `start`, `check-result`, `check-record` |
-| ui | the page behaves as a user sees it | `.act` cases: validate, then a live run |
+| Tier | Proves | Typical tool | Where the test lives (`<workspace>/tests/<Pkg>/`) |
+|---|---|---|---|
+| unit | a class in `Files/cs` behaves, with no environment | `dotnet test tests/<Pkg>/unit` (get_recipe `clio-tests-and-devops`, "Unit tests without an instance") | `unit/` |
+| integration | a test that runs inside Creatio, where the project keeps a test base (`BaseTest`, a category, a runner process or service named in `project.json` `tests.runner`) | `unit.py run -e <env> --category <Cat>` (tools/env), evidence from its JSON | `integration/` |
+| probe | the artifact landed on the environment as written | `objects.py probe`, `rules.py probe`, `sqlscripts.py probe`, `proc.py probe` | no file: a tool call in the report |
+| backend | listeners, triggers, defaults - the effect of a CRUD operation | a backend case of the test framework: `insert` / `update` / `delete` over OData, `check-record`, `check-count` | `integration/` |
+| process | a process started with parameters returns the expected results and records | a process case: `start`, `check-result`, `check-record` | `integration/` |
+| ui | the page behaves as a user sees it | `.act` cases: validate, then a live run | `e2e/` (the page files they use in `pages/`) |
+
+The tests belong to the package, not to the task: they live in the project's workspace under `tests/<Pkg>/`, never in the
+task folder (`evidence/` stays there). A re-test is `run(package=<Pkg>, project=<project.json>)` of the creatio-tests MCP: the
+three folders in one report. `project.py sync` writes the folders into the framework's config.
 
 ## Evidence
 

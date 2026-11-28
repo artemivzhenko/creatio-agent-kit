@@ -143,6 +143,11 @@ def render(result: dict, env_name: str = "") -> str:
     return "\n".join(lines)
 
 
+def order_line(result: dict) -> str:
+    """`<Schema>: pkg1 < pkg2 < Custom` - the packages applied first to last (the last wins); `no SysSchema copy` when there is none."""
+    return f"{result['schema']}: " + (" < ".join(x["package"] for x in result["layers"]) or "no SysSchema copy")
+
+
 def to_json(result: dict) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 

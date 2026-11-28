@@ -62,7 +62,7 @@ public sealed class RunPhasesTests
     {
         var environment = new EnvironmentConfig
         {
-            CasesFolders = { "./Cases" },
+            CasesFolders = new() { "./Cases" },
             AnalysisFolders = { "./Analysis" },
         };
 

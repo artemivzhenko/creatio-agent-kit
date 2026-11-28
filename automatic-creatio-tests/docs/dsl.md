@@ -379,8 +379,9 @@ run after the UI cases; `--filter` and `--validate-only` see them the same way. 
 different kind of test - what the backend does, not what a user sees - which is why they are
 kept apart from the page cases rather than mixed into them.
 
-`start` names a process described under `Configuration/processes` (one file per process, see
-below). Values after `with` are checked against the parameter's type before the run, an output
+`start` names a process described under `Configuration/processes` or in a process cases folder (`ProcessCasesFolders`:
+a project's `tests/<Package>/integration/<Process>.json`, next to its case), one file per process, see
+below; a process name declared in two files is an error naming both. Values after `with` are checked against the parameter's type before the run, an output
 parameter cannot be passed in, and a bare value may name a static value. The engine's answer
 decides the line: a process that did not start (unknown, unpublished, an exception) fails with
 the engine's message.
@@ -472,6 +473,12 @@ delete UsrOrder $Order
   `<dir>/evidence/AC-02-report-N.txt` - each line with its outcome, the failed steps, the console
   errors - and `AC-02-report-N.table.md`, a draft row of the tester's report table
   (`| AC | Result | Evidence |`). N is the next number free; a case without `# ac:` is named by its file.
+- **`# task: 012-shipment-label`** names the task folder the case belongs to. The evidence file writes
+  `task folder: 012-shipment-label` and `ac: AC-02`, the text report's case line ends with `[task 012-shipment-label, AC-02]`.
+- **`# framework: <what the step needs>`** marks a case with a step the DSL cannot express yet. It is
+  never started: `--validate-only` lists it as `gap   <case>: <text>` and does not count it as a problem, a run puts it
+  under `Not runnable (framework gaps):` with the text, outside the passed / failed counts; the exit code does not change.
+  The criterion's report row says `not tested (framework gap)`.
 - **Console.** `check console no errors [except "<regex>"]` fails when the browser console logged an
   error (or the page threw) on any page the case opened so far, apart from the ones the regex matches;
   the regex is compiled during validation. `captureConsole: true` in `run.config.json` also puts each
@@ -798,9 +805,9 @@ All paths are relative to the working directory.
 
 | File | Fields |
 | --- | --- |
-| `creatio.env.config.json` (copy `creatio.env.config.example.json`) | `BaseUrl`, optional `AuthUrl`, `Users` (`Username`, `Password`, optional `Name`: what a case writes after `use` when the login should stay out of the cases), optional `CasesFolders`, `AnalysisFolders` and `ProcessCasesFolders`, optional `AllowDevOnly` and `ClioEnvironment` (`# dev-only` cases) |
+| `creatio.env.config.json` (copy `creatio.env.config.example.json`) | `BaseUrl`, optional `AuthUrl`, `Users` (`Username`, `Password`, optional `Name`: what a case writes after `use` when the login should stay out of the cases), optional `CasesFolders`, `AnalysisFolders` and `ProcessCasesFolders` (an absent key means the default `Cases` / `ProcessCases`, an empty list means none), optional `PagesFolders` (page folders read beside `Configuration/pages`, a missing one skipped; a page name found twice is an error naming both files), optional `AllowDevOnly` and `ClioEnvironment` (`# dev-only` cases) |
 | `creatio.site.config.json` | `AuthPath`, optional `ODataBasePath`, optional `ProcessStartPath` (default `/0/ServiceModel/ProcessEngineService.svc/RunProcess`) |
-| `processes/*.json` | one file per process a case may start: `name` and `parameters` (`code`, `type`, `direction`) |
+| `processes/*.json` | one file per process a case may start: `name` and `parameters` (`code`, `type`, `direction`); also read from every `ProcessCasesFolders` folder and, in a `--package` run, from the package's `integration/` - only process configuration JSON belongs there, any other `.json` stops the configuration from loading |
 | `pages/*.json` | one file per page: `name`, `url`, `type` (`FreedomUI`, the default, or `ClassicUI`), `schema` (Classic only: the page schema name), and `elements` (`code`, `label`, `type`, optional `tab` (the page tab the control lies on: `analyse` writes it for a control shown on one tab only; a command on such a control opens that tab first, so no `click <Tab>` line is needed; a control first seen on a toggle group's other tab, such as the attachments list behind `Attachments`, gets `<group>/<caption>` (`CardButtonToggleGroup/Attachments`) and the line sets the group to that caption first, once more when the control has not appeared within 3 s) and `pinned`, plus type-specific options such as a Classic element's `name` or a Save button's `isSave`). The page is implied by the file, so elements never repeat it. |
 | `objects.config.json` | `objects`: `name`, `sectionPage`, `formPage`, `newButton`, `saveButton`, `fields` mapping codes to static-value names |
 | `static.values.json` | object mapping static names to scalar values |

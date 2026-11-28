@@ -149,13 +149,15 @@ public sealed class TestRunner
             ? DiscoverAnalysisFiles()
             : Array.Empty<string>();
 
-        var testFiles = analysisOnly ? Array.Empty<string>() : DiscoverTestFiles(nameFilter);
-        var processFiles = analysisOnly ? Array.Empty<string>() : DiscoverProcessFiles(nameFilter);
+        // '# framework:' cases are listed, never started: they leave the run before a browser is even considered.
+        var notRunnable = new List<TestCaseResult>();
+        var testFiles = analysisOnly ? Array.Empty<string>() : Runnable(DiscoverTestFiles(nameFilter), notRunnable);
+        var processFiles = analysisOnly ? Array.Empty<string>() : Runnable(DiscoverProcessFiles(nameFilter), notRunnable);
 
         if (analysisFiles.Count == 0 && testFiles.Count == 0 && processFiles.Count == 0)
         {
-            _logger.LogWarning("Nothing to do: no {Extension} files were found.", TestFileExtension);
-            return new RunResult { Cases = Array.Empty<TestCaseResult>(), Site = SiteLine, Duration = stopwatch.Elapsed };
+            _logger.LogWarning("Nothing to do: no runnable {Extension} files were found.", TestFileExtension);
+            return new RunResult { Cases = Array.Empty<TestCaseResult>(), NotRunnable = notRunnable, Site = SiteLine, Duration = stopwatch.Elapsed };
         }
 
         var analysisResults = new List<TestCaseResult>();
@@ -190,6 +192,7 @@ public sealed class TestRunner
                 {
                     Cases = caseResults,
                     AnalysisScripts = analysisResults,
+                    NotRunnable = notRunnable,
                     Site = SiteLine,
                     Duration = stopwatch.Elapsed,
                 };
@@ -220,9 +223,37 @@ public sealed class TestRunner
         {
             Cases = caseResults,
             AnalysisScripts = analysisResults,
+            NotRunnable = notRunnable,
             Site = SiteLine,
             Duration = stopwatch.Elapsed,
         };
+    }
+
+    /// <summary>The files whose case has no <c># framework:</c> header; the others go to <paramref name="notRunnable"/>.</summary>
+    private IReadOnlyList<string> Runnable(IReadOnlyList<string> files, List<TestCaseResult> notRunnable)
+    {
+        var runnable = new List<string>(files.Count);
+        foreach (var file in files)
+        {
+            var plan = Validate(file);
+            if (plan.FrameworkGap is null)
+            {
+                runnable.Add(file);
+                continue;
+            }
+
+            _logger.LogInformation("{Name} is not runnable (framework gap): {Gap}", plan.TestName, plan.FrameworkGap);
+            notRunnable.Add(new TestCaseResult
+            {
+                Name = plan.TestName,
+                FilePath = plan.FilePath,
+                AcceptanceCriterion = plan.AcceptanceCriterion,
+                Task = plan.Task,
+                FrameworkGap = plan.FrameworkGap,
+            });
+        }
+
+        return runnable;
     }
 
     /// <summary>Validates every file first, then runs the ones that validate.</summary>

@@ -69,6 +69,38 @@ def test_run_forwards_the_task_folder_without_running():
     assert out.splitlines()[:3] == ["site: https://dev.example.com (clio dev)", "rebuilt the stale exe: ok", ""], out
 
 
+def test_run_and_validate_forward_the_package():  # S51-T01
+    from unittest.mock import patch
+
+    with patch.object(server, "_cli", side_effect=lambda args, timeout=0: " ".join(args)):
+        assert server.run(package="UsrOrder") == "--package UsrOrder"
+        assert server.run(package="UsrOrder", project="C:/dev/project.json") == "--package UsrOrder --project C:/dev/project.json"
+        assert server.run(project="C:/dev/project.json") == ""  # a project without a package changes nothing
+        assert server.validate(package="UsrOrder") == "--validate-only --package UsrOrder"
+
+
+def test_page_and_process_config_read_the_project_folders():  # S51-T01
+    root = server.ROOT
+    with tempfile.TemporaryDirectory() as tmp:
+        isolated = Path(tmp)
+        (isolated / "Configuration" / "pages").mkdir(parents=True)
+        (isolated / "ws" / "tests" / "UsrOrder" / "pages").mkdir(parents=True)
+        (isolated / "ws" / "tests" / "UsrOrder" / "pages" / "UsrOrderForm.json").write_text('{"name": "UsrOrderForm"}', encoding="utf-8")
+        (isolated / "ws" / "tests" / "UsrOrder" / "integration").mkdir(parents=True)
+        (isolated / "ws" / "tests" / "UsrOrder" / "integration" / "UsrOrder_Process.json").write_text('{"name": "UsrOrder_Process"}', encoding="utf-8")
+        (isolated / "Configuration" / "creatio.env.config.json").write_text(
+            json.dumps({"PagesFolders": [str(isolated / "ws" / "tests" / "UsrOrder" / "pages")],
+                        "ProcessCasesFolders": [str(isolated / "ws" / "tests" / "UsrOrder" / "integration")]}), encoding="utf-8")
+        try:
+            server.ROOT = isolated
+            found, missing = server.page_config("UsrOrderForm"), server.page_config("UsrNone")
+            process = server.process_config("UsrOrder_Process")
+        finally:
+            server.ROOT = root
+    assert '"UsrOrderForm"' in found and "does not exist" in missing, (found, missing)
+    assert '"UsrOrder_Process"' in process, process
+
+
 def test_stale_exe_is_rebuilt_or_warned():
     import os
     import time

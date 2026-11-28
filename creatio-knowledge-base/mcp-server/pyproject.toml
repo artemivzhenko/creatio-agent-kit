@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 # MCP transport needs a dependency.
 dependencies = [
     "mcp>=2.0",
+    "orjson",  # the toolkit reads package JSON with it when present (files.load_json), twice the stdlib
     "tzdata; sys_platform == 'win32'",  # IANA zone names (Europe/Kyiv) for the time_zone arguments
 ]
 

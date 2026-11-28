@@ -171,10 +171,13 @@ def search_recipes(query: str, area: str = "", limit: int = 8) -> str:
     (the recipes carry the idioms, naming rules and known traps of this codebase). `query` in plain words
     ("filter a lookup field", "crt.OpenLookupPageRequest"); `area` narrows to ClassicUI, FreedomUI, RemoteModule, Mobile,
     Backend, SQL, Clio or Tools (empty searches everything: Classic and Freedom often have one recipe each for the same
-    task). A ranked list of ids with titles and summaries; `get_recipe` reads one.
+    task). A ranked list of ids with titles and summaries, or the whole recipe when exactly one matches; an empty `query` with
+    an `area` lists the area; `get_recipe` reads one.
     """
     base = kb()
-    results = base.search(query, area=area or None, limit=max(1, min(limit, 25)))
+    limit = max(1, min(limit, 25))
+    results = [(r, 0.0) for r in base.list(area=area)] if area and not query.strip() else base.search(query, area=area or None, limit=25)
+    results = results if len(results) == 1 else results[:limit]
     if not results:
         return (
             f'No recipe matched "{query}"'
@@ -182,6 +185,8 @@ def search_recipes(query: str, area: str = "", limit: int = 8) -> str:
             + ".\nTry fewer or more general words, or call kb_overview to see what exists."
         )
 
+    if len(results) == 1:
+        return f"1 recipe for \"{query}\": [{results[0][0].area}] {results[0][0].id}\n\n" + get_recipe(results[0][0].id)
     lines = [f'{len(results)} recipe(s) for "{query}"' + (f" in {area}" if area else "") + ":", ""]
     for recipe, score in results:
         lines.append(f"[{recipe.area}] {recipe.id}   (score {score:.1f})")
@@ -257,35 +262,6 @@ def find_api(symbol: str, limit: int = 10) -> str:
         lines.append(f"    {recipe.title}")
     lines.append("")
     lines.append("Use get_recipe(<id>) to read one.")
-    return "\n".join(lines)
-
-
-@mcp.tool()
-def list_recipes(area: str = "", topic: str = "") -> str:
-    """
-    Browse recipe ids and titles, optionally narrowed to an area and a topic.
-
-    area:  "ClassicUI", "FreedomUI", "RemoteModule", "Mobile", "Backend", "SQL", "Clio" or "Tools".
-    topic: a folder inside the area, e.g. "Details", "BaseMethods", "ESQ",
-           "reference" (clio command pages; the block skills sit at the root).
-           Call kb_overview to see the available topics.
-
-    Prefer search_recipes when you have a task in mind; this tool is for
-    surveying what exists.
-    """
-    base = kb()
-    items = base.list(area=area or None, topic=topic or None)
-    if not items:
-        return (
-            "Nothing matched"
-            + (f" area={area}" if area else "")
-            + (f" topic={topic}" if topic else "")
-            + ". Call kb_overview to see the available areas and topics."
-        )
-    lines = [f"{len(items)} recipe(s):", ""]
-    for recipe in items:
-        lines.append(f"[{recipe.area}] {recipe.id}")
-        lines.append(f"    {recipe.title}")
     return "\n".join(lines)
 
 
@@ -914,15 +890,15 @@ def process_runs(env: str, process: str = "", record: str = "", since: str = "",
 
 
 @mcp.tool()
-def process_timers(env: str, process: str, record: str = "", window: int = 30, time_zone: str = "") -> str:
+def process_timers(env: str, process: str, record: str = "", window: int = 30, time_zone: str = "", workspace: str = "") -> str:
     """The pending timers of a process (every copy of its schema), soonest first: the fire time in UTC and `time_zone`, the
     timer element's caption, its state, and the run and element ids. A timer is a Quartz trigger (`qrtz_triggers`) whose group is
     the id of the run's element in `SysProcessElementLog`; its time is .NET ticks, converted here. A timer-started process with no
     run is listed too: its CRON start trigger (group = the schema UId) as `(start timer)` with its CRON and trigger name, no run.
     `record` (`<Entity>:<Id>`) keeps the run timers of the runs that started within `window` seconds of a change of that record or
-    of a row pointing at it. Read-only."""
+    of a row pointing at it. `workspace` (a packages folder or a package) names a start trigger's element instead of `(start timer)`. Read-only."""
     from creatio_schemas.runs import process_timers as _timers, render_timers
-    return _answer(env, lambda e: render_timers(_timers(e, process.strip(), record.strip() or None, max(0, window), time_zone or None)))
+    return _answer(env, lambda e: render_timers(_timers(e, process.strip(), record.strip() or None, max(0, window), time_zone or None, workspace.strip() or None)))
 
 
 @mcp.tool()
@@ -1184,23 +1160,31 @@ def review_download(package: str, keep: str = "", limit: int = DEFAULT_LIMIT) ->
 
 
 @mcp.tool()
-def verify_pushed(package: str, env: str, schemas: str = "", bin: str = "") -> str:
+def verify_pushed(package: str, env: str, schemas: str = "", bin: str = "", project: str = "") -> str:
     """Is the site running the pushed code (after push_package, before trusting a test): per schema of the package (or
     `schemas`, comma-separated) the site's SysSchema metadata and body (md5) against the working copy - `same`, `same (line
     endings)`, `differs (metadata|body: site <md5> repo <md5>)`, `not on the site`; a script process: `not published: ...` when
     its generated source is missing or older than its schema, `compile error: CS....` when it does not compile (with `bin`, the
-    Creatio assemblies); a client schema: `not served: ...` when conf/content/<Schema>.js does not hold the new body (the site's
-    client cache). Read-only. Ends with `N same, M not`."""
+    Creatio assemblies, else the `project` json's `paths.platformBin`); a client schema: `not served: ...` when conf/content/<Schema>.js does not hold the new body (the site's
+    client cache). Then one line per schema with its layer order on the site (`<Schema>: pkg1 < pkg2 < Custom`, the last wins;
+    `layers: not read (<reason>)` when the site does not answer). Read-only. Ends with `N same, M not`."""
     _tools_path()
     from creatio_schemas.cli import resolve_package
+    from creatio_schemas.describe.layers import order_line, schema_layers as _layers
     from creatio_schemas.environment import open_environment
     from creatio_schemas.verify import render, verify
     try:
-        results = verify(resolve_package(package), open_environment(env), [s.strip() for s in schemas.split(",") if s.strip()] or None,
-                         Path(bin) if bin else None)
+        site = open_environment(env)
+        results = verify(resolve_package(package, Path(project) if project else None), site, [s.strip() for s in schemas.split(",") if s.strip()] or None,
+                         Path(bin) if bin else None, project=Path(project) if project else None)
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
-    return render(results)
+    lines = render(results).splitlines()
+    try:
+        layers = [order_line(_layers(site, n)) for n, _ in results]
+    except (OSError, KeyError, ValueError, RuntimeError) as e:
+        layers = [f"layers: not read ({str(e.args[0] if e.args else e).splitlines()[-1]})"]
+    return "\n".join(lines[:-1] + layers + lines[-1:])
 
 
 @mcp.tool()
@@ -1437,7 +1421,7 @@ def resolve_uid(path: str, text: str) -> str:
 
 @mcp.tool()
 def schema_layers(path_or_env: str, schema: str, rule: str = "", workspace: str = "") -> str:
-    """Is this page, object or method overridden in another package or in Custom on the site, and why are my changes not
+    """`schema` may be a comma list (one block per schema, in that order). Is this page, object or method overridden in another package or in Custom on the site, and why are my changes not
     visible after a push: the copies of a schema on the environment in the order the platform applies them (the last wins):
     package, replacing or not, modified on / by, IsChanged, body size and md5. Run it BEFORE planning a change to a page
     or object that the platform or another package already has, and as the tester's first preflight step: a copy in the
@@ -1452,7 +1436,8 @@ def schema_layers(path_or_env: str, schema: str, rule: str = "", workspace: str 
     try:
         env = open_environment(None if project else path_or_env, project)
         custom = json.loads(Path(project).read_text(encoding="utf-8-sig")).get("environment", {}).get("customLayer") if project else None
-        return render(_layers(env, schema, rule or None, custom or CUSTOM_LAYER, workspace or None), env.clio_name or env.url)
+        return "\n".join(render(_layers(env, s, rule or None, custom or CUSTOM_LAYER, workspace or None), env.clio_name or env.url)
+                         for s in (x.strip() for x in schema.split(",")) if s) or "error: give a schema"
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
 
@@ -1496,20 +1481,28 @@ def snapshot_compare(before: str, after: str, ignore_layers: bool = False) -> st
 
 
 @mcp.tool()
-def cases_from_package(package: str, out: str, env: str = "", user: str = "Supervisor") -> str:
-    """The baseline test cases of a package, written from its schemas into `out` (the UI test utility's root): Cases/<Package>/<Object>.act
-    for an own object (insert the required columns, read back, update, read back, delete - over OData), ProcessCases/<Package>/<Process>.act +
-    Configuration/processes/<Process>.json for a process without a user task, Configuration/pages/<Page>.json + Cases/<Package>/<Page>.act for a
-    Freedom UI form page. One line per file (`wrote`, `same`, `kept` = an edited case is never overwritten), `stop <Schema>: ...` for a value or a
-    field the generator will not guess (a lookup without `env`, a required column the page does not show) and `not generated: ...`. Run the
-    result with the creatio-tests `validate` / `run` tools. `env` lets a lookup take the first row of its object. Writes files into `out` only."""
+def cases_from_package(package: str, out: str = "", env: str = "", user: str = "Supervisor", report: bool = False, project: str = "") -> str:
+    """The baseline test cases of a package, written from its schemas into the project's layout `<out>/<Package>/` (`out` = the tests folder,
+    default `<package.workspace>/tests` of `project`): integration/<Object>.act for an own object (insert the required columns, read back,
+    update, read back, delete - over OData), integration/<Process>.act + <Process>.json for a process without a user task,
+    pages/<Page>.json + e2e/<Page>.act for a Freedom UI form page. One line per file (`wrote`, `same`, `kept` = an edited case is never
+    overwritten), `stop <Schema>: ...` for a value or a field the generator will not guess (a lookup without `env`, a required column the
+    page does not show) and `not generated: ...`. `report=True` writes nothing and answers the coverage: per schema and `Files/cs` class
+    `unit n | integration n | e2e n` (cases counted by their `# schema:` line or file name), `not covered: <Schema> (<kind>)` for every one
+    with 0, `covered N of M` - the line the success report must answer for every schema. `env` lets a lookup take the first row of its
+    object. Writes files into `out` only."""
     _tools_path()
-    from creatio_schemas.cases import cases_from_package as generate
+    from creatio_schemas.cases import cases_from_package as generate, coverage_report, tests_root
     try:
-        report = generate(package, out, _env(env) if env else None, user)
+        root = out or (str(tests_root(project)) if project else "")
+        if not root:
+            return "error: give out or project"
+        if report:
+            return "\n".join(coverage_report(package, root))
+        lines = generate(package, root, _env(env) if env else None, user)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
-    return "\n".join(report) + f"\nexit code {1 if any(l.startswith('stop') for l in report) else 0}" if report else "(no schema to write cases for)"
+    return "\n".join(lines) + f"\nexit code {1 if any(l.startswith('stop') for l in lines) else 0}" if lines else "(no schema to write cases for)"
 
 
 @mcp.tool()
@@ -1532,7 +1525,8 @@ def report_gap(kind: str, need: str, instead: str, script: str = "", task: str =
     """You are about to write your own script, type a query no tool covers, look a value up by hand in the designer, or you just worked
     around a tool that answered wrong, cut or in a shape you could not use: record it here first, at that moment, not at the end.
     `kind`: `missing` (no tool does it), `misbehaved` (a tool did, wrongly or unusably: say what it answered and what you expected),
-    `by-hand` (you did it outside the tools). `need`: what you needed, as a question. `instead`: what you did. `script`: the path of the
+    `by-hand` (you did it outside the tools), `framework` (the test framework's DSL cannot express a step of a case - name the step in
+    `need`, and what you did instead, a probe or nothing, in `instead`). `need`: what you needed, as a question. `instead`: what you did. `script`: the path of the
     script or SQL you wrote - the kit keeps a copy under `dev/gaps/scripts/`, so write it anywhere and never delete it. `task`: the task
     folder when there is one. `text`: a one-line query or command typed with no file - with `text` and no `script` the server writes it to
     `dev/gaps/scripts/<date>-<n>.txt` and records that path; a `missing` gap with neither is recorded with a warning. One line per gap; these lines and `tool_stats` are what the retrospective and the feedback round read,

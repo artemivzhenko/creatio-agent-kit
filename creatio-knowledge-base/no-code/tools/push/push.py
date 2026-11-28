@@ -7,7 +7,7 @@ Push a package to an environment: clear IsChanged, push-pkg, check compilation, 
     python push.py <package> -e <environment> --dry-run print commands only
     python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
     python push.py <package> -e <environment> --build [--project <project.json>]  first build Files/Bin/<Pkg>.dll against the site version's bin
-    python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
+    python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..] [--project <project.json>]  is the site running this code: one line per schema; exit 1
     python push.py served <Schema> -e <environment> [--out <file>] [--grep <text>]  the served conf/content text: size, md5, matching lines
     python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
     python push.py deps <package> -e <environment> [--add <Package>[,<Package>]] [--dry-run]  fill DependsOn UId/version from the site's SysPackage
@@ -39,7 +39,7 @@ def verify_main(argv: list[str]) -> int:
     p.add_argument("--bin", type=Path, help="Creatio assemblies for the script compile check (as for the push)")
     args = p.parse_args(argv)
     try:
-        results = verify(resolve_package(args.package, args.project), open_environment(args.env), args.schemas or None, args.bin)
+        results = verify(resolve_package(args.package, args.project), open_environment(args.env), args.schemas or None, args.bin, project=args.project)
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2

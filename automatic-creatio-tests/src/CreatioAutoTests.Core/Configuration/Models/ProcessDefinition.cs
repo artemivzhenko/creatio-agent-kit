@@ -17,6 +17,10 @@ public sealed class ProcessDefinition
     /// <summary>Parameters of the process, in the order the schema declares them.</summary>
     public List<ProcessParameter> Parameters { get; set; } = new();
 
+    /// <summary>Full path of the file the process was read from. Set by the loader, used to name both files of a duplicate.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SourceFile { get; set; }
+
     /// <summary>Parameters a script may pass with <c>start ... with</c>: inputs and variables.</summary>
     public IEnumerable<ProcessParameter> Inputs =>
         Parameters.Where(p => p.Direction is not ProcessParameter.Out);

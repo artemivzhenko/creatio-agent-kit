@@ -14,8 +14,8 @@ Tester, 2026-11-06 14:40. Plan read: `plan.md` as of 2026-11-06 12:05. One row p
 
 ## Tests written
 
-- `ProcessCases/012-shipment-label.act` (AC-03, AC-04, AC-05) in the test framework
-- `Cases/012-shipped-readonly.act` (AC-06)
+- `tests/UsrPkg/integration/012-AC-03.act` (AC-03, AC-04, AC-05) in the project workspace
+- `tests/UsrPkg/e2e/012-AC-06.act` (AC-06)
 
 ## Notes for the author
 

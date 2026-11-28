@@ -80,10 +80,22 @@ public static class Program
 
             var runner = provider.GetRequiredService<TestRunner>();
 
+            // '--package <Pkg>': the cases of <workspace>/tests/<Pkg>/{integration,e2e} only, with dotnet test of unit/ first
+            var package = GetOption(args, "--package");
+            string? packageFolder = null;
+            if (package is not null)
+            {
+                var configuration = provider.GetRequiredService<FrameworkConfiguration>();
+                packageFolder = PackageRun.FindFolder(package, GetOption(args, "--project"), configuration.CasesFolders.Concat(configuration.ProcessCasesFolders))
+                                ?? throw new InvalidOperationException("package " + package + " has no tests/" + package + "/e2e or /integration folder in the env config; " +
+                                                                       "give --project <project.json> or run project.py sync --project <project.json>.");
+                PackageRun.Use(configuration, packageFolder);
+            }
+
             return validateOnly
                 ? Validate(runner, filter)
                 : await RunAsync(provider, runner, filter,
-                    analyseFirst || analyseOnly, analyseOnly, GetOption(args, "--task-folder"), GetOption(args, "--task")).ConfigureAwait(false);
+                    analyseFirst || analyseOnly, analyseOnly, GetOption(args, "--task-folder"), GetOption(args, "--task"), package, packageFolder).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -249,13 +261,23 @@ public static class Program
         bool runAnalysis,
         bool analysisOnly,
         string? taskFolder,
-        string? taskId)
+        string? taskId,
+        string? package,
+        string? packageFolder)
     {
         // The env config is shared by every checkout's runs: the first line says which site this run hits.
         Console.WriteLine(runner.SiteLine);
+        var unit = packageFolder is null ? default : await PackageRun.RunUnitAsync(packageFolder).ConfigureAwait(false);
         var result = await runner
             .RunAsync(filter, runAnalysis ? true : null, analysisOnly)
             .ConfigureAwait(false);
+        if (packageFolder is not null)
+        {
+            result.Head.Add("package: " + package + " (" + packageFolder + ")");
+            result.Head.AddRange(unit.Lines);
+            result.Head.AddRange(PackageRun.TierLines(result, packageFolder, provider.GetRequiredService<FrameworkConfiguration>().Environment));
+            result.UnitFailed = unit.Failed;
+        }
 
         await provider.GetRequiredService<IReportWriter>().WriteAsync(result).ConfigureAwait(false);
 
@@ -281,6 +303,7 @@ public static class Program
     {
         var files = runner.DiscoverTestFiles(filter).Concat(runner.DiscoverProcessFiles(filter)).ToList();
         var failed = 0;
+        var gaps = 0;
 
         foreach (var file in files)
         {
@@ -289,6 +312,14 @@ public static class Program
             foreach (var warning in plan.Warnings)
             {
                 Console.WriteLine("warning: " + warning.Message);
+            }
+
+            // a framework gap is listed, not counted: the case says what the DSL cannot express yet
+            if (plan.FrameworkGap is not null)
+            {
+                gaps++;
+                Console.WriteLine("gap   " + plan.TestName + ": " + plan.FrameworkGap);
+                continue;
             }
 
             if (plan.IsValid)
@@ -303,7 +334,7 @@ public static class Program
         }
 
         Console.WriteLine();
-        Console.WriteLine(files.Count + " case(s) checked, " + failed + " with problems.");
+        Console.WriteLine(files.Count + " case(s) checked, " + failed + " with problems" + (gaps > 0 ? ", " + gaps + " not runnable (framework gaps)." : "."));
 
         return failed == 0 ? 0 : 1;
     }
@@ -355,6 +386,9 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("  --root <dir>       working directory holding Configuration/ and Cases/");
         Console.WriteLine("  --filter <text>    run only cases whose file name contains <text>");
+        Console.WriteLine("  --package <Pkg>    run the package's tests folders: dotnet test of tests/<Pkg>/unit, then tests/<Pkg>/integration and");
+        Console.WriteLine("                     tests/<Pkg>/e2e only; one report with a line per tier (with --validate-only: those folders only)");
+        Console.WriteLine("  --project <file>   project.json whose package.workspace holds tests/<Pkg>; else the env config's folders name it");
         Console.WriteLine("  --validate-only    check the cases without opening a browser");
         Console.WriteLine("  --task-folder <dir> write evidence/<AC>-report-N.txt and .table.md per case into a task folder");
         Console.WriteLine("  --task <id>        the task id written at the top of each evidence file");

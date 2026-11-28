@@ -61,7 +61,7 @@ cd automatic-creatio-tests && dotnet build && dotnet test        # the framework
 powershell -File src/CreatioAutoTests.Cli/bin/Debug/net8.0/playwright.ps1 install chromium   # once
 ```
 
-**The human's tools, not the agents'.** Some `creatio-kb` tools are for the person who runs the kit, not for a task's author or tester: `ci_check`, `ci_build`, `ci_backup`, `ci_deploy`, `ci_verify`, `ci_push_all`, `ci_hierarchy` and `ci_lint` (the pipeline stages), `merge_plan`, `merge_layers`, `merge_package` and `merge_run` with `schema_snapshot`, `snapshot_compare` and `review_download` (a layer merge, the skill `creatio-merge`), `env_diff` and `set_feature` (what a site holds and one feature switch), `tool_stats` (what the server returned, and the gaps recorded) and `list_recipes` (the catalogue of recipes). An agent in a task does not call them unless the human asks. The test `test_every_tool_has_a_home` fails when a new tool is named in no skill and not here.
+**The human's tools, not the agents'.** Some `creatio-kb` tools are for the person who runs the kit, not for a task's author or tester: `ci_check`, `ci_build`, `ci_backup`, `ci_deploy`, `ci_verify`, `ci_push_all`, `ci_hierarchy` and `ci_lint` (the pipeline stages), `merge_plan`, `merge_layers`, `merge_package` and `merge_run` with `schema_snapshot`, `snapshot_compare` and `review_download` (a layer merge, the skill `creatio-merge`), `env_diff` and `set_feature` (what a site holds and one feature switch), `tool_stats` (what the server returned, and the gaps recorded). An agent in a task does not call them unless the human asks. The test `test_every_tool_has_a_home` fails when a new tool is named in no skill and not here.
 
 ## How a task runs
 

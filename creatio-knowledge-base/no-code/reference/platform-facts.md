@@ -224,6 +224,17 @@ the DSL `check-process`.
 
 **P-2.25 The served body of a client schema holds the base copy first, then every replacing copy ordered by `SysPackage.HierarchyLevel` (then name), packages outside the customisation hierarchy included.** Checked on 8.3.2 against the served `CasePage` (8 copies) and `ActivityMiniPage` (8): the base copy's own lines come first, the replacing copies follow in ascending level. `tsp_GetSysSchemaParentsInPackageHierarchyByPackage` returned 1 of 8 copies for `CasePage` and levelled a base after replacing copies - `schema_layers` sorts by this rule now (S48-T08). 8.3.2, run.
 
+**P-2.26 A new object's OData endpoint needs no `compile-configuration` on 8.3.2; it is 404 for under a minute after `push-pkg` and then 200:** two packages
+pushed with a new object each (517 s and 448 s, `publish: not needed`): `GET /0/odata/<Entity>?$top=1` answered 200 at 15 s after the first push
+ended, and 404 at 13-34 s and 200 at 46 s after the second. Nothing was compiled or restarted. The 13-minute 404 of S49-T03 is not reproduced
+(wait up to a minute and retry before blaming the push; P-2.16 is the 8.2.3 twin). 8.3.2, run (S50-T01). used by: `push.py` (`_needs_publish`
+keeps script and user tasks only).
+
+**P-2.27 A timer-start process (`ProcessSchemaStartTimerEvent`, CRON) is armed by `push-pkg` alone:** with no script task, no user task and no
+`compile-configuration`, `qrtz_triggers` held the CRON trigger `WAITING` (`0 0 0 1 1 ? *`) right after the push; `fire_timer` (delay 20) moved
+it, the run `Completed` 50 s after the due time, and the trigger went back to its yearly date. 8.3.2, run (S50-T01). used by: `push.py`
+(`_needs_publish` has no timer branch).
+
 **P-2.19 `push-pkg` ignores a changed `DependsOn` while the package descriptor's `ModifiedOnUtc` is unchanged** (the
 `SysPackageDependency` rows stay as they were); with a new date they follow. A client schema whose descriptor date did not
 move is skipped the same way (its body is not installed). 8.3.2, run (S48-T03: the dependency half live; the body half is the

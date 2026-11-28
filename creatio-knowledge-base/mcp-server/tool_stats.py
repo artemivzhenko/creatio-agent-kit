@@ -134,7 +134,7 @@ def read(days: int = 1, folder: Path | None = None) -> list[dict]:
 
 # -- gaps: what the agent did outside the tools, recorded when it happened (S37-T01) ---------------------------------- #
 
-GAP_KINDS = ("missing", "misbehaved", "by-hand")
+GAP_KINDS = ("missing", "misbehaved", "by-hand", "framework")
 _SECRET_RE = re.compile(r"\b(password|passwd|pwd|token|secret|client_secret|api[_-]?key|bearer)\b\s*[=:]?\s*\S", re.I)
 
 
@@ -192,7 +192,7 @@ def read_gaps(folder: Path | None = None) -> list[dict]:
 
 
 def gaps_line(gaps: list[dict]) -> str:
-    """`gaps: N (missing a, misbehaved b, by-hand c); last: <ts> <kind> <need>`, or `gaps: 0`."""
+    """`gaps: N (missing a, misbehaved b, by-hand c, framework d); last: <ts> <kind> <need>`, or `gaps: 0`."""
     if not gaps:
         return "gaps: 0"
     counts = ", ".join(f"{k} {sum(1 for g in gaps if g.get('kind') == k)}" for k in GAP_KINDS)

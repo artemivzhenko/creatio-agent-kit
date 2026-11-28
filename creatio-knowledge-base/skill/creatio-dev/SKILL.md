@@ -30,7 +30,8 @@ change.
    --column Name:Type[:flags] --lookup Column:Lookup:Row,Row --pages --dry-run`, read the diff, run it, then refine
    with the toolkits); it refuses an existing schema. A REST service schema is `scaffold.py source <pkg> <Name> --service`, not one typed by
    hand (on 8.2.3 a source code schema cannot see `Files/cs` types on the site, and the local `--build` hides it). C# goes into
-   `Files/cs` per `get_code_style("3.7")` and gets a unit test per `get_code_style("3.8")`
+   `Files/cs` per `get_code_style("3.7")` and gets a unit test per `get_code_style("3.8")`, kept in
+   `<workspace>/tests/<Pkg>/unit/` (`dotnet test` of that folder is green before the hand-over; a class without a test is named in your report)
    (`project.py tests-init <project.json>` once per package, then project.json's `commands.unitTests` green before you say
    done - it rebuilds the dll against the test binaries, so push with `push.py --build` (`push_package(..., build=True)`); `run_tests` runs them inside Creatio).
    Client code (a Classic schema, a Freedom UI page, a remote module) follows
@@ -62,6 +63,7 @@ change.
    script or user task (otherwise the engine answers "Publish the process before starting it"), probes objects
    and SQL scripts (a package with processes may need `env/site.py restart`); a push that stops after `push-pkg: ok` has landed: its failure line says to run `compile-configuration` and `push.py verify`, not to push again. `--dry-run` prints the commands; an empty `DependsOn` UId is filled by `push/push.py deps <pkg> -e <env> [--add <Package>]`. Then `probe` of anything else the plan lists (rules with values).
    `page_audit` over a page before its push and `precommit_check` over the package before every push find what the push would only report later.
+   A user made for a case (`manage-user`) gets its password from an environment variable named in `--password-env`: the password is never written into a case, a report, a card or a command line.
 4. **Done.** Report to the author: what was built (the artifacts table with what was really built by which tool, or by
    hand with the `report_gap` line), the push's step lines, the `verify_pushed` line, the unit tests' line, every gap,
    every question the build raised. Update `schemas.json` if the scope grew on the way, and say so.

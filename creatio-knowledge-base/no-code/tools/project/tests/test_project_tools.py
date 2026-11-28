@@ -89,6 +89,39 @@ def test_sync_writes_the_dev_keys_both_ways_and_keeps_the_other_users():  # S49-
                 assert exc.code == 2
 
 
+def test_sync_writes_the_package_folders_of_the_tests_layout():  # S51-T01
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "framework" / "Configuration").mkdir(parents=True)
+        target = root / "framework" / "Configuration" / "creatio.env.config.json"
+        target.write_text(json.dumps({"CasesFolders": ["./Cases"], "AnalysisFolders": ["./Analysis"]}), encoding="utf-8")
+        tests = root / "ws" / "tests"
+        for folder in ("UsrOrder/e2e", "UsrOrder/integration", "UsrOrder/pages", "UsrShipment/integration"):
+            (tests / folder).mkdir(parents=True)
+        source = root / "project.json"
+        source.write_text(json.dumps({"environment": {"url": "https://dev.example.com", "login": "Supervisor", "password": "p"},
+                                      "package": {"name": "UsrOrder", "workspace": "ws"},
+                                      "paths": {"testFramework": "framework"}}), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert project.main(["sync", "--project", str(source)]) == 0
+        data = json.loads(target.read_text(encoding="utf-8"))
+        assert data["CasesFolders"] == [str(tests / "UsrOrder" / "e2e")], data
+        assert data["ProcessCasesFolders"] == [str(tests / "UsrOrder" / "integration"), str(tests / "UsrShipment" / "integration")]
+        assert data["PagesFolders"] == [str(tests / "UsrOrder" / "pages")] and data["AnalysisFolders"] == ["./Analysis"]
+        assert "skipped UsrShipment/e2e: no folder" in out.getvalue() and "skipped UsrShipment/pages: no folder" in out.getvalue()
+        assert "Updated: " in out.getvalue() and "PagesFolders" in out.getvalue() and "ProcessCasesFolders" in out.getvalue()
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert project.main(["sync", "--project", str(source), "--package", "UsrShipment"]) == 0
+        data = json.loads(target.read_text(encoding="utf-8"))
+        assert (data["CasesFolders"], data["PagesFolders"]) == ([], [])
+        assert data["ProcessCasesFolders"] == [str(tests / "UsrShipment" / "integration")]
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            assert project.main(["sync", "--project", str(source), "--package", "UsrNone"]) == 1
+        assert "no tests folder" in err.getvalue()
+
+
 def test_launcher_falls_back_to_py_and_check_is_read_only():
     def run(cmd, **kwargs):
         if cmd[0] == "python":
@@ -170,6 +203,11 @@ def test_tasks_from_csv_missing_column_exits_2_with_the_columns():
         assert not (root / "tasks").exists()
 
 
+# a clio test project's relative paths: two levels up from tests/<Pkg>/, one more from tests/<Pkg>/unit/ (b, f: the extra level)
+CSPROJ = ('<Project><Import Project="{b}..\\..\\.build-props\\env.props" /><P>{f}../../.application/core-bin</P>'
+          '<H>$(TestCoreLibPath)\\..\\bin</H></Project>')
+
+
 def test_tests_init_bootstraps_a_bare_package_and_a_second_run_says_what_exists():
     """S46-T09: clio mocked - the workspace, the package project from add-package in a scratch workspace, new-test-project,
     the binaries copied into .application, app.config from the assembly identities, the paths and the command in project.json."""
@@ -201,8 +239,9 @@ def test_tests_init_bootstraps_a_bare_package_and_a_second_run_says_what_exists(
             elif cmd[:2] == ["clio", "new-test-project"]:
                 tests = Path(cwd) / "tests"
                 (tests / cmd[3]).mkdir(parents=True)
-                (tests / cmd[3] / f"{cmd[3]}.Tests.csproj").write_text("<Project />", encoding="utf-8")
-                (tests / "UnitTests.slnx").write_text("<Solution />", encoding="utf-8")
+                (tests / cmd[3] / f"{cmd[3]}.Tests.csproj").write_text(CSPROJ.format(b="", f=""), encoding="utf-8")
+                (tests / cmd[3] / "UnitTest1.cs").write_text("class T {}", encoding="utf-8")
+                (tests / "UnitTests.slnx").write_text(f'<Solution><Project Path="{cmd[3]}\\{cmd[3]}.Tests.csproj" /></Solution>', encoding="utf-8")
             elif cmd[0] == "powershell":
                 return subprocess.CompletedProcess(cmd, 0, "Terrasoft.Core 8.3.2.4199 edaadfbc3b0bb879\nCreatio.FeatureToggling 1.0.5.0 edaadfbc3b0bb879\n", "")
             return subprocess.CompletedProcess(cmd, 0, "Done", "")
@@ -214,10 +253,15 @@ def test_tests_init_bootstraps_a_bare_package_and_a_second_run_says_what_exists(
         assert (files / "UsrPkg.csproj").is_file() and (files / "Directory.Build.targets").is_file() and not (files / "Libs.dll").exists()
         assert (ws / ".application" / "net-framework" / "core-bin" / "Terrasoft.Core.dll").is_file()
         assert (ws / ".application" / "net-framework" / "bin" / "Terrasoft.Configuration.dll").is_file()
-        config = (ws / "tests" / "UsrPkg" / "app.config").read_text(encoding="utf-8")
+        unit = ws / "tests" / "UsrPkg" / "unit"  # S51-T01: the unit project lives in tests/<Pkg>/unit
+        assert (unit / "UnitTest1.cs").is_file() and not (ws / "tests" / "UsrPkg" / "UsrPkg.Tests.csproj").exists()
+        assert (unit / "UsrPkg.Tests.csproj").read_text(encoding="utf-8") == CSPROJ.format(b="..\\", f="../")
+        assert 'Path="UsrPkg\\unit\\UsrPkg.Tests.csproj"' in (ws / "tests" / "UnitTests.slnx").read_text(encoding="utf-8")
+        assert "test project: created tests/UsrPkg/unit" in lines, lines
+        config = (unit / "app.config").read_text(encoding="utf-8")
         assert config.count("<bindingRedirect") == 2 and 'name="Terrasoft.Core" publicKeyToken="edaadfbc3b0bb879"' in config and 'newVersion="1.0.5.0"' in config
         data = json.loads(source.read_text(encoding="utf-8"))
-        assert data["paths"]["unitTests"] == str(ws / "tests" / "UsrPkg") and data["paths"]["solution"] == str(ws / "tests" / "UnitTests.slnx")
+        assert data["paths"]["unitTests"] == str(unit) and data["paths"]["solution"] == str(ws / "tests" / "UnitTests.slnx")
         assert data["commands"]["unitTests"] == f'dotnet test "{ws / "tests" / "UnitTests.slnx"}" -c dev-nf' and data["paths"]["unitTestBin"]
         assert lines[-1].startswith("run the unit tests: dotnet test ") and "push.py --build" in lines[-1]
         calls.clear()
@@ -225,6 +269,31 @@ def test_tests_init_bootstraps_a_bare_package_and_a_second_run_says_what_exists(
         assert ok and calls == [] and lines[:-1] == ["workspace: exists", "workspace settings: exist", "package project: exists",
                                                      "test project: exists", "test binaries: exist", "app.config: exists",
                                                      "project.json: up to date"], lines
+
+
+def test_tests_init_uses_a_project_at_the_legacy_location_and_says_to_move_it():  # S51-T01
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ws = root / "ws"
+        (ws / "packages" / "UsrPkg" / "Files").mkdir(parents=True)
+        for name in ("UsrPkg.csproj", "Directory.Build.targets"):
+            (ws / "packages" / "UsrPkg" / "Files" / name).write_text("<Project />", encoding="utf-8")
+        (ws / ".clio").mkdir()
+        (ws / ".clio" / "workspaceSettings.json").write_text('{"Packages": ["UsrPkg"], "ApplicationVersion": "8.3.2"}', encoding="utf-8")
+        (ws / ".application" / "net-framework" / "core-bin").mkdir(parents=True)
+        (ws / ".application" / "net-framework" / "core-bin" / "Terrasoft.Core.dll").write_bytes(b"MZ")
+        legacy = ws / "tests" / "UsrPkg"
+        legacy.mkdir(parents=True)
+        (legacy / "UsrPkg.Tests.csproj").write_text("<Project />", encoding="utf-8")
+        (legacy / "app.config").write_text("<configuration />", encoding="utf-8")
+        source = root / "project.json"
+        source.write_text(json.dumps({"environment": {"platformVersion": "8.3.2"},
+                                      "package": {"name": "UsrPkg", "workspace": "ws"}}), encoding="utf-8")
+        calls = []
+        lines, ok = project.tests_init(source, lambda cmd, **kwargs: calls.append(cmd))
+        assert ok and calls == [] and not (legacy / "unit").exists(), (lines, calls)
+        assert "test project: exists at the legacy location tests/UsrPkg/ - move it to unit/" in lines, lines
+        assert json.loads(source.read_text(encoding="utf-8"))["paths"]["unitTests"] == str(legacy)
 
 
 def test_tests_init_without_test_binaries_says_so_and_exits_1():

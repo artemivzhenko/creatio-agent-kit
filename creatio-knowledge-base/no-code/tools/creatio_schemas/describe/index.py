@@ -22,7 +22,7 @@ import traceback
 from pathlib import Path
 
 from ..csharp import csharp_files
-from ..files import LEGACY_ENCODED, decode_text, read_text
+from ..files import LEGACY_ENCODED, decode_text, load_json, read_text
 from ..resources import Resources
 from ..workspace import Workspace
 from . import platform, store
@@ -102,7 +102,7 @@ def project_culture(package: Path) -> str | None:
     """`culture` of the workspace's project.json (the tie-break of the primary culture)."""
     root = package.parent.parent if package.parent.name == "packages" else package.parent
     try:
-        value = json.loads((root / "project.json").read_text(encoding="utf-8-sig")).get("culture")
+        value = load_json((root / "project.json").read_text(encoding="utf-8-sig")).get("culture")
     except (OSError, ValueError, AttributeError):
         return None
     return value if isinstance(value, str) and value else None
@@ -380,7 +380,7 @@ class PackageIndex:
         if not text.strip():
             raise ValueError(f"{rel}: empty file")
         try:
-            return json.loads(text)
+            return load_json(text)
         except ValueError as e:
             raise ValueError(f"{rel}: not JSON ({e})") from None
 
@@ -479,7 +479,7 @@ class PackageIndex:
             for name, entry in data.items():
                 if name not in todo_data:
                     entry["refs"] = self._refs(entry["files"], name)
-        desc = json.loads(read_text(self.package / "descriptor.json")[0])["Descriptor"]
+        desc = load_json(read_text(self.package / "descriptor.json")[0])["Descriptor"]
         self.data = {"format": INDEX_FORMAT, "registry": registry_fp, "package": desc.get("Name", self.package.name), "version": desc.get("PackageVersion"),
                      "depends_on": [d["Name"] for d in desc.get("DependsOn", [])],
                      "culture": self._culture, "cultures": dict(sorted(counts.items())),
@@ -660,7 +660,7 @@ class Indexed:
         rows = self.rows("select e.package, n.kind, e.node, e.to_kind, e.to_name, e.to_uid, e.via, e.ref, e.detail from edges e "
                          "join nodes n on n.package = e.package and n.name = e.node where e.{pkgs} and e.to_name = :n collate nocase",
                          n=name)
-        return [(p, k, n, Edge(tk, tn, tu, via, ref or "uid", json.loads(d) if d else [])) for p, k, n, tk, tn, tu, via, ref, d in rows]
+        return [(p, k, n, Edge(tk, tn, tu, via, ref or "uid", load_json(d) if d else [])) for p, k, n, tk, tn, tu, via, ref, d in rows]
 
 
 def index_workspace(path: Path | str, rebuild: bool = False, stats: bool = False, env: str | None = None) -> str:
@@ -796,7 +796,7 @@ def find_schema(path: Path | str, name: str, limit: int = DEFAULT_LIMIT, offset:
     key = name.lower()
     out = []
     # a plain C# file answers to its path, its file name or its stem
-    own = [(f, n, json.loads(e)) for f, n, e in ws.rows("select package, name, entry from nodes where {pkgs} and kind != 'data' "
+    own = [(f, n, load_json(e)) for f, n, e in ws.rows("select package, name, entry from nodes where {pkgs} and kind != 'data' "
                                                          "and (name = :n collate nocase or kind = 'csharp') order by name", n=name)]
     for folder, n, e in own:
         if n.lower() != key and key not in (Path(n).name.lower(), Path(n).stem.lower()):

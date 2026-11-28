@@ -67,12 +67,20 @@ public sealed class ConfigurationLoader
     /// Reads every page file from a directory, one page per file. The file name is only a label;
     /// the page's identity is the "name" inside it.
     /// </summary>
-    public IReadOnlyList<PageDefinition> LoadPages(string relativeDirectory)
+    /// <param name="relativeDirectory">The folder, relative to the root or absolute.</param>
+    /// <param name="optional">An extra pages folder (<c>PagesFolders</c>): missing or empty gives no pages, and each page
+    /// keeps its full path as its source file, so a name declared twice names both files.</param>
+    public IReadOnlyList<PageDefinition> LoadPages(string relativeDirectory, bool optional = false)
     {
         var directory = Resolve(relativeDirectory);
 
         if (!Directory.Exists(directory))
         {
+            if (optional)
+            {
+                return Array.Empty<PageDefinition>();
+            }
+
             throw new DirectoryNotFoundException(
                 "Pages directory was not found: " + directory +
                 ". Each page lives in its own .json file there.");
@@ -82,7 +90,7 @@ public sealed class ConfigurationLoader
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        if (files.Length == 0)
+        if (files.Length == 0 && !optional)
         {
             throw new InvalidOperationException("No page files were found in " + directory + ".");
         }
@@ -103,7 +111,7 @@ public sealed class ConfigurationLoader
                     "Page file '" + file + "' is not valid JSON: " + ex.Message, ex);
             }
 
-            page.SourceFile = Path.GetFileName(file);
+            page.SourceFile = optional ? Path.GetFullPath(file) : Path.GetFileName(file);
 
             // The page owns its elements, so each one learns which page it belongs to here.
             foreach (var element in page.Elements)
@@ -148,6 +156,7 @@ public sealed class ConfigurationLoader
                 throw new InvalidOperationException("Process file '" + file + "' has no name.");
             }
 
+            process.SourceFile = Path.GetFullPath(file);
             processes.Add(process);
         }
 

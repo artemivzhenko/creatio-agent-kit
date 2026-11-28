@@ -30,7 +30,7 @@ read both once, so that your briefs name what each role already knows.
    them), the approach, the artifacts table with a `How` column (the kit tool or toolkit command that builds each,
    or `by hand: <reason>` - the reason is decided here, where it still exists, and becomes a `report_gap` line when
    the dev reaches the step), the acceptance criteria table with tiers (`AC-nn`, the action, the expected result, the
-   tier: unit, integration, probe, backend, process, ui - every behaviour the task names has a criterion, every
+   tier: unit, integration, probe, backend, process, ui - the folder of the tester's test follows from it: unit, integration (backend and process too) and e2e (ui) under `<workspace>/tests/<Pkg>/`; every behaviour the task names has a criterion, every
    criterion is provable by one tier), and `schemas.json`. Run `describe.py impact <workspace> <every schema of
    schemas.json> --tasks <paths.tasks> --current <this folder> --md` (MCP `schema_impact`): paste its `## Impact`
    table into `plan.md` and its `affects:` names into `schemas.json`. Exit 1 means another active task changes a schema
@@ -54,12 +54,12 @@ read both once, so that your briefs name what each role already knows.
 5. **The tester.** Spawn one subagent for the proof (model: Sonnet; Haiku when every criterion is probe, unit or
    backend and the plan names the objects and values - a UI tier or a process tier goes to Sonnet). The brief:
    load `creatio-loop` and `creatio-tester`; the paths; the tiers of the plan and the tools of each (`dsl()` first,
-   cases named `<task>-<criterion>.act` in the framework's `Cases/` or `ProcessCases/`, `UsrTest_` prefix on every
+   cases named `<task>-<criterion>.act` in the folder of their tier under `<workspace>/tests/<Pkg>/`, `UsrTest_` prefix on every
    record a case inserts and its deletion at the end, `make_fixture` for the insert lines, `analyse` of a page before
    a UI case, `check-process` for a process); the evidence files per criterion; `success-report.md` or
    `report-N.md`; the same hard rules; the report you want back (the criteria table, the cases and their result lines,
    the gaps, what was done by hand, the rows left on the site, the wall time).
-6. **Review the tester.** `success-report.md`: every criterion `pass`, no row left on the site, the cases' result
+6. **Review the tester.** `success-report.md`: every criterion `pass`, its `## Coverage` section answers every schema of `schemas.json` (an unexplained `not covered` line goes back), no row left on the site, the cases' result
    lines in the evidence - the task is done. `report-N.md`: read every row. A `fail` with evidence is a bug: list the
    rows for the dev and go back to 3 (the same dev subagent, resumed). A `fail` that reveals what the plan did not
    think of: a plan change is yours (`plan.md`, a new criterion, `schemas.json`), a behaviour change is the human's

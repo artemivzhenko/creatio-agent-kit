@@ -2,9 +2,11 @@
 
     cases_from_package(package, out, env=None) -> [report line]
 
-Into `<out>/` (a folder shaped like the UI test utility's root): `Cases/<Package>/<Object>.act` for an own object (insert, read,
-update, delete over OData), `ProcessCases/<Package>/<Process>.act` + `Configuration/processes/<Process>.json` for a process
-without a user task, `Configuration/pages/<Page>.json` + `Cases/<Package>/<Page>.act` for a Freedom UI form page of an own object.
+Into the project's layout `<out>/<Package>/` (S51; `out` = `<workspace>/tests`): `integration/<Object>.act` for an own object (insert,
+read, update, delete over OData), `integration/<Process>.act` + `integration/<Process>.json` for a process without a user task,
+`pages/<Page>.json` + `e2e/<Page>.act` for a Freedom UI form page of an own object (`layout="root"`: the test utility's own root,
+`Cases/<Package>/`, `ProcessCases/<Package>/`, `Configuration/...`, for the merge campaign). Every case carries a `# schema: <Name>` line.
+`coverage_report(package, out)` counts, per schema of the package, the cases in `unit/`, `integration/` and `e2e/`.
 Everything else is listed as `not generated: ...`; a value or a field that cannot be guessed is a `# stop:` line in the case
 (and its report line), never a guess. A generated file starts with `HEADER`; a second run rewrites only the files that still
 carry it, so an edited case is kept.
@@ -13,6 +15,7 @@ carry it, so an edited case is kept.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -81,6 +84,31 @@ def _ref(entity: EntitySchema, column: dict) -> str | None:
 
 def _pairs(columns: list[tuple[str, str]]) -> str:
     return ";".join(f"{c}={v}" for c, v in columns)
+
+
+def _dest(layout: str, out: Path, pkg: str, kind: str, name: str) -> Path:
+    """Where a generated file goes; kind: object | process | process-config | page | page-case."""
+    if layout == "root":
+        sub = {"object": ("Cases", pkg, ".act"), "process": ("ProcessCases", pkg, ".act"), "process-config": ("Configuration", "processes", ".json"),
+               "page": ("Configuration", "pages", ".json"), "page-case": ("Cases", pkg, ".act")}[kind]
+        return out / sub[0] / sub[1] / (name + sub[2])
+    folder, ext = {"object": ("integration", ".act"), "process": ("integration", ".act"), "process-config": ("integration", ".json"),
+                   "page": ("pages", ".json"), "page-case": ("e2e", ".act")}[kind]
+    return out / pkg / folder / (name + ext)
+
+
+def tests_root(project: Path | str) -> Path:
+    """`<package.workspace>/tests` of a project.json (a relative workspace is relative to the file)."""
+    file = Path(project)
+    ws = (json.loads(file.read_text(encoding="utf-8-sig")).get("package") or {}).get("workspace")
+    if not isinstance(ws, str) or not ws.strip():
+        raise ValueError("project.json has no package.workspace: give --out")
+    return (file.resolve().parent / ws) / "tests"
+
+
+def _tag(text: str, name: str) -> str:
+    """`# schema: <name>` right after the generated header: the line the coverage report counts."""
+    return text.replace("\n", f"\n# schema: {name}\n", 1)
 
 
 def _write(path: Path, text: str, report: list[str], out: Path) -> None:
@@ -190,7 +218,7 @@ def _manager(folder: Path) -> tuple[str, dict]:
     return data.get("ManagerName", ""), data
 
 
-def cases_from_package(package: Path | str, out: Path | str, env=None, user: str = "Supervisor") -> list[str]:
+def cases_from_package(package: Path | str, out: Path | str, env=None, user: str = "Supervisor", layout: str = "project") -> list[str]:
     """Write the cases; returns one report line per file or schema (`wrote`, `same`, `kept`, `stop`, `not generated`)."""
     package, out = Path(package), Path(out)
     pkg = package.name
@@ -219,7 +247,7 @@ def cases_from_package(package: Path | str, out: Path | str, env=None, user: str
                     continue
                 text, stops = object_case(e, user, env, looked)
                 report += [f"stop {name}: {s}" for s in stops]
-                _write(out / "Cases" / pkg / f"{name}.act", text, report, out)
+                _write(_dest(layout, out, pkg, "object", name), _tag(text, name), report, out)
             elif manager == "ProcessSchemaManager":
                 proc = ProcessSchema(package, name)
                 if any(short_type(el).startswith("ProcessSchemaUserTask") for el in proc.elements):
@@ -228,8 +256,8 @@ def cases_from_package(package: Path | str, out: Path | str, env=None, user: str
                 if not any(short_type(el) == "ProcessSchemaStartEvent" for el in proc.elements):
                     report.append(f"not generated: process {name} starts only by an event (signal, timer, message): it cannot be started manually")
                     continue
-                _write(out / "Configuration" / "processes" / f"{name}.json", json.dumps(proc.test_config(), indent=2, ensure_ascii=False) + "\n", report, out)
-                _write(out / "ProcessCases" / pkg / f"{name}.act", process_case(proc, user, env, looked), report, out)
+                _write(_dest(layout, out, pkg, "process-config", name), json.dumps(proc.test_config(), indent=2, ensure_ascii=False) + "\n", report, out)
+                _write(_dest(layout, out, pkg, "process", name), _tag(process_case(proc, user, env, looked), name), report, out)
             elif manager == "ClientUnitSchemaManager" and not _is_freedom_page(package, name):
                 report.append(f"not generated: Classic page {name} - see S28-T04")
             elif manager == "ClientUnitSchemaManager" and name.endswith("_FormPage"):
@@ -241,10 +269,43 @@ def cases_from_package(package: Path | str, out: Path | str, env=None, user: str
                     page_file["elements"].append({"code": "SaveButton", "label": "Save", "type": "Button", "pinned": True})
                 text, stops = page_case(page, entities.get(base), page_name, user, page_file, env, looked)
                 report += [f"stop {name}: {s}" for s in stops]
-                _write(out / "Configuration" / "pages" / f"{page_name}.json", json.dumps(page_file, indent=2, ensure_ascii=False) + "\n", report, out)
-                _write(out / "Cases" / pkg / f"{name}.act", text, report, out)
+                _write(_dest(layout, out, pkg, "page", page_name), json.dumps(page_file, indent=2, ensure_ascii=False) + "\n", report, out)
+                _write(_dest(layout, out, pkg, "page-case", name), _tag(text, name), report, out)
             elif manager == "ClientUnitSchemaManager":
                 report.append(f"not generated: page {name} (not a form page)")
         except (KeyError, ValueError, OSError) as e:
             report.append(f"stop {name}: {type(e).__name__}: {e.args[0] if e.args else e}")
     return report
+
+
+KINDS = {"EntitySchemaManager": "object", "ProcessSchemaManager": "process", "ClientUnitSchemaManager": "page"}
+TIERS = ("unit", "integration", "e2e")
+
+
+def coverage_report(package: Path | str, out: Path | str) -> list[str]:
+    """One line per schema and `Files/cs` class of the package (`<Schema> (<kind>): unit n | integration n | e2e n`), then
+    `not covered: ...` for every one with 0, then `covered N of M`. A case counts for the names in its `# schema:` lines (`// schema:`
+    in a .cs file) and for its file name (`<Class>Tests.cs` names `<Class>`)."""
+    package, tests = Path(package), Path(out) / Path(package).name
+    schemas = {}
+    for d in sorted((package / "Schemas").glob("*")) if (package / "Schemas").is_dir() else []:
+        if (d / "descriptor.json").is_file() and (kind := KINDS.get(_manager(d)[0])):
+            schemas[d.name] = kind
+    for f in sorted((package / "Files" / "cs").rglob("*.cs")) if (package / "Files" / "cs").is_dir() else []:
+        schemas.setdefault(f.stem, "class")
+    counts = {n: dict.fromkeys(TIERS, 0) for n in schemas}
+    for tier in TIERS:
+        for f in sorted((tests / tier).rglob("*")) if (tests / tier).is_dir() else []:
+            if f.suffix not in (".act", ".cs"):
+                continue
+            names = {f.stem[:-5] if f.suffix == ".cs" and f.stem.endswith("Tests") else f.stem}
+            for line in f.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+                m = re.match(r"\s*(?:#|//)\s*schema:\s*(.+)", line)
+                if m:
+                    names.update(n.strip() for n in m.group(1).split(","))
+            for n in names & counts.keys():
+                counts[n][tier] += 1
+    lines = [f"{n} ({schemas[n]}): " + " | ".join(f"{t} {counts[n][t]}" for t in TIERS) for n in schemas]
+    missing = [n for n in schemas if not any(counts[n].values())]
+    lines += [f"not covered: {n} ({schemas[n]})" for n in missing]
+    return lines + [f"covered {len(schemas) - len(missing)} of {len(schemas)}"]

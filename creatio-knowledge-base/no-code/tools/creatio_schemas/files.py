@@ -13,6 +13,11 @@ import time
 import uuid
 from pathlib import Path
 
+try:
+    from orjson import loads as load_json  # Rust JSON, twice the stdlib on the toolkit's files; optional (pip install orjson)
+except ImportError:
+    load_json = json.loads
+
 BOM = "﻿"
 CRLF = "\r\n"
 EMPTY_GUID = "00000000-0000-0000-0000-000000000000"

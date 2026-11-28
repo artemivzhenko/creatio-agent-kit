@@ -253,12 +253,33 @@ def utc_to_ticks(moment: datetime) -> int:
     return (moment - datetime(1970, 1, 1)) // timedelta(microseconds=1) * 10 + _TICKS_AT_EPOCH
 
 
-def process_timers(env, process: str, record: str | None = None, window: int = 30, zone: str | None = None) -> list[dict]:
+def _start_element(workspace: str | None, group: str, trigger: str) -> str | None:
+    """The name of the element of the process (schema UId `group`) whose UId is the start trigger's name; None when unknown."""
+    if not workspace:
+        return None
+    from pathlib import Path
+
+    from .process import ProcessSchema
+    from .workspace import Workspace
+
+    root = Path(workspace)
+    package = root if (root / "descriptor.json").is_file() else next((d for d in sorted(root.iterdir()) if (d / "descriptor.json").is_file()), None)
+    if package is None:
+        return None
+    for copy in Workspace(package).find(group):
+        element = ProcessSchema(copy["dir"].parent.parent, copy["name"]).element_by_uid(trigger.lower())
+        if element:
+            return element["A2"]
+    return None
+
+
+def process_timers(env, process: str, record: str | None = None, window: int = 30, zone: str | None = None, workspace: str | None = None) -> list[dict]:
     """The pending timers of a process (every copy of its schema): [{trigger, state, fires, fires_utc, element, element_id, run, run_start,
     process, cron, group}] soonest first. A run timer is a `qrtz_triggers` row whose `job_group` is the id of the run's element in
     `SysProcessElementLog`; a start trigger (a timer-started process, no run yet) is one whose `trigger_group` is the schema UId: element
     `(start timer)`, run empty, its CRON in `cron`. `record` (`<Entity>:<Id>`) keeps the run timers of the runs that started within
-    `window` seconds of a change of that record or of a row pointing at it."""
+    `window` seconds of a change of that record or of a row pointing at it. `workspace` (a packages folder or a package) names a start trigger's
+    element (`YearlyTimer`) in place of `(start timer)`; an element the workspace does not know keeps `(start timer)`."""
     copies = schema_copies(env, process)
     if not copies:
         raise KeyError(f"no process {process} on this site")
@@ -278,7 +299,7 @@ def process_timers(env, process: str, record: str | None = None, window: int = 3
         at, group = ticks_to_utc(r["next"]), str(r.get("group") or "").lower()
         t = {"trigger": r["trigger"], "state": r["state"], "fires": local_time(at.isoformat(), zone), "fires_utc": at, "cron": "", "group": ""}
         if group:
-            t.update(element="(start timer)", element_id="", run="", run_start="", process=names.get(group), cron=r.get("cron") or "",
+            t.update(element=_start_element(workspace, group, r["trigger"]) or "(start timer)", element_id="", run="", run_start="", process=names.get(group), cron=r.get("cron") or "",
                      cron_zone=r.get("cron_zone") or "", group=group)
         else:
             t.update(element=r.get("caption"), element_id=str(r["element_id"]).lower(), run=str(r["run_id"]).lower(),

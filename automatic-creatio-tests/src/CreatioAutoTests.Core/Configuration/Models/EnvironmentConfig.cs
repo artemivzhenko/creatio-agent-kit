@@ -21,8 +21,8 @@ public sealed class EnvironmentConfig
     /// <summary>Credentials selectable by the DSL <c>use</c> command.</summary>
     public List<UserCredentials> Users { get; set; } = new();
 
-    /// <summary>Folders scanned for test cases.</summary>
-    public List<string> CasesFolders { get; set; } = new();
+    /// <summary>Folders scanned for test cases; absent (null) means the default Cases, an empty list means none.</summary>
+    public List<string>? CasesFolders { get; set; }
 
     /// <summary>
     /// Folders scanned for analysis scripts: the ones that describe pages and write their
@@ -32,9 +32,15 @@ public sealed class EnvironmentConfig
 
     /// <summary>
     /// Folders scanned for process cases: scripts that start processes and read their results and
-    /// side effects without a browser. They run after the UI cases. Defaults to ProcessCases.
+    /// side effects without a browser. They run after the UI cases. Absent (null): ProcessCases; an empty list: none.
     /// </summary>
-    public List<string> ProcessCasesFolders { get; set; } = new();
+    public List<string>? ProcessCasesFolders { get; set; }
+
+    /// <summary>
+    /// Page folders read beside Configuration/pages: a project's <c>tests/&lt;Package&gt;/pages</c>. A folder that does not exist
+    /// is skipped; a page name found twice across all of them is an error naming both files.
+    /// </summary>
+    public List<string> PagesFolders { get; set; } = new();
 }
 
 /// <summary>Login and password of a single Creatio user.</summary>

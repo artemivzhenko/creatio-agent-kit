@@ -10,6 +10,7 @@ The repository root is the parent of this folder, or CREATIO_TESTS_ROOT.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -148,30 +149,59 @@ def case(name: str) -> str:
     return f"no case named {name}"
 
 
+def _config_folders(base: str, key: str, default: list[str]) -> list[Path]:
+    """Configuration/<base>, then the env config's <key> folders (a project's tests/<Package>/...), relative to the root;
+    `default` when the key is absent, as the framework reads it."""
+    env = ROOT / "Configuration" / "creatio.env.config.json"
+    try:
+        extra = json.loads(env.read_text(encoding="utf-8-sig")).get(key, default) if env.is_file() else default
+    except ValueError:  # a config with comments: the framework reads it, this lookup falls back to Configuration/<base>
+        extra = default
+    return [ROOT / "Configuration" / base, *(ROOT / f for f in extra or [])]
+
+
+def _find_config(base: str, key: str, default: list[str], name: str) -> str:
+    found = next((p for folder in _config_folders(base, key, default) if (p := folder / f"{name}.json").is_file()), None)
+    return _read(found or ROOT / "Configuration" / base / f"{name}.json")
+
+
 @mcp.tool()
 def page_config(name: str) -> str:
-    """A page file from Configuration/pages: the codes, labels and element types a case may address on that page."""
-    return _read(ROOT / "Configuration" / "pages" / f"{name}.json")
+    """A page file from Configuration/pages or a PagesFolders entry of the env config (tests/<Package>/pages): the codes,
+    labels and element types a case may address on that page."""
+    return _find_config("pages", "PagesFolders", [], name)
 
 
 @mcp.tool()
 def process_config(name: str) -> str:
-    """A process file from Configuration/processes: the parameters, their types and directions a process case may use."""
-    return _read(ROOT / "Configuration" / "processes" / f"{name}.json")
+    """A process file from Configuration/processes or a ProcessCasesFolders entry of the env config (tests/<Package>/integration,
+    where a generated process case keeps its file): the parameters, their types and directions a process case may use."""
+    return _find_config("processes", "ProcessCasesFolders", ["ProcessCases"], name)
+
+
+def _package_args(package: str, project: str) -> list[str]:
+    return (["--package", package] if package else []) + (["--project", project] if package and project else [])
 
 
 @mcp.tool()
-def validate(filter: str = "") -> str:
-    """Validates the cases without a browser or an environment: unknown codes, wrong operators, bad values. filter: part of a case name."""
-    return _cli(["--validate-only"] + (["--filter", filter] if filter else []), timeout=300)
+def validate(filter: str = "", package: str = "", project: str = "") -> str:
+    """Validates the cases without a browser or an environment: unknown codes, wrong operators, bad values. filter: part of a case name.
+    A case with a `# framework: <text>` header is listed as `gap   <case>: <text>` (not runnable, not a problem).
+    package / project: only the cases of <workspace>/tests/<package>/{integration,e2e} (as for run)."""
+    return _cli(["--validate-only"] + (["--filter", filter] if filter else []) + _package_args(package, project), timeout=300)
 
 
 @mcp.tool()
-def run(filter: str = "", verbose: bool = False, task_folder: str = "", task: str = "") -> str:
+def run(filter: str = "", verbose: bool = False, task_folder: str = "", task: str = "", package: str = "", project: str = "") -> str:
     """Runs the cases against the configured environment and returns the report, its first line the site (`site: <url> (clio <env>)`). filter: part of a case name; runs everything when empty.
     task_folder: the loop's task folder - every case writes <task_folder>/evidence/<AC>-report-N.txt (from its `# ac:` line) and a draft
-    report row; task: the task id named in that evidence."""
-    args = (["--filter", filter] if filter else []) + (["--verbose"] if verbose else [])
+    report row; task: the task id named in that evidence.
+    package: re-test a package - `dotnet test` of <workspace>/tests/<package>/unit (when it holds a project), then the cases of its
+    integration/ and e2e/ folders only; the report's head is `package:`, `unit: N passed, M failed` (or `no unit project`),
+    `integration: ...`, `e2e: ...`, `not runnable: K (framework gaps)`. project: the project.json whose package.workspace holds
+    tests/; empty: the env config's folders (written by project.py sync --project) name the package's folder.
+    A `# framework:` case is never started; it is listed under `Not runnable (framework gaps):` and does not change the exit code."""
+    args = (["--filter", filter] if filter else []) + (["--verbose"] if verbose else []) + _package_args(package, project)
     args += (["--task-folder", task_folder] if task_folder else []) + (["--task", task] if task else [])
     out = _cli(args)
     # the answer begins with the site the run hit, ahead of a rebuild note (the env config is shared, gap 70)

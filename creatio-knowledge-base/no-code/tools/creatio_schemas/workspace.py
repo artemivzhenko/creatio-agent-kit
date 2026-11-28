@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from pathlib import Path
 
-from .files import DATA_VALUE_TYPES, is_uid, read_text
+from .files import DATA_VALUE_TYPES, is_uid, load_json, read_text
 
 # Columns every entity inherits from BaseEntity; a package copy of an entity does not list them.
 BASE_COLUMNS = {"Id": ("Guid", None), "CreatedOn": ("DateTime", None), "CreatedBy": ("Lookup", "Contact"), "ModifiedOn": ("DateTime", None),
@@ -70,7 +69,7 @@ class Package:
 
     def __init__(self, path: Path):
         self.path = Path(path)
-        self.descriptor = json.loads(read_text(self.path / "descriptor.json")[0])["Descriptor"]
+        self.descriptor = load_json(read_text(self.path / "descriptor.json")[0])["Descriptor"]
 
     @property
     def uid(self) -> str:
@@ -114,7 +113,7 @@ class Workspace:
             self.schemas: list[dict] = []
             for desc in sorted(self.root.glob("*/Schemas/*/descriptor.json")):
                 try:
-                    d = json.loads(read_text(desc)[0])["Descriptor"]
+                    d = load_json(read_text(desc)[0])["Descriptor"]
                 except (ValueError, KeyError):
                     continue
                 uid = d["UId"].lower()
@@ -157,7 +156,7 @@ class Workspace:
             rows_by_schema: dict[str, dict[str, str]] = {}
             for ddir in sorted(self.root.glob("*/Data/*")):
                 try:
-                    desc = json.loads(read_text(ddir / "descriptor.json")[0])["Descriptor"]
+                    desc = load_json(read_text(ddir / "descriptor.json")[0])["Descriptor"]
                     by_uid = {str(c.get("ColumnUId", "")).lower(): c.get("ColumnName") for c in desc.get("Columns", [])}
                     files = [ddir / "data.json"] + sorted((ddir / "Localization").glob("data.*.json"), key=lambda f: (f.name != "data.en-US.json", f.name))
                     target = rows_by_schema.setdefault((desc.get("Schema") or {}).get("Name", ddir.name), {})
@@ -165,7 +164,7 @@ class Workspace:
                     continue
                 for i, f in enumerate(files):
                     try:
-                        rows = json.loads(read_text(f)[0])["PackageData"]
+                        rows = load_json(read_text(f)[0])["PackageData"]
                     except (OSError, ValueError, KeyError):
                         continue
                     for row in rows:
@@ -231,9 +230,9 @@ class Workspace:
         for s in self.find(entity, "EntitySchemaManager"):
             text = read_text(s["dir"] / "metadata.json")[0]
             if text.startswith("{"):
-                cols = json.loads(text)["MetaData"]["Schema"].get("D2", [])
+                cols = load_json(text)["MetaData"]["Schema"].get("D2", [])
             else:
-                cols = [json.loads(v) for op, path, v in parse_diff(text) if op in "+=" and path == "MetaData.Schema.D2" and v.startswith("{")]
+                cols = [load_json(v) for op, path, v in parse_diff(text) if op in "+=" and path == "MetaData.Schema.D2" and v.startswith("{")]
             for c in cols:
                 out[c["A2"]] = (DATA_VALUE_TYPES.get(c.get("S2", ""), c.get("S2")), self.ref_name(c.get("S4")))
         return out
@@ -251,9 +250,9 @@ class Workspace:
         for s in self.find(entity, "EntitySchemaManager"):
             text = read_text(s["dir"] / "metadata.json")[0]
             if text.startswith("{"):
-                cols = json.loads(text)["MetaData"]["Schema"].get("D2", [])
+                cols = load_json(text)["MetaData"]["Schema"].get("D2", [])
             else:
-                cols = [json.loads(v) for op, path, v in parse_diff(text) if op in "+=" and path == "MetaData.Schema.D2" and v.startswith("{")]
+                cols = [load_json(v) for op, path, v in parse_diff(text) if op in "+=" and path == "MetaData.Schema.D2" and v.startswith("{")]
             for c in cols:
                 if c.get("UId"):
                     out[c["A2"]] = c["UId"].lower()
@@ -274,7 +273,7 @@ class Workspace:
                 text = read_text(js)[0]
                 for marker, value in re.findall(r"/\*\*(SCHEMA_[A-Z_]+)\*/(.*?)/\*\*\1\*/", text, re.S):
                     try:
-                        data = json.loads(value)
+                        data = load_json(value)
                     except ValueError:
                         continue
                     if marker == "SCHEMA_VIEW_CONFIG_DIFF":
@@ -301,7 +300,7 @@ class Workspace:
             for js in s["dir"].glob("*.js"):
                 for marker, value in re.findall(r"/\*\*(SCHEMA_MODEL_CONFIG(?:_DIFF)?)\*/(.*?)/\*\*\1\*/", read_text(js)[0], re.S):
                     try:
-                        data = json.loads(value)
+                        data = load_json(value)
                     except ValueError:
                         continue
                     blocks = [data] if isinstance(data, dict) else [i.get("values", {}) for i in data if isinstance(i, dict)]

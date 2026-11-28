@@ -31,13 +31,14 @@ def _schemas(package: Path, manager: str):
             yield descriptor.parent
 
 
-def _needs_publish(package: Path) -> bool:
-    """Identify processes containing script or user tasks."""
+def _needs_publish(package: Path) -> str | None:
+    """The reason to compile the configuration after the push (a script or user task), or None; objects and timer starts need none (P-2.26, P-2.27)."""
     for schema in _schemas(package, "ProcessSchemaManager"):
         text = (schema / "metadata.json").read_text(encoding="utf-8-sig")
-        if "ProcessSchemaScriptTask" in text or "ProcessSchemaUserTask" in text:
-            return True
-    return False
+        for kind, reason in (("ProcessSchemaScriptTask", "script task"), ("ProcessSchemaUserTask", "user task")):
+            if kind in text:
+                return f"{reason} {schema.name}"
+    return None
 
 
 def _git(package: Path, args: list[str], allow_not_repo: bool = False) -> str | None:
@@ -966,9 +967,11 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         return "ok"
 
     def publish():
-        if not _needs_publish(package):
+        reason = _needs_publish(package)
+        if not reason:
             return "not needed"
         if not dry_run:
+            log(f"publish: needed ({reason})")
             log("publish: started")
         began = time.monotonic()
         try:

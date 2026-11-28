@@ -166,7 +166,6 @@ Recipes:
 | `search_recipes(query, area?)` | ranked search by task or symptom |
 | `get_recipe(recipe_id, part?)` | the full recipe, or `part=traps` / `summary` / `code`; a bare file name that exists in both UI generations lists both |
 | `find_api(symbol)` | reverse lookup: which recipes use `crt.OpenLookupPageRequest`, `UseAdminRights`… |
-| `list_recipes(area?, topic?)` | browse ids and titles |
 | `kb_overview()` | map of areas, topics and counts |
 | `get_code_style(section?, guide?)` | the C# (`csharp`) or client (`frontend`) style guide, whole or by section |
 
@@ -190,7 +189,7 @@ The describe layer, over a package folder or a clio workspace (`no-code/tools/de
 | `schema_layers(env or project.json, Name)` | the copies of a schema on an environment in the order the platform applies them; a Custom-layer copy is flagged |
 | `schema_snapshot(Name, env?, workspace?)`, `snapshot_compare(before, after)` | an object before / after a layer merge as lines (disk: effective columns; site: table, rows, checksums, copies) and their `+ - ~` comparison |
 | `merge_plan(path, schemas?, env?)` | collapsing the replacing layers of a schema into one: the target package, what each layer adds, the conflicts, the dependencies the target gains; writes nothing |
-| `cases_from_package(package, out, env?)` | the baseline `.act` cases of a package from its schemas (objects, processes, form pages), `stop` lines for what a generator must not guess |
+| `cases_from_package(package, out?, env?, user?, report?, project?)` | the baseline `.act` cases of a package into `<out>/<Package>/{integration,e2e,pages}` (`report=True`: the coverage per schema, `not covered` lines) from its schemas (objects, processes, form pages), `stop` lines for what a generator must not guess |
 | `merge_layers(path, Object, target?, env?)` | the layers of one object as one layer of the target: the files it would write and delete, or why it stops; prints only |
 | `merge_run(path, child, parent, env, evidence)` | the rehearsal of the whole package merge: plan, cases, tests and snapshots before, evidence in a folder; nothing merged or pushed |
 | `merge_package(path, child, parent, env?)` | one child package folded into its parent: layers merged, the rest moved with the UId kept, dependencies redirected; prints only |

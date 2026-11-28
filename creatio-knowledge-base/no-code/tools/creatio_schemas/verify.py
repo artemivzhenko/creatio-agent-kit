@@ -100,7 +100,7 @@ def _served_status(status: str, body: str, name: str, text: str | None) -> str:
     return f"{status}, served ({len(names)} of {len(names)} members)"
 
 
-def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | None = None, fetch=None) -> list[tuple[str, str]]:
+def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | None = None, fetch=None, project: Path | None = None) -> list[tuple[str, str]]:
     """(schema, status) per schema folder of the package (or of `names`), in name order."""
     package = Path(package)
     folders = sorted(d for d in (package / "Schemas").iterdir() if (d / "descriptor.json").is_file()) if (package / "Schemas").is_dir() else []
@@ -140,7 +140,7 @@ def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | N
                 status = f"differs ({part}: site {site_md5[:8]} repo {got[:8]})"
                 break
         if status.startswith("same") and name in scripts:
-            status = _process(package, env, name, bin_dir) or status
+            status = _process(package, env, name, bin_dir, project) or status
         if status.startswith("same") and row["manager"] == "ClientUnitSchemaManager" and body is not None:
             text = (fetch or served)(env, name)
             status = _served_status(status, body.read_text(encoding="utf-8-sig", errors="replace"), name, text)
@@ -148,7 +148,7 @@ def verify(package: Path, env, names: list[str] | None = None, bin_dir: Path | N
     return out
 
 
-def _process(package: Path, env, name: str, bin_dir: Path | None) -> str | None:
+def _process(package: Path, env, name: str, bin_dir: Path | None, project: Path | None = None) -> str | None:
     """`not published: ...` / `compile error: ...` of a script process; None when its generated source is fresh and compiles."""
     import json
     import uuid
@@ -162,7 +162,7 @@ def _process(package: Path, env, name: str, bin_dir: Path | None) -> str | None:
     if str(rows[0].get("fresh")).lower() not in ("true", "1"):
         return "not published: generated source older than its schema"
     extra = sorted((package / "Files" / "cs").rglob("*.cs")) if (package / "Files" / "cs").is_dir() else []
-    result, errors = compile_script(_source_text(rows[0].get("Source")), name, creatio_bin(package, bin_dir), extra)
+    result, errors = compile_script(_source_text(rows[0].get("Source")), name, creatio_bin(package, bin_dir, project), extra)
     return f"compile error: {errors[0]}" + (f" (+{len(errors) - 1} more)" if len(errors) > 1 else "") if result == "failed" else None
 
 

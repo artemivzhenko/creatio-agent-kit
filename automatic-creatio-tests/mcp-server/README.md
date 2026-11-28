@@ -9,9 +9,9 @@ in the tester role gets this server and nothing else, so it can prove but not ch
 | `overview()` | where things are, the described pages and processes, the loop |
 | `dsl()` | `docs/dsl.md` |
 | `cases(folder)`, `case(name)` | the `.act` files and their text |
-| `page_config(name)`, `process_config(name)` | `Configuration/pages/<name>.json`, `Configuration/processes/<name>.json` |
-| `validate(filter)` | `--validate-only`, no environment needed |
-| `run(filter, verbose, task_folder, task)` | runs the cases, returns the report; with `task_folder` every case writes `<dir>/evidence/<AC>-report-N.txt` (from its `# ac:` line) and a draft report row |
+| `page_config(name)`, `process_config(name)` | `Configuration/pages/<name>.json` (or a `PagesFolders` entry of the env config), `Configuration/processes/<name>.json` |
+| `validate(filter, package, project)` | `--validate-only`, no environment needed; a `# framework:` case is listed as `gap` |
+| `run(filter, verbose, task_folder, task, package, project)` | runs the cases, returns the report; with `task_folder` every case writes `<dir>/evidence/<AC>-report-N.txt` (from its `# ac:` line) and a draft report row; with `package` the re-test of `<workspace>/tests/<package>`: `dotnet test` of `unit/`, then its `integration/` and `e2e/` cases, the head `unit:` / `integration:` / `e2e:` / `not runnable:` |
 | `analyse(page_path, name, include_hidden, dry_run)` | describes a live page |
 | `schemas(text, list_pages)` | the instance's page schemas |
 | `last_report()` | the newest `Reports/run-*.txt` |

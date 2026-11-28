@@ -160,7 +160,7 @@ python setting.py <Code> --project project.json        (its `environments` list,
 python proc-runs.py runs  -e <env> --process UsrOrder_Process [--limit 20] [--since 2026-11-11] [--until ...]
 python proc-runs.py runs  -e <env> --record UsrOrder:<id> [--window 30] [--steps]
 python proc-runs.py runs  -e <env> --process UsrOrder_Process --element "<caption or element UId>" [--status running]
-python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>]
+python proc-runs.py timers -e <env> --process UsrOrder_Process [--record UsrOrder:<id>] [--workspace <packages folder>]
 python proc-runs.py fire  --project project.json --process UsrOrder_Process [--record UsrOrder:<id>] [--timer "1 d." | start] [--delay 20]
 python proc-runs.py error -e <env> <log id>
 python proc-runs.py cancel --project project.json <run id> [<run id> ..] [--wait 10]

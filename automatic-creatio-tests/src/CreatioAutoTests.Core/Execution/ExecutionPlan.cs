@@ -64,6 +64,12 @@ public sealed class ExecutionPlan
     /// <summary>The acceptance criterion the case proves (<c># ac: AC-02</c>), or null; names its evidence files.</summary>
     public string? AcceptanceCriterion { get; set; }
 
+    /// <summary>The task folder the case belongs to (<c># task: 012-shipment-label</c>), or null; kept in the evidence beside the AC.</summary>
+    public string? Task { get; set; }
+
+    /// <summary>What the DSL cannot express yet (<c># framework: &lt;text&gt;</c>), or null: such a case is listed, never run.</summary>
+    public string? FrameworkGap { get; set; }
+
     /// <summary>Whether the plan has no validation issues and may be executed.</summary>
     public bool IsValid => Issues.Count == 0;
 

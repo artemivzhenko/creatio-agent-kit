@@ -10,6 +10,20 @@ default), every other configured user is kept, so a task's test users survive a 
 (`true` when `environment.kind` is `dev`), `ClioEnvironment` is `environment.clioName` and is removed when the project has
 none. The config is one file for every site: a run prints `site: <BaseUrl> (clio <ClioEnvironment>)` as its first line.
 
+The tests layout (S51-T01): when `package.workspace` has a `tests/` folder, `sync` also writes `CasesFolders` = every
+`<workspace>/tests/<Pkg>/e2e`, `ProcessCasesFolders` = every `.../integration`, `PagesFolders` = every `.../pages` (with
+`--package <Pkg>` that package's only), replacing the three lists: the shared config then serves the project's tests, not the
+kit's `Cases/`. A package folder without one of them prints `skipped <Pkg>/<tier>: no folder`; `--package` of a package with no
+`tests/<Pkg>` is an error. A project without `package.workspace` or without `tests/` keeps the lists as they are. The
+framework's `--package <Pkg>` (MCP `run(package=)`) then re-tests the package from those folders.
+
+The tests layout (S51-T01): when `package.workspace` has a `tests/` folder, `sync` also writes `CasesFolders` = every
+`<workspace>/tests/<Pkg>/e2e`, `ProcessCasesFolders` = every `.../integration`, `PagesFolders` = every `.../pages` (with
+`--package <Pkg>` that package's only), replacing the three lists: the shared config then serves the project's tests, not the
+kit's `Cases/`. A package folder without one of them prints `skipped <Pkg>/<tier>: no folder`; `--package` of a package with no
+`tests/<Pkg>` is an error. A project without `package.workspace` or without `tests/` keeps the lists as they are. The
+framework's `--package <Pkg>` (MCP `run(package=)`) then re-tests the package from those folders.
+
 `paths.platform` (optional, S31-T09): the local platform install (its root, `Packages`, or `Terrasoft.Configuration/Pkg`);
 `describe.py index` reads the base captions from it once (`describe/README.md`, "The platform captions").
 
@@ -24,10 +38,12 @@ are not retained.
 `python no-code/tools/project.py tests-init <project.json>` makes `package.workspace` run the package's unit tests, each step
 answering `exists` on a second run: a clio workspace (`clio create-workspace --empty`; `Packages` and `ApplicationVersion`
 from `package.name` and `environment.platformVersion`), the package project `Files/<Pkg>.csproj` + `Directory.Build.targets`
-(clio's template: `add-package` in a scratch workspace, its `Libs/*.dll` left out), `clio new-test-project --package <Pkg>`,
+(clio's template: `add-package` in a scratch workspace, its `Libs/*.dll` left out), `clio new-test-project --package <Pkg>` (its files then moved into `tests/<Pkg>/unit/`, the S51 layout: the project's
+`../../` paths get one level more and the solution's entry follows; a project already directly in `tests/<Pkg>/` is used where
+it is, with `test project: exists at the legacy location tests/<Pkg>/ - move it to unit/`),
 the test binaries copied from `paths.unitTestBin` into clio's layout `.application/net-framework/core-bin` (+ the newest
 `conf/bin/*/Terrasoft.Configuration.dll` into `.application/net-framework/bin`; a copy, not a link, so a clio refresh never
-deletes inside an install), `tests/<Pkg>/app.config` with a binding redirect for every `Terrasoft.*` / `Creatio.*` assembly
+deletes inside an install), `app.config` beside the test project with a binding redirect for every `Terrasoft.*` / `Creatio.*` assembly
 of those binaries (the clio test kit is built on 8.3.2.4166 / 8.3.3.1767; without it `FileLoadException` in `SetUp`), then
 `paths.unitTests`, `paths.solution` and `commands.unitTests` into project.json and the line `run the unit tests: dotnet test
 "<solution>" -c dev-nf`. No `paths.unitTestBin` and no binaries in the layout: the line says so and the exit is 1.

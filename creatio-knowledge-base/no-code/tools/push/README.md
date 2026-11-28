@@ -21,7 +21,7 @@ python push.py <package> -e <environment> --probe  also run probes
 python push.py <package> -e <environment> --dry-run print commands only
 python push.py <package> -e <environment> --bin <Terrasoft.WebApp/bin>   compile script tasks against these assemblies
 python push.py <package> -e <environment> --build [--project <project.json>]  first build Files/Bin/<Pkg>.dll against the site version's bin
-python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..]  is the site running this code: one line per schema; exit 1
+python push.py verify <package> -e <environment> [<Schema> ...] [--bin ..] [--project <project.json>]  is the site running this code: one line per schema; exit 1
 python push.py served <Schema> -e <environment> [--out <file>] [--grep <text>]  the served conf/content text: size, md5, matching lines
 python push.py page <package> <Page> -e <environment> [--dry-run] [--force]  one Freedom UI page over clio update-page, then verify
 python push.py deps <package> -e <environment> [--add <Package>[,<Package>]] [--dry-run]  fill DependsOn UId/version from the site's SysPackage
@@ -48,6 +48,8 @@ when only the second came; any new row with `Result` false is a failure. `IsChan
 and `push-pkg` skips them; `SysLocalizableValue.IsChanged` is cleared too, for the rows of the package's own schemas only (S48-T03:
 a schema made in the designer kept its strings `IsChanged=true` and push-pkg did not overwrite its Caption), and the step says
 `ok (SysSchema, SysPackageSchemaData, SysPackageSqlScript, SysLocalizableValue of the package's schemas)`.
+
+The publish step (`compile-configuration`) runs only for a process with a script or user task and says why (`publish: needed (script task UsrProcess)`); otherwise `publish: not needed`. A new object (P-2.26: its OData answered 200 within a minute of the push, no compile) and a timer start (P-2.27: the CRON trigger was armed by `push-pkg` alone) need no compile on 8.3.2.
 
 **How the compile verdict is read** (S48-T01). A clio with `--wait` (8.1.0.158): `compile-package` exits 0 on a good build;
 a non-zero exit is a failure, with two exceptions. `another compilation is in progress` (P-9.9: the install's own build still
@@ -219,7 +221,7 @@ no subprocess calls or writes, reads `dry run` on every step that would have run
 
 ## Is the site running it: `push.py verify` (S33-T05)
 
-`python push.py verify <package> -e <env> [<Schema> ...] [--bin <Terrasoft.WebApp/bin>]` (MCP `verify_pushed`), read-only, after a
+`python push.py verify <package> -e <env> [<Schema> ...] [--bin <Terrasoft.WebApp/bin>] [--project <project.json>]` (MCP `verify_pushed`; the bin is `--bin`, else the project's `paths.platformBin`, as for the push), read-only, after a
 push and before trusting a test. One statement reads every `SysSchema` row of the package: `md5("MetaData")` and the md5 of the largest
 `SysSchemaContent`. On the test site these are, byte for byte, the md5 of `metadata.json` and of the `.js` / `.cs` file as the
 repository holds them (30 of 30 schemas of a package), so a line per schema:

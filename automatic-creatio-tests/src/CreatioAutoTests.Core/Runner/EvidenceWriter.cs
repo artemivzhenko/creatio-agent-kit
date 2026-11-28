@@ -71,6 +71,16 @@ public sealed class EvidenceWriter : IReportWriter
         }
 
         text.AppendLine("case: " + testCase.Name + " (" + testCase.FilePath + ")");
+        if (testCase.Task is not null)
+        {
+            text.AppendLine("task folder: " + testCase.Task);
+        }
+
+        if (testCase.AcceptanceCriterion is not null)
+        {
+            text.AppendLine("ac: " + testCase.AcceptanceCriterion);
+        }
+
         text.AppendLine("result: " + (testCase.Success ? "PASS" : "FAIL") + ", " +
                         testCase.Duration.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s");
         text.AppendLine();

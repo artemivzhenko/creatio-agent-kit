@@ -73,7 +73,7 @@ public static class DialogProbe
     /// <summary>
     /// Ticks the rows of the topmost dialog's grid (a record selection window) whose display value equals each wanted text, case-blind.
     /// Returns the wanted values that are not rows, with the rows the window showed (the first 20); null when every row was found and ticked.
-    /// <paramref name="windowShown"/> is false when there is no dialog at all.
+    /// <c>WindowShown</c> is false when there is no dialog at all.
     /// </summary>
     public static async Task<(bool WindowShown, IReadOnlyList<string> Missing, IReadOnlyList<string> Rows)?> TickRowsAsync(
         IPage page, IReadOnlyList<string> wanted, int timeoutMs, CancellationToken cancellationToken)

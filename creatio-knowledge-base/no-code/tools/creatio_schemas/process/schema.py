@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from .. import filters
-from ..files import ALL_DATA_VALUE_TYPES, DVT_OF, DATA_VALUE_TYPES, EMPTY_GUID, dump_json, is_uid, new_uid, read_text, write_text
+from ..files import ALL_DATA_VALUE_TYPES, DVT_OF, DATA_VALUE_TYPES, EMPTY_GUID, dump_json, is_uid, load_json, new_uid, read_text, write_text
 from ..resources import Resources
 from ..schema import WARNING, Descriptor, Schema
 from ..workspace import Package
@@ -79,7 +79,7 @@ def _without_lcz_text(value):
 
 def _gv2(flow: dict) -> dict:
     raw = flow.get("GV2")
-    found = json.loads(raw) if isinstance(raw, str) and raw.startswith("{") else raw
+    found = load_json(raw) if isinstance(raw, str) and raw.startswith("{") else raw
     return found if isinstance(found, dict) else {}
 
 
@@ -104,7 +104,7 @@ def _disagree(value: dict | None, mapping: dict | None) -> bool:
     if a == b:
         return False
     try:
-        return _without_lcz_text(json.loads(a)) != _without_lcz_text(json.loads(b))
+        return _without_lcz_text(load_json(a)) != _without_lcz_text(load_json(b))
     except (TypeError, ValueError):
         return True
 
@@ -149,7 +149,7 @@ class ProcessSchema(Schema):
                         if m.group(0).lower() in self.site.names and m.group(0).lower() not in known else m.group(0), shown)
 
     def load_metadata(self, text: str) -> None:
-        self.meta = json.loads(text)
+        self.meta = load_json(text)
         self.schema: dict = self.meta["MetaData"]["Schema"]
         if self.schema.get("ManagerName") != "ProcessSchemaManager":
             raise ValueError(f"{self.name} is a {self.schema.get('ManagerName')}, not a process")
@@ -239,7 +239,7 @@ class ProcessSchema(Schema):
                 raw = (self.element_param(element, "Buttons").get("L8") or {}).get("GS2")
             except KeyError:
                 return []
-        return json.loads(raw)["$values"] if raw else []
+        return load_json(raw)["$values"] if raw else []
 
     def buttons(self, element: dict) -> list[dict]:
         """The buttons of a page task: [{uid, code, caption, flows: [(flow, target element)]}]; the flows are the conditional ones
@@ -562,7 +562,7 @@ class ProcessSchema(Schema):
         names = {c["UId"].lower(): n for n, c in columns.items()}
         raw = (param.get("L8") or {}).get("GS2")
         out = []
-        for item in json.loads(raw)["$values"] if raw else []:
+        for item in load_json(raw)["$values"] if raw else []:
             col = item["columnMetaPath"]["value"]
             v = item["value"]
             if v.get("isLczValue"):
@@ -609,7 +609,7 @@ class ProcessSchema(Schema):
         if missing:
             raise KeyError(f"{entity} has no column {', '.join(missing)}; columns: {', '.join(sorted(columns))}")
         raw = (param.get("L8") or {}).get("GS2")
-        data = json.loads(raw) if raw else {"$type": VALUES_TYPE, "$values": []}
+        data = load_json(raw) if raw else {"$type": VALUES_TYPE, "$values": []}
         entity_uid = self.workspace.uid_of(entity, "EntitySchemaManager")
         for column, value in values.items():
             col = columns[column]
@@ -670,14 +670,14 @@ class ProcessSchema(Schema):
         hits = self.workspace.find(task, "ProcessUserTaskSchemaManager")
         if hits:
             own = next((h for h in hits if h["uid"] == h["base"]), hits[0])
-            schema = json.loads(read_text(own["dir"] / "metadata.json")[0])["MetaData"]["Schema"]
+            schema = load_json(read_text(own["dir"] / "metadata.json")[0])["MetaData"]["Schema"]
         elif self.rows_of is not None:
             column, value = ("UId", task.lower()) if is_uid(task) else ("Name", task.replace("'", "''"))
             rows = self.rows_of(f"""select convert_from("MetaData", 'UTF8') as "meta" from "SysSchema" where "{column}" = '{value}' """
                                 """and "ManagerName" = 'ProcessUserTaskSchemaManager' and "ExtendParent" = false""")
             if not rows:
                 raise KeyError(f"user task {task} is neither in the catalogue, the workspace nor on the site")
-            schema = json.loads(str(rows[0]["meta"]).lstrip("\ufeff"))["MetaData"]["Schema"]
+            schema = load_json(str(rows[0]["meta"]).lstrip("\ufeff"))["MetaData"]["Schema"]
         else:
             raise KeyError(f"user task {task} is neither in the catalogue nor in the workspace; or give --env <env> to read it from the site")
         params = [{"name": q["A2"], "uid": q["UId"], "type": q.get("L1"), "default": q.get("L8") or {}, "refSchemaUId": q.get("L9"),
@@ -779,7 +779,7 @@ class ProcessSchema(Schema):
         mode = element.get(keys["mode"]) or 0
         text = f"record signal: {entity} " + (" or ".join(n for n, b in SIGNAL_MODES.items() if mode & b) or "?")
         try:
-            col_uids = json.loads(element.get(keys["columns"]) or "[]")
+            col_uids = load_json(element.get(keys["columns"]) or "[]")
         except ValueError:
             col_uids = []
         if col_uids:

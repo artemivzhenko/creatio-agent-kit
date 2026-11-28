@@ -70,10 +70,15 @@ public sealed class FrameworkConfiguration
     /// </summary>
     public ElementCatalog RefreshCatalog()
     {
-        var loader = new ConfigurationLoader(_rootDirectory);
-        Catalog = ElementCatalog.Build(loader.LoadPages(_paths.PagesDirectory), _registry);
+        Catalog = ElementCatalog.Build(LoadPages(new ConfigurationLoader(_rootDirectory), _paths, Environment, _rootDirectory), _registry);
         return Catalog;
     }
+
+    /// <summary>Configuration/pages, then every <c>PagesFolders</c> entry (relative to the root; a missing one gives nothing).</summary>
+    private static IReadOnlyList<PageDefinition> LoadPages(ConfigurationLoader loader, ConfigurationPaths paths, EnvironmentConfig environment, string root) =>
+        loader.LoadPages(paths.PagesDirectory)
+            .Concat(environment.PagesFolders.SelectMany(f => loader.LoadPages(Path.GetFullPath(f, root), optional: true)))
+            .ToArray();
 
     /// <summary>Target instance address and users loaded for this run.</summary>
     public EnvironmentConfig Environment { get; }
@@ -96,24 +101,42 @@ public sealed class FrameworkConfiguration
     /// <summary>Process definitions keyed by schema name for the <c>start</c> command.</summary>
     public IReadOnlyDictionary<string, ProcessDefinition> Processes { get; }
 
-    /// <summary>Folders scanned for process cases, defaulting to ProcessCases when nothing is configured.</summary>
-    public IReadOnlyList<string> ProcessCasesFolders =>
-        Rooted(Environment.ProcessCasesFolders.Count > 0 ? Environment.ProcessCasesFolders : new List<string> { "ProcessCases" });
+    /// <summary>
+    /// Adds the process files of one more folder (a package run's <c>integration/</c>, whatever the env config names); a file
+    /// already loaded is skipped, a name declared in another file is the duplicate error naming both.
+    /// </summary>
+    public void LoadProcessesFrom(string folder) =>
+        AddProcesses((Dictionary<string, ProcessDefinition>)Processes,
+            new ConfigurationLoader(_rootDirectory).LoadProcesses(Path.GetFullPath(folder, _rootDirectory))
+                .Where(p => Processes.GetValueOrDefault(p.Name)?.SourceFile != p.SourceFile));
+
+    private static void AddProcesses(Dictionary<string, ProcessDefinition> processes, IEnumerable<ProcessDefinition> loaded)
+    {
+        foreach (var process in loaded)
+        {
+            if (!processes.TryAdd(process.Name, process))
+            {
+                throw new InvalidOperationException("Process '" + process.Name + "' is declared twice (" + process.SourceFile +
+                                                    "); it is already defined in " + processes[process.Name].SourceFile + ".");
+            }
+        }
+    }
+
+    /// <summary>Folders scanned for process cases: ProcessCases when the key is absent, none when it is an empty list.</summary>
+    public IReadOnlyList<string> ProcessCasesFolders => Rooted(Environment.ProcessCasesFolders ?? new List<string> { "ProcessCases" });
 
     /// <summary>Names a script may write after <c>use</c>: each user's alias, or its login when it has none.</summary>
     public IReadOnlyCollection<string> UserNames =>
         Environment.Users.Select(u => u.DisplayName).ToArray();
 
-    /// <summary>Folders scanned for test cases, defaulting to Cases when nothing is configured.</summary>
-    public IReadOnlyList<string> CasesFolders =>
-        Rooted(Environment.CasesFolders.Count > 0 ? Environment.CasesFolders : new List<string> { "Cases" });
+    /// <summary>Folders scanned for test cases: Cases when the key is absent, none when it is an empty list (S51-T01).</summary>
+    public IReadOnlyList<string> CasesFolders => Rooted(Environment.CasesFolders ?? new List<string> { "Cases" });
 
     /// <summary>
     /// Folders scanned for analysis scripts. Empty when none are configured: analysis is opt-in,
     /// so a project that never describes pages automatically needs no such folder.
     /// </summary>
     public IReadOnlyList<string> AnalysisFolders => Rooted(Environment.AnalysisFolders);
-
     // A folder written relative is relative to --root, not to wherever the process was started (a CI job runs from elsewhere).
     private IReadOnlyList<string> Rooted(IEnumerable<string> folders) => folders.Select(f => Path.GetFullPath(f, _rootDirectory)).ToArray();
 
@@ -146,16 +169,17 @@ public sealed class FrameworkConfiguration
             .GroupBy(p => p.Key, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
 
-        var catalog = ElementCatalog.Build(loader.LoadPages(paths.PagesDirectory), registry);
+        var catalog = ElementCatalog.Build(LoadPages(loader, paths, environment, rootDirectory), registry);
 
         var objects = loader
             .LoadOrDefault<ObjectsConfig>(paths.Objects)
             .Objects
             .ToDictionary(o => o.Name, o => o, StringComparer.OrdinalIgnoreCase);
 
-        var processes = loader
-            .LoadProcesses(paths.ProcessesDirectory)
-            .ToDictionary(p => p.Name, p => p, StringComparer.OrdinalIgnoreCase);
+        // Configuration/processes, then every process cases folder: a generated case keeps its process file beside it (S51)
+        var processes = new Dictionary<string, ProcessDefinition>(StringComparer.OrdinalIgnoreCase);
+        var processFolders = (environment.ProcessCasesFolders ?? new List<string> { "ProcessCases" }).Select(f => Path.GetFullPath(f, rootDirectory));
+        AddProcesses(processes, new[] { paths.ProcessesDirectory }.Concat(processFolders).SelectMany(loader.LoadProcesses));
 
         return new FrameworkConfiguration(
             environment, site, runSettings, catalog, staticValues, objects, processes,
