@@ -37,7 +37,7 @@ download writes the site's date into the folder, so a schema pulled after a desi
 checks that no dependency was dropped (a `DependsOn` entry of `descriptor.json` or a `Reference` /
 `ProjectReference` of `Files/*.csproj` that git HEAD has and the working copy lost; `--force` lets it
 through), checks changed files against other active task locks, and updates the dates of changed SQL
-scripts. It then clears `IsChanged` in `SysSchema`, `SysPackageSchemaData` and `SysPackageSqlScript`, runs `push-pkg`, reads the compilation log, compiles assembly packages with
+scripts. It then clears `IsChanged` in `SysSchema`, `SysPackageSchemaData` and `SysPackageSqlScript`, (once more after 30 s when the clio web call times out; no other step is retried), runs `push-pkg`, reads the compilation log, compiles assembly packages with
 `compile-package --wait`, optionally checks a baseline and publishes processes with script or user
 tasks. The first line is `clio: <version>` (`clio ver`, read once per push). A clio that answers `Option 'wait' is
 unknown` gets `compile-package` without it, and the step polls `CompilationHistory` (P-9.10) every 15 s up to 600 s (clio's
@@ -207,7 +207,7 @@ lines on first use; later runs fail on new error lines. Without a baseline, non-
 still fail on configuration compilation errors.
 
 `<package>` is a path or a name: `push.py UsrPkg` finds `packages/UsrPkg` under the current folder or
-next to `--project`, and says `no package folder named UsrPkg; give its path (packages/UsrPkg)` otherwise.
+next to `--project`, and says `no package folder named UsrPkg: looked under <project workspace>/packages, ./packages; give its path (packages/UsrPkg)` otherwise.
 A database error (a SQLSTATE line from clio, which exits 0) fails the step: a drift check that cannot run
 does not pass.
 

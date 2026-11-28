@@ -47,6 +47,7 @@ from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
 from creatio_schemas import jscheck  # noqa: E402
 from creatio_schemas.files import write_text  # noqa: E402
 from creatio_schemas.page import PageSchema, compare_page_files  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 
 
 def new(_, a):
@@ -74,7 +75,8 @@ def new(_, a):
         caption = base + (" form" if a.template == "form" else "")
     scratch = scratch_copy(package)
     try:
-        page = PageSchema.create(scratch, a.page, a.entity or "", a.template, caption, a.cultures.split(",") if a.cultures else None)
+        page = PageSchema.create(scratch, a.page, a.entity or "", a.template, caption, a.cultures.split(",") if a.cultures else None,
+                                **stamp(None, a.project))
         if a.template == "form":
             for col in a.fields.split(",") if a.fields else [c for c in page.workspace.columns(a.entity) if c not in BASE_COLUMNS]:
                 page.add_field(col.strip())
@@ -99,7 +101,8 @@ def env_of(a):
 
 
 def replace(_, a):
-    page = PageSchema.create_replacing(Path(a.package), a.page, a.parent_uid, a.caption, a.cultures.split(",") if a.cultures else None, env_of(a))
+    page = PageSchema.create_replacing(Path(a.package), a.page, a.parent_uid, a.caption, a.cultures.split(",") if a.cultures else None, env_of(a),
+                                      **stamp(None, a.project))
     print(f"created {page.name} replacing {page.replacing} ({page.descriptor.data['Parent']['UId']}):")
     for path in sorted(page.files()):
         print(f"  {path.relative_to(page.package).as_posix()}")
@@ -193,6 +196,7 @@ def layout(_, a):
 def build() -> CommandLine:
     c = CommandLine(__doc__, "page")
     p = c.command("new", new, "a form or list page for an object that exists; a process's mini page")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--entity", help="the object (form and list)")
     p.add_argument("--fields", help="comma-separated columns, in this order; default every own column of the object")
     p.add_argument("--caption", help="default: the object's caption + ' form'; mini: the page name")
@@ -200,6 +204,7 @@ def build() -> CommandLine:
     p.add_argument("--cultures", help="comma-separated; default the package's cultures")
     p.add_argument("--dry-run", action="store_true", help="list the files, write nothing")
     p = c.command("replace", replace, "a replacing copy of a base Freedom page: descriptor, diff metadata, properties, resources, empty body")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--env", help="clio environment: the page's UId from the site when the workspace and the catalog lack it")
     p.add_argument("--parent-uid", help="the base page's UId, given")
     p.add_argument("--caption", help="default: the copy's caption in the workspace, else the page name")

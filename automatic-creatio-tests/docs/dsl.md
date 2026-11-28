@@ -375,7 +375,7 @@ check-record UsrOrderLog UsrOrder/Id=0c48c818-08f0-4f70-9b58-be512227f3bf not ex
 The runner scans the case folders recursively (`Cases/<Package>/...`).
 
 Process cases live in their own folders (`ProcessCasesFolders`, default `./ProcessCases`) and
-run after the UI cases; `--filter` and `--validate-only` see them the same way. They are a
+run before the UI cases (integration, then e2e); `--filter` and `--validate-only` see them the same way. They are a
 different kind of test - what the backend does, not what a user sees - which is why they are
 kept apart from the page cases rather than mixed into them.
 
@@ -807,7 +807,7 @@ All paths are relative to the working directory.
 | --- | --- |
 | `creatio.env.config.json` (copy `creatio.env.config.example.json`) | `BaseUrl`, optional `AuthUrl`, `Users` (`Username`, `Password`, optional `Name`: what a case writes after `use` when the login should stay out of the cases), optional `CasesFolders`, `AnalysisFolders` and `ProcessCasesFolders` (an absent key means the default `Cases` / `ProcessCases`, an empty list means none), optional `PagesFolders` (page folders read beside `Configuration/pages`, a missing one skipped; a page name found twice is an error naming both files), optional `AllowDevOnly` and `ClioEnvironment` (`# dev-only` cases) |
 | `creatio.site.config.json` | `AuthPath`, optional `ODataBasePath`, optional `ProcessStartPath` (default `/0/ServiceModel/ProcessEngineService.svc/RunProcess`) |
-| `processes/*.json` | one file per process a case may start: `name` and `parameters` (`code`, `type`, `direction`); also read from every `ProcessCasesFolders` folder and, in a `--package` run, from the package's `integration/` - only process configuration JSON belongs there, any other `.json` stops the configuration from loading |
+| `processes/*.json` | one file per process a case may start: `name` and `parameters` (`code`, `type`, `direction`); also read from every `ProcessCasesFolders` folder and, in a `--package` run, from the package's `integration/` - a `.json` that is not valid JSON or has no `name` is skipped and named in a `warning: skipped <path>: <reason>` line of the report |
 | `pages/*.json` | one file per page: `name`, `url`, `type` (`FreedomUI`, the default, or `ClassicUI`), `schema` (Classic only: the page schema name), and `elements` (`code`, `label`, `type`, optional `tab` (the page tab the control lies on: `analyse` writes it for a control shown on one tab only; a command on such a control opens that tab first, so no `click <Tab>` line is needed; a control first seen on a toggle group's other tab, such as the attachments list behind `Attachments`, gets `<group>/<caption>` (`CardButtonToggleGroup/Attachments`) and the line sets the group to that caption first, once more when the control has not appeared within 3 s) and `pinned`, plus type-specific options such as a Classic element's `name` or a Save button's `isSave`). The page is implied by the file, so elements never repeat it. |
 | `objects.config.json` | `objects`: `name`, `sectionPage`, `formPage`, `newButton`, `saveButton`, `fields` mapping codes to static-value names |
 | `static.values.json` | object mapping static names to scalar values |

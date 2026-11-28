@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas.cli import CommandLine  # noqa: E402
 from creatio_schemas.files import read_text  # noqa: E402
 from creatio_schemas.usertask import UserTaskSchema  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 
 
 def inspect(task, a):
@@ -95,6 +96,7 @@ def build() -> CommandLine:
     p.add_argument("--interactive", action="store_true")
     p.add_argument("--cultures", default="en-US")
     p.add_argument("--env", help="a Lookup parameter's platform object: look it up on this environment")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p = c.command("add-param", add_param, "a parameter", writes=True)
     p.add_argument("name")
     p.add_argument("type")
@@ -117,7 +119,7 @@ def build() -> CommandLine:
 
 def open_schema(a):
     if a.command == "new":
-        return UserTaskSchema.create(a.package, a.task, a.caption, [parse_param(s) for s in a.param], a.cultures.split(","), a.interactive, env=a.env)
+        return UserTaskSchema.create(a.package, a.task, a.caption, [parse_param(s) for s in a.param], a.cultures.split(","), a.interactive, env=a.env, **stamp(None, a.project))
     return UserTaskSchema(a.package, a.task)
 
 

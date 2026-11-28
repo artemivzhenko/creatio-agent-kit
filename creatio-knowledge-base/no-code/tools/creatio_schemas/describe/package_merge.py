@@ -51,11 +51,13 @@ def _row(word: str, kind: str, name: str, rest: str) -> str:
     return f"{word:<8}{kind:<8}{name:<28} {rest}".rstrip()
 
 
-def _entry(desc: dict) -> dict:
-    """A DependsOn entry naming a package, from its own descriptor."""
+def _entry(desc: dict, replaced: dict | None = None) -> dict:
+    """A DependsOn entry naming a package, from its own descriptor; `replaced` is the entry it takes the place of (8.3.x keeps its InstallBehavior)."""
     e = {"UId": desc.get("UId", ""), "PackageVersion": desc.get("PackageVersion", ""), "Name": desc.get("Name", "")}
     if desc.get("Type") is not None:
         e["Type"] = desc["Type"]
+    if replaced and "InstallBehavior" in replaced:
+        e["InstallBehavior"] = replaced["InstallBehavior"]
     return e
 
 
@@ -185,13 +187,12 @@ def merge_package(workspace: Path | str, child: str, parent: str, env=None, appl
         dst = ppkg / "Files" / "cs" / p.relative_to(cs_dir)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(p), str(dst))
-    pe = _entry(pdesc)
     for p in depends:
         path = ctx.folders[p] / "descriptor.json"
         desc = Descriptor(path)
         new, seen = [], False
         for x in desc.data.get("DependsOn") or []:
-            x = pe if x["Name"] == child else x
+            x = _entry(pdesc, x) if x["Name"] == child else x
             if x["Name"] == parent:
                 if seen:  # it named both the child and the parent: one entry stays
                     continue

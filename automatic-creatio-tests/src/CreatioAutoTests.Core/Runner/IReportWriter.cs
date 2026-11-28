@@ -23,6 +23,9 @@ public sealed class RunResult
     /// <summary>Lines printed right after the site line: a package run's <c>package:</c>, <c>unit:</c>, tier and <c>not runnable:</c> lines.</summary>
     public List<string> Head { get; } = new();
 
+    /// <summary>Lines the report prints right after <see cref="Head"/>, each prefixed <c>warning: </c> (the process files the loader skipped).</summary>
+    public List<string> Warnings { get; } = new();
+
     /// <summary>Total elapsed duration of both requested run phases.</summary>
     public TimeSpan Duration { get; init; }
 

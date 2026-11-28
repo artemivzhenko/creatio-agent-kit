@@ -405,19 +405,20 @@ def describe_item(package: str, schema: str, query: str = "topics", limit: int =
 
 
 @mcp.tool()
-def index_workspace(path: str, rebuild: bool = False, stats: bool = False, env: str = "") -> str:
+def index_workspace(path: str, rebuild: bool = False, stats: bool = False, env: str = "", project: str = "") -> str:
     """
     Build or refresh the package index (`<workspace>/.creatio-index/index.sqlite`, one store for every package): per schema
     its kind, caption, summary, files and references. `path`: a clio workspace root, a packages folder or one package.
     The index checks itself against the disk on every describe_* / find_schema call: run this after a `clio pull-pkg`,
     or with `rebuild=True`. `stats=True` adds the store's size and rows. `env=<clio environment>` (read-only SQL) adds the
     site's columns the workspace does not define and the site's schemas of the workspace's prefixes no package holds -
-    run it first in a task that adds columns or objects.
+    run it first in a task that adds columns or objects. `project=<project.json>` picks the stock catalogue of its
+    `environment.platformVersion` (stored in the index).
     """
     _tools_path()
     from creatio_schemas.describe import index_workspace as _iw
     try:
-        return _iw(path, rebuild, stats, env or None)
+        return _iw(path, rebuild, stats, env or None, project or None)
     except (FileNotFoundError, KeyError, ValueError) as e:
         return f"error: {e}"
 
@@ -563,7 +564,7 @@ def merge_plan(path: str, schemas: str = "", env: str = "", limit: int = DEFAULT
     _tools_path()
     from creatio_schemas.describe.merge import merge_plan as _plan
     try:
-        text, conflicts = _plan(path, [s.strip() for s in schemas.split(",") if s.strip()] or None, _env(env) if env else None, limit, offset,
+        text, conflicts = _plan(path, [s.strip() for s in schemas.split(",") if s.strip()] or None, _site(env) if env else None, limit, offset,
                                 direction)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
@@ -585,7 +586,7 @@ def merge_layers(path: str, schema: str, target: str = "", env: str = "", direct
     _tools_path()
     from creatio_schemas.describe.merge import merge_schema
     try:
-        text, code = merge_schema(path, schema, target or None, _env(env) if env else None, apply=False, direction=direction)
+        text, code = merge_schema(path, schema, target or None, _site(env) if env else None, apply=False, direction=direction)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return text + f"\nexit code {code}"
@@ -603,7 +604,7 @@ def merge_package(path: str, child: str, parent: str, env: str = "") -> str:
     _tools_path()
     from creatio_schemas.describe.package_merge import merge_package as _merge_package
     try:
-        text, code = _merge_package(path, child, parent, _env(env) if env else None, apply=False)
+        text, code = _merge_package(path, child, parent, _site(env) if env else None, apply=False)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return text + f"\nexit code {code}"
@@ -704,11 +705,14 @@ def _package_path(package: str, project: str = "") -> str:
     return package
 
 
-def _env(env: str):
-    from creatio_schemas.environment import Environment
-    if not env.strip():
-        raise ValueError("env must be a clio environment name")
-    return Environment.from_clio(env.strip())
+def _site(env: str):
+    """The site of every `env` tool: a clio environment name, or a project.json path (its `environment`)."""
+    from creatio_schemas.environment import open_environment
+    env = env.strip()
+    if not env:
+        raise ValueError("env must be a clio environment name or a project.json path")
+    project = env if env.endswith(".json") else None
+    return open_environment(None if project else env, project)
 
 
 @mcp.tool()
@@ -718,7 +722,7 @@ def env_sql(env: str, sql: str, limit: int = DEFAULT_LIMIT, out: str = "", write
     `affected: N` when it has none. A statement that is not select / with / show / explain is refused unless
     `write=true`; with it the answer ends with `affected: N`. `out=<file.csv>` writes every row of the last statement
     that returned rows (UTF-8 with BOM, `;`) and answers `N rows -> file` and the first five. Table and column names:
-    `describe_table` first, not a guess. An `[ERR]` from the database comes back as `error: ...`."""
+    `describe_table` first, not a guess. An `[ERR]` from the database comes back as `error: ...`. `env`: a clio name or a project.json path."""
     import csv
     import json
     import re
@@ -730,7 +734,7 @@ def env_sql(env: str, sql: str, limit: int = DEFAULT_LIMIT, out: str = "", write
         return "error: a writing statement needs write=true"
     answers, last_rows, affected = [], [], 0
     try:
-        db = _env(env)
+        db = _site(env)
         for k, st in enumerate(statements, 1):
             counts = []
             rows = db.sql(st, counts=counts)
@@ -766,13 +770,13 @@ def env_sql(env: str, sql: str, limit: int = DEFAULT_LIMIT, out: str = "", write
 def describe_table(env: str, table: str) -> str:
     """The real shape of a database table on a site, so no column name is guessed: one line per column
     (`name type[(length)] [null]`), then `primary key: ...` and `foreign key: <column> -> <table>.<column>`.
-    Creatio table names are the object names (`UsrOrder`); a column of a lookup is `<Column>Id`. Read-only."""
+    Creatio table names are the object names (`UsrOrder`); a column of a lookup is `<Column>Id`. Read-only. `env`: a clio name or a project.json path."""
     import re
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table or ""):
         return "error: give a table name (letters, digits, underscore)"
     from creatio_schemas.integrity import table_lines
     try:
-        db = _env(env)
+        db = _site(env)
         lines = table_lines(db, table)
         if not lines:
             return f"no table {table} on the site (information_schema.columns is empty)"
@@ -796,11 +800,11 @@ def env_call(env: str, method: str, path: str, body: str = "") -> str:
     """Call a site path with login and CSRF: `rest/<Svc>/<Method>`, `ServiceModel/<Svc>.svc/<Method>`,
     `odata/<Entity>`, `ServiceModel/ProcessEngineService.svc/RunProcess`. `method` GET/POST/PATCH/DELETE, `body` a JSON
     text. Returns `status: N` and the JSON answer (a JSON string inside an XML answer is unwrapped), or
-    `error: <status>: <reason>` with the reason taken from the WCF fault page. Writes whatever the call writes."""
+    `error: <status>: <reason>` with the reason taken from the WCF fault page. Writes whatever the call writes. `env`: a clio name or a project.json path."""
     import http.client
     import json
     try:
-        r = _env(env).request(method.upper(), path.lstrip("/"), json.loads(body) if body.strip() else None)
+        r = _site(env).request(method.upper(), path.lstrip("/"), json.loads(body) if body.strip() else None)
     except (OSError, KeyError, ValueError, RuntimeError, http.client.HTTPException) as e:
         return f"error: {e.args[0] if e.args else e}"
     if not r.ok:
@@ -813,10 +817,10 @@ def env_call(env: str, method: str, path: str, body: str = "") -> str:
 def env_odata(env: str, entity: str, select: str = "", filter: str = "", top: int = 20) -> str:
     """Read records of an object through OData 4: `select` comma-separated columns (a lookup is `<Column>Id`),
     `filter` an OData expression (`Name eq 'x'`; a lookup is compared as `UsrContact eq <guid>` and sent as the path
-    `UsrContact/Id eq <guid>`, the form the platform wants in a filter), at most `top` rows, as JSON - one object per line."""
+    `UsrContact/Id eq <guid>`, the form the platform wants in a filter), at most `top` rows, as JSON - one object per line. `env`: a clio name or a project.json path."""
     import json
     try:
-        rows = _env(env).odata(entity, [c.strip() for c in select.split(",") if c.strip()] or None, filter or None, top)
+        rows = _site(env).odata(entity, [c.strip() for c in select.split(",") if c.strip()] or None, filter or None, top)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) or "(no rows)"
@@ -827,7 +831,7 @@ def _answer(env: str, work, limit: int = DEFAULT_LIMIT) -> str:
     from creatio_schemas.describe import cut
     _tools_path()
     try:
-        text = work(_env(env))
+        text = work(_site(env))
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return "\n".join(cut(text.splitlines(), limit, "lines")) or "(nothing)"
@@ -841,7 +845,7 @@ def run_process(env: str, process: str, params: str = "", results: str = "") -> 
     on). `params` is a JSON object (`{"OrderId": "<guid>", "Quantity": 3}`), `results` a comma list of result parameter
     names. Ends with `exit code 1` when the engine refused it or the run is not completed (failed, or still waiting).
     A process whose only start is a timer is refused (`only contains automatic start events`) with the line `the process starts
-    by timer: process_timers / fire_timer move its next fire to now + N s`. Runs the process: whatever it writes is written."""
+    by timer: process_timers / fire_timer move its next fire to now + N s`. Runs the process: whatever it writes is written. `env`: a clio name or a project.json path."""
     import json
     from creatio_schemas.runs import render_log
     try:
@@ -881,7 +885,7 @@ def process_runs(env: str, process: str = "", record: str = "", since: str = "",
     on a site whose `SysProcessLog` is empty answers `process logging is off`. `element` (its caption, or its element UId) with
     `status=running` instead counts the tasks of that element still open (`SysProcessElementLog`, no end date): the count, then one
     line per task - start, run id, the record the run waits on, the owner. A stuck one is cancelled by its run id with
-    `env/proc-runs.py cancel` (dev sites only). Read-only."""
+    `env/proc-runs.py cancel` (dev sites only). Read-only. `env`: a clio name or a project.json path."""
     from creatio_schemas.runs import process_runs as _runs, render_runs
     return _answer(env, lambda e: render_runs(_runs(e, process.strip() or None, record.strip() or None, since.strip() or None,
                                                     until.strip() or None, max(1, min(limit, 200)), max(0, window),
@@ -988,7 +992,7 @@ def column_transitions(env: str, column: str, from_: str = "", to: str = "", sin
 def lookup_values(env: str, lookup: str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
     """What a lookup holds on the site, instead of a `select` on a guessed table: `<lookup>: N rows`, then one line per row
     `Id  Name  [Code]  [Description cut to 60]` ordered by Name, a page of `limit` (0 = all) from `offset` with a
-    `next: offset=` tail. A missing table says so (and names `Usr<lookup>` when that one exists). Read-only."""
+    `next: offset=` tail. A missing table says so (and names `Usr<lookup>` when that one exists). Read-only. `env`: a clio name or a project.json path."""
     from creatio_schemas.testdata import lookup_values as _values
     return _answer(env, lambda e: _values(e, lookup.strip(), max(limit, 0), max(offset, 0)), 0)
 
@@ -999,7 +1003,7 @@ def sample_records(env: str, entity: str, filter: str = "", n: int = 3, columns:
     `Column (type) = value`, every lookup as the referenced row's Name and its Id (`<id> (no row)` when the row is gone).
     `filter` is a SQL `where` fragment (`"UsrAmount" > 10`) - one fragment, no `;`, no writing word. The system columns
     (CreatedOn, ModifiedBy, ProcessListeners...) show only when `columns` names them. Read the values; never copy them
-    into a case - `make_fixture` makes the case's record. Read-only."""
+    into a case - `make_fixture` makes the case's record. Read-only. `env`: a clio name or a project.json path."""
     from creatio_schemas.testdata import sample_records as _sample
     return _answer(env, lambda e: _sample(e, entity.strip(), filter, n, columns), limit)
 
@@ -1012,7 +1016,7 @@ def make_fixture(env: str, entity: str, alias: str = "A", columns: str = "", wor
     to another object gets its own `insert` above, bound as `$<Column>`, one level deep (deeper: a `# set by hand` line);
     then the `delete` lines for the case's end, newest first. Ends with `columns: K required (workspace|database), L lookups resolved, M references
     inserted`; a lookup with no rows is a `no rows - insert one first` line. A column the site requires beyond that (an insert failing with
-    "<column> field must be filled in") goes into `columns`. Writes nothing: paste the inserts at the top of the case, the deletes at its end. Read-only."""
+    "<column> field must be filled in") goes into `columns`. Writes nothing: paste the inserts at the top of the case, the deletes at its end. Read-only. `env`: a clio name or a project.json path."""
     from creatio_schemas.testdata import make_fixture as _fixture
     return _answer(env, lambda e: _fixture(e, entity.strip(), alias.strip() or "A", columns, workspace.strip() or None), 0)
 
@@ -1026,10 +1030,10 @@ def shell_source(env: str, pattern: str, context: int = 2, limit: int = DEFAULT_
     around. Read-only GETs; the code is never executed. What it shows is an observation of the platform's code, not a
     proven behaviour: a probe or a case proves it. C# is `find_api`."""
     _tools_path()
-    from creatio_schemas.environment import Environment  # noqa: F401  (the server's own login through _env)
+    from creatio_schemas.environment import Environment  # noqa: F401  (the server's own login through _site)
     from creatio_schemas.shell import shell_source as _shell
     try:
-        return _shell(_env(env), pattern, context, limit, offset)
+        return _shell(_site(env), pattern, context, limit, offset)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {type(e).__name__}: {e.args[0] if e.args else e}"
 
@@ -1167,14 +1171,14 @@ def verify_pushed(package: str, env: str, schemas: str = "", bin: str = "", proj
     its generated source is missing or older than its schema, `compile error: CS....` when it does not compile (with `bin`, the
     Creatio assemblies, else the `project` json's `paths.platformBin`); a client schema: `not served: ...` when conf/content/<Schema>.js does not hold the new body (the site's
     client cache). Then one line per schema with its layer order on the site (`<Schema>: pkg1 < pkg2 < Custom`, the last wins;
-    `layers: not read (<reason>)` when the site does not answer). Read-only. Ends with `N same, M not`."""
+    `layers: not read (<reason>)` when the site does not answer). Read-only. Ends with `N same, M not`. `env`: a clio name or a project.json path (a package name then resolves through it)."""
     _tools_path()
     from creatio_schemas.cli import resolve_package
     from creatio_schemas.describe.layers import order_line, schema_layers as _layers
-    from creatio_schemas.environment import open_environment
     from creatio_schemas.verify import render, verify
+    project = project.strip() or (env.strip() if env.strip().endswith(".json") else "")
     try:
-        site = open_environment(env)
+        site = _site(env)
         results = verify(resolve_package(package, Path(project) if project else None), site, [s.strip() for s in schemas.split(",") if s.strip()] or None,
                          Path(bin) if bin else None, project=Path(project) if project else None)
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
@@ -1191,7 +1195,7 @@ def verify_pushed(package: str, env: str, schemas: str = "", bin: str = "", proj
 def precommit_check(workspace: str) -> str:
     """The staged files of a workspace that must not be committed - over 5 MB, an archive (.rar .zip .7z .gz .bak),
     a binary (.dll .exe .pdb) outside Files/Bin of an assembly package, a file outside packages/ and the known roots -
-    one line each, then `exit code 1`; `ok` when there is none. Also a staged object whose new columns or new schema the last
+    one line each, then `exit code 1`; `ok` when there is none; outside a git work tree `not a git work tree: nothing checked ...` and `exit code 1`, never `ok`. Also a staged object whose new columns or new schema the last
     `index_workspace(env=)` pass found on the site in another package (reuse it). Lines that do not stop (`no site pass yet`, a
     physical column) follow as `note:` lines. Read-only (git is only read)."""
     _tools_path()
@@ -1199,8 +1203,8 @@ def precommit_check(workspace: str) -> str:
     try:
         notes: list[str] = []
         problems = precommit(workspace, notes)
-    except NotGitTree as e:
-        return str(e)
+    except NotGitTree:
+        return "not a git work tree: nothing checked (the staged-files rules need git)\nexit code 1"
     except (FileNotFoundError, RuntimeError) as e:
         return f"error: {e}"
     return "\n".join(problems + [f"note: {n}" for n in notes] + ["exit code 1"]) if problems else "\n".join([f"note: {n}" for n in notes] + ["ok"])
@@ -1431,10 +1435,9 @@ def schema_layers(path_or_env: str, schema: str, rule: str = "", workspace: str 
     by its UId. Reads the environment (SELECTs), writes nothing."""
     import json
     from creatio_schemas.describe.layers import CUSTOM_LAYER, render, schema_layers as _layers
-    from creatio_schemas.environment import open_environment
-    project = path_or_env if path_or_env.endswith(".json") else None
+    project = path_or_env.strip() if path_or_env.strip().endswith(".json") else None
     try:
-        env = open_environment(None if project else path_or_env, project)
+        env = _site(path_or_env)
         custom = json.loads(Path(project).read_text(encoding="utf-8-sig")).get("environment", {}).get("customLayer") if project else None
         return "\n".join(render(_layers(env, s, rule or None, custom or CUSTOM_LAYER, workspace or None), env.clio_name or env.url)
                          for s in (x.strip() for x in schema.split(",")) if s) or "error: give a schema"
@@ -1458,7 +1461,7 @@ def schema_snapshot(schema: str, env: str = "", workspace: str = "", columns: st
     try:
         if not workspace and not env and not page_file:
             return "error: give a workspace (disk lines), an env (site lines), or both"
-        lines = snapshot(workspace or None, schema, _env(env) if env else None, [c.strip() for c in columns.split(",") if c.strip()] or None,
+        lines = snapshot(workspace or None, schema, _site(env) if env else None, [c.strip() for c in columns.split(",") if c.strip()] or None,
                          page_file=page_file or None)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
@@ -1499,7 +1502,7 @@ def cases_from_package(package: str, out: str = "", env: str = "", user: str = "
             return "error: give out or project"
         if report:
             return "\n".join(coverage_report(package, root))
-        lines = generate(package, root, _env(env) if env else None, user)
+        lines = generate(package, root, _site(env) if env else None, user)
     except (OSError, KeyError, ValueError, RuntimeError) as e:
         return f"error: {e.args[0] if e.args else e}"
     return "\n".join(lines) + f"\nexit code {1 if any(l.startswith('stop') for l in lines) else 0}" if lines else "(no schema to write cases for)"

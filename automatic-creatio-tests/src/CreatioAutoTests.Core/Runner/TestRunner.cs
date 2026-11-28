@@ -64,7 +64,7 @@ public sealed class TestRunner
         DiscoverIn(_configuration.CasesFolders, nameFilter, warnWhenMissing: true);
 
     /// <summary>
-    /// Process cases: the backend tier, run after the UI cases. The folder is optional, so a
+    /// Process cases: the backend tier, run before the UI cases. The folder is optional, so a
     /// missing one is not reported.
     /// </summary>
     public IReadOnlyList<string> DiscoverProcessFiles(string? nameFilter = null) =>
@@ -205,17 +205,18 @@ public sealed class TestRunner
                 catalog.Pages.Count, catalog.Entries.Count);
         }
 
-        if (testFiles.Count > 0)
-        {
-            caseResults.AddRange(
-                await RunPlansAsync(testFiles, pool, cancellationToken).ConfigureAwait(false));
-        }
-
+        // Integration before e2e: a red process case is seen before a page case opens the browser.
         if (processFiles.Count > 0)
         {
             _logger.LogInformation("Process cases: {Count} script(s).", processFiles.Count);
             caseResults.AddRange(
                 await RunPlansAsync(processFiles, pool, cancellationToken).ConfigureAwait(false));
+        }
+
+        if (testFiles.Count > 0)
+        {
+            caseResults.AddRange(
+                await RunPlansAsync(testFiles, pool, cancellationToken).ConfigureAwait(false));
         }
 
         stopwatch.Stop();

@@ -516,9 +516,10 @@ def test_site_restart_polls_until_the_site_answers():
     ok, line = site.restart(e, 120, clio_run=ran.append, sleep=lambda s: None, clock=lambda: next(clock))
     assert ok and line == "restarted in 41 s" and ran == [["restart-web-app", "-e", "ti"]], (line, ran)
     e2, _ = env({}, clio_name="ti")  # never answers
-    ticks = iter(range(0, 1000, 50))
-    ok, line = site.restart(e2, 100, clio_run=lambda a: None, sleep=lambda s: None, clock=lambda: next(ticks))
-    assert not ok and line == "not up after 100 s", line
+    ticks, beats = iter(range(0, 1000, 5)), []
+    ok, line = site.restart(e2, 40, clio_run=lambda a: None, sleep=lambda s: None, clock=lambda: next(ticks), log=beats.append)
+    assert not ok and line == "not up after 40 s", line
+    assert beats == ["... still waiting for the site (15 s)", "... still waiting for the site (30 s)"], beats  # S52-T06: a line every 15 s
 
 
 def test_site_process_off_and_on_post_the_service_and_read_the_table_back():

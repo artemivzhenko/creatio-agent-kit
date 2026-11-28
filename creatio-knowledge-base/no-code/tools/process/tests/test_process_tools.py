@@ -755,6 +755,48 @@ def proc_disagree(value, mapping):
     from creatio_schemas.process.schema import _disagree
     return _disagree(value, mapping)
 
+def test_cron_on_a_start_timer_only():
+    import contextlib
+    import io
+    sys.path.insert(0, str(HERE.parent))
+    import proc
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(FIXTURES, pkg)
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert proc.main(["element", str(pkg), "UsrProcess_0d4c445", "add", "Timer", "--kind", "startTimer", "--cron", "0 0 0 1 1 ? *"]) == 0
+        el = ProcessSchema(pkg, "UsrProcess_0d4c445").element("Timer")
+        # the shape of a hand-made timer start: cron in PS1, expression type 2, no dates, UTC
+        assert {k: el[k] for k in ("PS1", "PS3", "PS4", "PS5", "PS6")} == {"PS1": "0 0 0 1 1 ? *", "PS3": 2, "PS4": "null", "PS5": "null", "PS6": "UTC"}
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            assert proc.main(["element", str(pkg), "UsrProcess_0d4c445", "add", "Calc", "--kind", "formula", "--cron", "0 0 0 * * ? *"]) == 2
+        assert "--cron is for startTimer only" in err.getvalue()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_the_new_schema_is_stamped_with_the_projects_platform_version():
+    """S52-T04: --project stamps environment.platformVersion (padded to four parts), none keeps the default."""
+    import contextlib, io, json, shutil, tempfile
+    import proc
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        project = tmp / "project.json"
+        project.write_text(json.dumps({"environment": {"platformVersion": "8.3.2"}}), encoding="utf-8")
+        stamps = []
+        for extra in ([], ["--project", str(project)]):
+            pkg = tmp / f"p{len(stamps)}" / "UsrPkg"
+            shutil.copytree(FIXTURES, pkg)
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert proc.main(["new", str(pkg), "UsrStampProc", "--caption", "Stamp"] + extra) == 0
+            props = json.loads((pkg / "Schemas" / "UsrStampProc" / "properties.json").read_text(encoding="utf-8-sig"))["Properties"]
+            stamps.append(props["CreatedInVersion"])
+        assert stamps == ["8.2.3.1351", "8.3.2.0"], stamps
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

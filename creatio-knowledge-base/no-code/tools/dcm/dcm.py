@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
 from creatio_schemas.dcm import DcmSchema  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 
 
 def inspect(case, a):
@@ -104,6 +105,7 @@ def build() -> CommandLine:
     p.add_argument("--stage-column", required=True, help="a lookup column of the object")
     p.add_argument("--stage", action="append", default=[], metavar="CAPTION=RECORD_UID", help="repeatable; stages are connected in a chain")
     p.add_argument("--cultures", default="en-US")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p = c.command("add-stage", add_stage, "a stage for a record of the stage column's lookup", writes=True)
     p.add_argument("--caption", required=True)
     p.add_argument("--record", required=True, help="UId of the lookup record")
@@ -144,7 +146,7 @@ def open_schema(a):
                 raise ValueError(f"--stage expects CAPTION=RECORD_UID, got {spec!r}")
             caption, record = spec.split("=", 1)
             stages.append((caption, record))
-        return DcmSchema.create(a.package, a.case, a.caption, a.entity, a.stage_column, stages, a.cultures.split(","))
+        return DcmSchema.create(a.package, a.case, a.caption, a.entity, a.stage_column, stages, a.cultures.split(","), **stamp(None, a.project))
     return DcmSchema(a.package, a.case)
 
 

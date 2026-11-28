@@ -94,6 +94,11 @@ public sealed class TextReportWriter : IReportWriter
             builder.AppendLine(line);
         }
 
+        foreach (var warning in result.Warnings)
+        {
+            builder.AppendLine("warning: " + warning);
+        }
+
         builder.AppendLine("Creatio automated tests");
         builder.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         builder.AppendLine("Cases: " + result.Cases.Count + "   passed: " + result.Passed +

@@ -38,7 +38,7 @@ are not retained.
 `python no-code/tools/project.py tests-init <project.json>` makes `package.workspace` run the package's unit tests, each step
 answering `exists` on a second run: a clio workspace (`clio create-workspace --empty`; `Packages` and `ApplicationVersion`
 from `package.name` and `environment.platformVersion`), the package project `Files/<Pkg>.csproj` + `Directory.Build.targets`
-(clio's template: `add-package` in a scratch workspace, its `Libs/*.dll` left out), `clio new-test-project --package <Pkg>` (its files then moved into `tests/<Pkg>/unit/`, the S51 layout: the project's
+(clio's template: `add-package` in a scratch workspace, its `Libs/*.dll` left out; `scaffold.py package` writes the same files), `clio new-test-project --package <Pkg>` (its files then moved into `tests/<Pkg>/unit/`, the S51 layout, and the empty folders `integration/`, `e2e/`, `pages/` beside it, the line `created tests/<Pkg>/{integration,e2e,pages}`, so the first `sync` writes all three lists: the project's
 `../../` paths get one level more and the solution's entry follows; a project already directly in `tests/<Pkg>/` is used where
 it is, with `test project: exists at the legacy location tests/<Pkg>/ - move it to unit/`),
 the test binaries copied from `paths.unitTestBin` into clio's layout `.application/net-framework/core-bin` (+ the newest

@@ -28,7 +28,7 @@ change.
    `tools/usertask`; `describe_schema` / `describe_item` before reading any file. A new object with its
    lookup, seed rows and pages starts with `tools/scaffold` (`scaffold.py entity <pkg> <Object> --caption ...
    --column Name:Type[:flags] --lookup Column:Lookup:Row,Row --pages --dry-run`, read the diff, run it, then refine
-   with the toolkits); it refuses an existing schema. A REST service schema is `scaffold.py source <pkg> <Name> --service`, not one typed by
+   with the toolkits); it refuses an existing schema. A package the plan says is new starts with `scaffold.py package <Pkg> --project <project.json> [--depends CrtCoreBase,..]` (an assembly package with its DependsOn UIds, the folders and the csproj, no template class), not `clio new-pkg`. A REST service schema is `scaffold.py source <pkg> <Name> --service`, not one typed by
    hand (on 8.2.3 a source code schema cannot see `Files/cs` types on the site, and the local `--build` hides it). C# goes into
    `Files/cs` per `get_code_style("3.7")` and gets a unit test per `get_code_style("3.8")`, kept in
    `<workspace>/tests/<Pkg>/unit/` (`dotnet test` of that folder is green before the hand-over; a class without a test is named in your report)

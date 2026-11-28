@@ -68,6 +68,13 @@ def _files_summary(item) -> str:
     return f"{len(files)} files, {sum(p.stat().st_size for p in files)} bytes"
 
 
+def _service_summary(item: GenericItem) -> str:
+    """8.3.4 ServiceSchemaManager: properties.json `BaseUri` and `Type` (read-only, no toolkit)."""
+    props = item.dir / "properties.json"
+    p = json.loads(read_text(props)[0]).get("Properties", {}) if props.is_file() else {}
+    return f"service {p.get('Type', '?')} {p.get('BaseUri', '')}".rstrip()
+
+
 KINDS: list[Kind] = [
     Kind("sql", SqlScript, lambda p, n, d: d is None and (p / "SqlScripts" / n / "descriptor.json").is_file(), SqlScript,
          lambda s: f"{s.engine}, {s.install_type}, {len(s.depends_on)} deps", q.SQL, tool="sqlscripts/sqlscripts.py"),
@@ -90,6 +97,7 @@ KINDS: list[Kind] = [
          rename=lambda s: "mobile" if getattr(s, "mobile", False) else "page", tool="pages/pages.py"),
     Kind("classic", ClassicSchema, lambda p, n, d: _manager(d) == "ClientUnitSchemaManager" and ClassicSchema.is_classic(p, n), ClassicSchema,
          lambda s: s.summary(), q.CLASSIC, tool="classicui/classicui.py"),
+    Kind("service", GenericItem, lambda p, n, d: _manager(d) == "ServiceSchemaManager", GenericItem, _service_summary, {}, rename=lambda g: g.kind),
 ]
 FALLBACK = Kind("schema", GenericItem, lambda p, n, d: d is not None, GenericItem, _files_summary, {}, rename=lambda g: g.kind)
 

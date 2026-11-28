@@ -19,6 +19,7 @@ import re
 from datetime import date
 from pathlib import Path
 
+from .csharp.source import CSharpSource
 from .describe.registry import _is_freedom_page
 from .entity.catalog import column_flags
 from .entity.schema import EntitySchema
@@ -279,33 +280,46 @@ def cases_from_package(package: Path | str, out: Path | str, env=None, user: str
 
 
 KINDS = {"EntitySchemaManager": "object", "ProcessSchemaManager": "process", "ClientUnitSchemaManager": "page"}
+LISTENER = "entity event listener of "  # the role CSharpSource reads from `[EntityEventListener(SchemaName = "X")]`
 TIERS = ("unit", "integration", "e2e")
 
 
 def coverage_report(package: Path | str, out: Path | str) -> list[str]:
     """One line per schema and `Files/cs` class of the package (`<Schema> (<kind>): unit n | integration n | e2e n`), then
     `not covered: ...` for every one with 0, then `covered N of M`. A case counts for the names in its `# schema:` lines (`// schema:`
-    in a .cs file) and for its file name (`<Class>Tests.cs` names `<Class>`)."""
+    in a .cs file), for its file name (`<Class>Tests.cs` names `<Class>`) and, for a .cs file under `unit/` (not in `obj/`
+    or `bin/`), for every class of the package its text names as a whole word. A class whose `EntityEventListener` attribute names
+    schema `X` also gets the integration and e2e counts of `X` (`<Class> (class, listens to X): ...`)."""
     package, tests = Path(package), Path(out) / Path(package).name
-    schemas = {}
+    schemas, listens = {}, {}
     for d in sorted((package / "Schemas").glob("*")) if (package / "Schemas").is_dir() else []:
         if (d / "descriptor.json").is_file() and (kind := KINDS.get(_manager(d)[0])):
             schemas[d.name] = kind
     for f in sorted((package / "Files" / "cs").rglob("*.cs")) if (package / "Files" / "cs").is_dir() else []:
-        schemas.setdefault(f.stem, "class")
-    counts = {n: dict.fromkeys(TIERS, 0) for n in schemas}
+        if schemas.setdefault(f.stem, "class") == "class":
+            roles = [t["role"] for t in CSharpSource(package, f).types if t["name"] == f.stem]
+            if roles and roles[0].startswith(LISTENER):
+                listens[f.stem] = roles[0][len(LISTENER):]
+    counts = {n: dict.fromkeys(TIERS, 0) for n in [*schemas, *listens.values()]}  # a listened stock object is counted, not listed
     for tier in TIERS:
         for f in sorted((tests / tier).rglob("*")) if (tests / tier).is_dir() else []:
             if f.suffix not in (".act", ".cs"):
                 continue
             names = {f.stem[:-5] if f.suffix == ".cs" and f.stem.endswith("Tests") else f.stem}
-            for line in f.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+            text = f.read_text(encoding="utf-8-sig", errors="replace")
+            for line in text.splitlines():
                 m = re.match(r"\s*(?:#|//)\s*schema:\s*(.+)", line)
                 if m:
                     names.update(n.strip() for n in m.group(1).split(","))
+            if tier == "unit" and f.suffix == ".cs" and not {"obj", "bin"} & set(f.relative_to(tests / tier).parts):
+                names.update(n for n, kind in schemas.items() if kind == "class" and re.search(rf"\b{re.escape(n)}\b", text))
             for n in names & counts.keys():
                 counts[n][tier] += 1
-    lines = [f"{n} ({schemas[n]}): " + " | ".join(f"{t} {counts[n][t]}" for t in TIERS) for n in schemas]
+    for n, target in listens.items():
+        for tier in ("integration", "e2e"):
+            counts[n][tier] += counts[target][tier]
+    lines = [f"{n} ({schemas[n]}{f', listens to {listens[n]}' if n in listens else ''}): " + " | ".join(f"{t} {counts[n][t]}" for t in TIERS)
+             for n in schemas]
     missing = [n for n in schemas if not any(counts[n].values())]
     lines += [f"not covered: {n} ({schemas[n]})" for n in missing]
     return lines + [f"covered {len(schemas) - len(missing)} of {len(schemas)}"]

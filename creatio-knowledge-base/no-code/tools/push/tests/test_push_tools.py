@@ -109,6 +109,32 @@ def test_sequence_and_publish():
         assert "script compile: ok (0 compiled, 1 not checked)" in logs
 
 
+def test_clear_isChanged_retries_once_on_a_web_timeout():
+    class Busy(FakeClio):
+        def __init__(self, failures):
+            super().__init__()
+            self.failures = failures
+
+        def execute_sql(self, sql):
+            if self.failures:
+                self.failures -= 1
+                raise RuntimeError("sql: The operation has timed out")
+            super().execute_sql(sql)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = package(Path(tmp))
+        fake, logs = Busy(1), []
+        with patch("creatio_schemas.push.time.sleep") as nap:
+            assert push(pkg, "dev", fake, log=logs.append, skip_drift=True) == 0
+        assert nap.call_args.args == (30,) and "  clear IsChanged: web timeout, retry in 30 s" in logs
+        assert any(line.startswith("clear IsChanged: ok") for line in logs)
+        fake, logs = Busy(2), []
+        with patch("creatio_schemas.push.time.sleep"):
+            assert push(pkg, "dev", fake, log=logs.append, skip_drift=True) == 1
+        assert any(line.startswith("clear IsChanged: FAILED sql: The operation has timed out") for line in logs)
+        assert logs[-1] == "push FAILED at clear IsChanged"
+
+
 def test_publish_on_process_fixture_copy():
     fixtures = HERE.parent.parent / "process" / "tests" / "fixtures"
     source = next(p for p in fixtures.iterdir() if (p / "descriptor.json").is_file())
@@ -450,7 +476,7 @@ def test_a_package_is_found_by_name_or_refused_with_the_hint():
                 resolve_package("UsrMissing")
                 assert False, "expected FileNotFoundError"
             except FileNotFoundError as e:
-                assert str(e) == "no package folder named UsrMissing; give its path (packages/UsrMissing)"
+                assert str(e) == f"no package folder named UsrMissing: looked under {elsewhere / 'packages'}; give its path (packages/UsrMissing)"
             (root / "ws" / "packages" / "UsrWs").mkdir(parents=True)
             (root / "project.json").write_text(json.dumps({"package": {"workspace": "ws"}}))
             assert resolve_package("UsrWs", root / "project.json") == root / "ws" / "packages" / "UsrWs"  # relative workspace

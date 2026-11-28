@@ -14,6 +14,7 @@ To add a flag, add a row to COLUMN_FLAGS or OBJECT_FLAGS.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 
@@ -24,19 +25,55 @@ ASSETS = Path(__file__).resolve().parent / "assets"
 BASE_ENTITY_UID = "1bab9dcf-17d5-49f8-9536-8e0064f1dce0"
 BASE_LOOKUP_UID = "11ab4bcb-9b23-4b6d-9c86-520fae925d75"
 PARENT_NAMES = {BASE_ENTITY_UID: "BaseEntity", BASE_LOOKUP_UID: "BaseLookup"}
-STOCK_VERSION = "8.3.2" if (ASSETS / "entities_8.3.2.json").is_file() else "8.2.3"  # the full-product catalogue, else the older Studio one
-STOCK_ENTITIES: dict[str, str] = json.loads((ASSETS / f"entities_{STOCK_VERSION}.json").read_text(encoding="utf-8"))["entities"]
-STOCK_LOOKUPS: set[str] = set(json.loads((ASSETS / f"stock_lookups_{STOCK_VERSION}.json").read_text(encoding="utf-8"))["names"])
-_STOCK_COLUMNS: dict[str, dict[str, str]] | None = None
+
+
+class Catalogue:
+    """The stock objects, lookups and columns of one platform version (assets/<kind>_<major>.<minor>.<patch>.json)."""
+
+    def __init__(self, entities: dict[str, str], lookups: set[str], columns: dict[str, dict[str, str]]):
+        self.entities, self.lookups, self._columns = entities, lookups, columns
+
+    def columns(self, entity: str) -> dict[str, str] | None:
+        """name -> column UId of a stock object's effective columns; None when unknown."""
+        return self._columns.get(entity)
+
+
+def _asset(prefix: str, version: str) -> Path | None:
+    """The file `<prefix>_<x.y.z>.json` for `version`: the same major.minor, else the nearest lower, else (a version older than
+    every file) the oldest, else - an unknown version - the newest; None when no file has the prefix."""
+    files = {tuple(int(n) for n in f.stem[len(prefix) + 1:].split(".")[:2]): f for f in ASSETS.glob(f"{prefix}_*.json")}
+    if not files:
+        return None
+    try:
+        want = tuple(int(n) for n in version.split(".")[:2])
+    except ValueError:
+        want = None
+    if want is None or len(want) < 2:
+        return files[max(files)]
+    lower = [k for k in files if k <= want]
+    return files[max(lower) if lower else min(files)]
+
+
+def stock(version: str = "") -> Catalogue:
+    """The catalogue for a platform version (platform_version.py); `""` or an unparsable one: the newest files."""
+    return _stock(*(_asset(p, version) for p in ("entities", "stock_lookups", "stock_columns")))
+
+
+@functools.lru_cache(maxsize=None)
+def _stock(entities: Path | None, lookups: Path | None, columns: Path | None) -> Catalogue:
+    read = lambda path, key: json.loads(path.read_text(encoding="utf-8"))[key] if path else None  # noqa: E731
+    return Catalogue(read(entities, "entities") or {}, set(read(lookups, "names") or ()), read(columns, "columns") or {})
+
+
+_NEWEST = stock("")
+STOCK_VERSION = _asset("entities", "").stem.split("_", 1)[1]  # the version of the unknown-version view below
+STOCK_ENTITIES: dict[str, str] = _NEWEST.entities
+STOCK_LOOKUPS: set[str] = _NEWEST.lookups
 
 
 def stock_columns(entity: str) -> dict[str, str] | None:
-    """name -> column UId of a stock object's effective columns (assets/stock_columns_<version>.json); None when unknown."""
-    global _STOCK_COLUMNS
-    if _STOCK_COLUMNS is None:
-        path = ASSETS / f"stock_columns_{STOCK_VERSION}.json"
-        _STOCK_COLUMNS = json.loads(path.read_text(encoding="utf-8"))["columns"] if path.is_file() else {}
-    return _STOCK_COLUMNS.get(entity)
+    """name -> column UId of a stock object's effective columns in the newest catalogue; None when unknown."""
+    return _NEWEST.columns(entity)
 
 # friendly name: (key, value when on, value when off); None = the key is absent (the platform default)
 COLUMN_FLAGS = {

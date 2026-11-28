@@ -123,6 +123,27 @@ public sealed class PackageRunTests
     }
 
     [Test]
+    public void Process_cases_run_before_UI_cases()
+    {
+        foreach (var (tier, name) in new[] { ("e2e", "012-AC-01"), ("integration", "012-AC-02") })
+        {
+            Directory.CreateDirectory(Path.Combine(Package, tier));
+            File.WriteAllText(Path.Combine(Package, tier, name + ".act"), "use Supervisor\ncheck-count UsrOrder UsrName=Bed eq 0\n");
+        }
+
+        WriteEnvironment(",\"CasesFolders\":[\"ws/tests/UsrOrder/e2e\"],\"ProcessCasesFolders\":[\"ws/tests/UsrOrder/integration\"]");
+        var services = new ServiceCollection()
+            .AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance)
+            .AddSingleton(typeof(Microsoft.Extensions.Logging.ILogger<>), typeof(Microsoft.Extensions.Logging.Abstractions.NullLogger<>));
+        services.AddCreatioAutoTests(_root);
+        using var provider = services.BuildServiceProvider();
+
+        var result = provider.GetRequiredService<TestRunner>().RunAsync().GetAwaiter().GetResult();
+
+        Assert.That(result.Cases.Select(c => c.Name), Is.EqualTo(new[] { "012-AC-02", "012-AC-01" }), "the integration case is recorded first");
+    }
+
+    [Test]
     public void A_package_run_loads_the_process_files_beside_its_cases_whatever_the_config_names()
     {
         var integration = Path.Combine(Package, "integration");

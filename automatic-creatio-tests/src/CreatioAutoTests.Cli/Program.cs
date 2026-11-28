@@ -271,6 +271,7 @@ public static class Program
         var result = await runner
             .RunAsync(filter, runAnalysis ? true : null, analysisOnly)
             .ConfigureAwait(false);
+        result.Warnings.AddRange(provider.GetRequiredService<FrameworkConfiguration>().Warnings);
         if (packageFolder is not null)
         {
             result.Head.Add("package: " + package + " (" + packageFolder + ")");

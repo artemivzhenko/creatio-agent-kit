@@ -11,6 +11,7 @@ Inspect and change business processes stored in a package (library: ../creatio_s
     python proc.py param     <package> <Process> add <Name> --type Text [--direction In|Out|Variable] [--caption ..] [--default ..] [--ref-schema Contact]
     python proc.py param     <package> <Process> rename <Old> <New> | remove <Name>
     python proc.py element   <package> <Process> add <Name> --kind readData --after X [--before Y] [--caption ..] [--entity UsrOrder [--env dev]] [--set Param=value ..]
+    python proc.py element   <package> <Process> add <Name> --kind startTimer --cron "0 0 0 * * ? *"   a timer start; the CRON expression
     python proc.py element   <package> <Process> rename <Old> <New> | remove <Name> | set <Name> Param=value .. [--expr]
     python proc.py element   <package> <Process> formula <Name> "<expression>" --result <ProcessParam>
     python proc.py element   <package> <Process> values <Name> Column=value .. [--expr]     Add / Modify data: the columns it writes
@@ -39,6 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas import DATA_VALUE_TYPES, DVT_OF, Clio, ProcessSchema  # noqa: E402
 from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 from creatio_schemas.process.catalog import DIRECTION, short_type  # noqa: E402
 from creatio_schemas.process import ELEMENT_KINDS, TASK_ALIASES  # noqa: E402
 from creatio_schemas.process.schema import SIGNAL_KEYS  # noqa: E402
@@ -47,7 +49,7 @@ from creatio_schemas.process.schema import SIGNAL_KEYS  # noqa: E402
 # -- whole process ------------------------------------------------------------ #
 
 def new(_, a):
-    print(ProcessSchema.create(Path(a.package), a.process, a.caption, a.cultures).describe())
+    print(ProcessSchema.create(Path(a.package), a.process, a.caption, a.cultures, **stamp(None, a.project)).describe())
 
 
 def test_config(proc, a):
@@ -113,6 +115,8 @@ def element_signal(proc, a, el=None):
 
 
 def element_add(proc, a):
+    if a.cron and a.kind != "startTimer":
+        raise ValueError("--cron is for startTimer only")
     proc.rows_of = Clio(a.env).execute_sql_rows if a.env else None
     el = proc.add_element(a.kind, a.name, a.caption or "", a.after, a.before)
     if short_type(el) in SIGNAL_KEYS and (a.entity or a.on or a.columns or a.filter):
@@ -123,6 +127,8 @@ def element_add(proc, a):
         proc.set_calls(el, a.calls)
     if a.message:
         proc.set_message(el, a.message)
+    if a.cron:
+        el["PS1"] = a.cron  # the start timer's cron; its type, zone and the rest are the catalogue defaults
     for k, v in parse_assignments(a.set).items():
         proc.set_value(el, k, v, a.expr)
 
@@ -189,6 +195,7 @@ def build() -> CommandLine:
     p.add_argument("process")
     p.add_argument("--caption", required=True)
     p.add_argument("--cultures", nargs="*")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     c("inspect", inspect, "elements, parameters, flows and problems, with decoded names")
     c("validate", validate, "problems only; exit code 1 when there are any")
     p = c("test-config", test_config, "write the process's parameters as a Configuration/processes file of the UI test utility")
@@ -231,6 +238,7 @@ def build() -> CommandLine:
     p.add_argument("--on", help="record signals: added, modified, deleted - several joined by a comma")
     p.add_argument("--columns", help="record signals, modified: the columns whose change fires it, joined by a comma")
     p.add_argument("--filter", help='record signals: conditions the record must meet, e.g. "UsrAmount > 100; UsrStatus is not null"')
+    p.add_argument("--cron", help='startTimer only: the CRON expression, e.g. "0 0 0 * * ? *" (type and time zone UTC are the defaults)')
     p.add_argument("--set", nargs="*", default=[], metavar="Param=value")
     p.add_argument("--expr", action="store_true", help="the --set values are expressions")
     p = c("signal", element_signal, "record signal of a start or catch signal: entity, what fires it, columns, conditions", True, g)

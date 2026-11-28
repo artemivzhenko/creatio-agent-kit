@@ -5,7 +5,8 @@
     python site.py -e <env> process-off <ProcessName>  ProcessEngineService.svc/DisableProcess, read back from SysProcessDisabled
     python site.py -e <env> process-on <ProcessName>   EnableProcess
 
-`restart` prints `restarted in <n> s` or `not up after <wait> s` (exit 1). A restart is site-wide: tell whoever works on the site first.
+`restart` prints `restarted in <n> s` or `not up after <wait> s` (exit 1), and `... still waiting for the site (<n> s)` every 15 s
+before that, so a shell tool never sees 40-120 s of silence. A restart is site-wide: tell whoever works on the site first.
 `process-off` / `process-on` print `<Process> off|on (SysProcessDisabled rows: n)`, n counted from the table after the call (exit 1 when
 the table disagrees with the verb). A name with several schema rows is an error naming the packages. Exit 2 on a usage error.
 """
@@ -23,19 +24,26 @@ from creatio_schemas.clio import Clio  # noqa: E402
 from creatio_schemas.environment import open_environment  # noqa: E402
 
 SERVICE = "ServiceModel/ProcessEngineService.svc/"
+HEARTBEAT_S = 15  # S52-T06: a silent restart looked like lost output to the shell tool
 
 
-def restart(env, wait: int = 120, clio_run=None, sleep=time.sleep, clock=time.monotonic) -> tuple[bool, str]:
+def restart(env, wait: int = 120, clio_run=None, sleep=time.sleep, clock=time.monotonic, log=None) -> tuple[bool, str]:
+    log = log or (lambda text: print(text, flush=True))
     start, env.timeout = clock(), min(env.timeout, 15)  # a request to a starting site may hang
     (clio_run or Clio(env.clio_name or "").run)(["restart-web-app", "-e", env.clio_name])
+    beat = start
     while True:
         try:
             if env.fetch("odata/Contact?$top=1").ok:
                 return True, f"restarted in {round(clock() - start)} s"
         except (RuntimeError, OSError):  # login refused while the site comes up
             pass
-        if clock() - start >= wait:
+        now = clock()
+        if now - start >= wait:
             return False, f"not up after {wait} s"
+        if now - beat >= HEARTBEAT_S:
+            beat = now
+            log(f"... still waiting for the site ({round(now - start)} s)")
         sleep(3)
 
 

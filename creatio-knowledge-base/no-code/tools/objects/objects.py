@@ -43,6 +43,7 @@ from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
 from creatio_schemas.entity import COLUMN_FLAGS, OBJECT_FLAGS  # noqa: E402
 from creatio_schemas.entity.database import check  # noqa: E402
 from creatio_schemas.entity.hierarchy import fetch_base, save_base  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 from creatio_schemas.workspace import Package  # noqa: E402
 from creatio_schemas.files import ALL_DATA_VALUE_TYPES  # noqa: E402
 from creatio_schemas.describe.site import site_says  # noqa: E402
@@ -59,7 +60,7 @@ def flag_options(p, choices) -> None:
 
 def new(_, a):
     if a.replace:
-        print(EntitySchema.create_replacing(Path(a.package), a.object, a.version).describe())
+        print(EntitySchema.create_replacing(Path(a.package), a.object, **stamp(a.version, a.project)).describe())
         return
     if not a.caption:
         raise ValueError("--caption is required for a new object")
@@ -67,7 +68,7 @@ def new(_, a):
 
     if site_says(schema_clash(Path(a.package), a.object), a.force):
         return 1
-    print(EntitySchema.create(Path(a.package), a.object, a.caption, a.parent, a.version).describe())
+    print(EntitySchema.create(Path(a.package), a.object, a.caption, a.parent, **stamp(a.version, a.project)).describe())
 
 
 def base(_, a):
@@ -152,7 +153,8 @@ def build() -> CommandLine:
     p.add_argument("--caption", help="required for a new object")
     p.add_argument("--parent", default="BaseEntity", choices=["BaseEntity", "BaseLookup"])
     p.add_argument("--replace", action="store_true", help="a replacing copy of the base object <Object> (run `base` first)")
-    p.add_argument("--version", default="8.2.3.1351")
+    p.add_argument("--version", help="CreatedInVersion / B8 (default: the project's environment.platformVersion, else 8.2.3.1351)")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p = c("base", base, "fetch the base of an object from an environment and cache it", target=False)
     p.add_argument("package")

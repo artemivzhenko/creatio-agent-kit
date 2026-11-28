@@ -21,14 +21,14 @@ DataGrid). Two pages read from the package render back byte-for-byte.
 
 ## A page for an object that exists
 
-`pages.py new <package> <Page> --entity <Object> [--fields A,B] [--caption ..] [--template form|list]` writes the template page and one field per column (default: every own column of the object), validated in a scratch copy first; an existing page is refused, `--dry-run` lists the files.
+`pages.py new <package> <Page> --entity <Object> [--fields A,B] [--caption ..] [--template form|list] [--project project.json]` writes the template page and one field per column (default: every own column of the object), validated in a scratch copy first; an existing page is refused, `--dry-run` lists the files.
 `--template mini` (no `--entity`) writes a process's pre-configured page instead: parent `BaseMiniPageTemplate`, group
 `MiniPage`, one label showing `--caption` (P-8.16); a `preconfiguredPage` task opens it (`ClientUnitSchemaUId`) and
 completes on the template's buttons (`proc.py element ... buttons`).
 
 ## A replacing copy of a base page
 
-`pages.py replace <package> <Page> [--env <env>] [--parent-uid <UId>] [--caption ..] [--cultures ..]` writes the four files of a
+`pages.py replace <package> <Page> [--env <env>] [--parent-uid <UId>] [--caption ..] [--cultures ..] [--project project.json]` writes the four files of a
 replacing copy (D64): `descriptor.json` with `Parent` = the page and `ExtendParent: true`, the diff `metadata.json` (`UId`, `A5`, `B6`,
 `+ B7 true`, `HD1` = the page's UId), `properties.json` (`Page`, `AngularSchema`), the resources with the caption, and the empty body
 (`viewConfigDiff: []`, `viewModelConfigDiff: []`, `modelConfigDiff: []`, `handlers: []`, every marker the parser reads). The page's UId:

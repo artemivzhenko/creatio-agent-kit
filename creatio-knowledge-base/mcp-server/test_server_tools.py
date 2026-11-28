@@ -127,10 +127,10 @@ def test_shell_source_answers_through_the_library_and_names_an_error():
     def fake(env, pattern, context, limit, offset):
         seen.update(pattern=pattern, context=context, limit=limit, offset=offset)
         return "1 hit(s) of /QuickFilter/ in abcdef12"
-    with patch.object(server, "_env", return_value="site"), patch.object(shell_module, "shell_source", side_effect=fake):
+    with patch.object(server, "_site", return_value="site"), patch.object(shell_module, "shell_source", side_effect=fake):
         assert server.shell_source("dev", "QuickFilter", 1, 5, 10) == "1 hit(s) of /QuickFilter/ in abcdef12"
         assert seen == {"pattern": "QuickFilter", "context": 1, "limit": 5, "offset": 10}, seen
-    with patch.object(server, "_env", return_value="site"), \
+    with patch.object(server, "_site", return_value="site"), \
             patch.object(shell_module, "shell_source", side_effect=RuntimeError("the shell page names no main.<hash>.js bundle")):
         assert server.shell_source("dev", "x") == "error: RuntimeError: the shell page names no main.<hash>.js bundle"
 
@@ -908,7 +908,7 @@ def test_precommit_check_outside_git_answers_one_line_and_the_push_log_follows_t
     """S46-T08 items 1 and 3."""
     with tempfile.TemporaryDirectory() as tmp:
         answer = server.precommit_check(tmp)
-        assert answer.startswith("not a git work tree: ") and answer.endswith(" - the git checks are skipped") and len(answer.splitlines()) == 1, answer
+        assert answer == "not a git work tree: nothing checked (the staged-files rules need git)\nexit code 1", answer  # S52-T05: never `ok`
         pkg = Path(tmp) / "UsrPkg"
         pkg.mkdir()
         (pkg / "descriptor.json").write_text('{"Descriptor": {"Name": "UsrPkg", "UId": "00000000-0000-0000-0000-000000000001"}}', encoding="utf-8")
@@ -961,6 +961,37 @@ def test_verify_pushed_ends_with_each_schemas_layer_line():
         fake.sql = failing
         lines = server.verify_pushed("UsrPkg", "dev").splitlines()
         assert lines[0].endswith("same") and lines[2].startswith("layers: not read (") and lines[-1] == "1 same, 1 not", lines
+
+
+def test_site_takes_a_clio_name_or_a_project_path():
+    seen = []
+    with patch.object(env_module, "open_environment", lambda env=None, project=None, **kw: seen.append((env, project)) or FakeEnv()):
+        server._site(" dev ")
+        server._site("C:/work/project.json")
+        assert seen == [("dev", None), (None, "C:/work/project.json")], seen
+        for tool, args in (("env_sql", ("select 1",)), ("env_odata", ("Contact",)), ("env_call", ("GET", "rest/x")),
+                           ("describe_table", ("UsrOrder",)), ("sample_records", ("UsrOrder",)), ("lookup_values", ("UsrStatus",)),
+                           ("make_fixture", ("UsrOrder",)), ("run_process", ("UsrProcess",)), ("process_runs", ())):
+            seen.clear()
+            getattr(server, tool)("p/project.json", *args)
+            assert seen == [(None, "p/project.json")], (tool, seen)
+
+
+def test_verify_pushed_resolves_a_name_through_a_project_env():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = Path(tmp) / "ws" / "packages" / "UsrPkg"
+        pkg.mkdir(parents=True)
+        project = Path(tmp) / "project.json"
+        project.write_text(json.dumps({"package": {"workspace": "ws"}}), encoding="utf-8")
+        seen = []
+        with patch.object(env_module, "open_environment", lambda env=None, project=None, **kw: FakeEnv()), \
+                patch("creatio_schemas.verify.verify", lambda package, *a, **kw: seen.append(package) or [("UsrOrder", "same")]):
+            assert server.verify_pushed("UsrPkg", str(project)).endswith("1 same, 0 not")
+            missing = server.verify_pushed("UsrNone", str(project))
+        assert seen == [pkg], seen
+        assert missing.startswith("error: no package folder named UsrNone: looked under ") and str(Path(tmp) / "ws" / "packages") in missing \
+            and str(Path.cwd() / "packages") in missing, missing
 
 
 if __name__ == "__main__":

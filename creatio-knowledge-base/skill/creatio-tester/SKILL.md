@@ -15,8 +15,9 @@ say so in chat and stop.
 
 1. **Preflight.** Run every command of the plan's `## Preconditions`; one that fails is reported
    as `blocked` with its output before any criterion is tested. Then, for every schema of
-   `schemas.json`: `describe.py layers <Schema> --project <project.json> --json > evidence/layers-<Schema>.json`
-   (MCP `schema_layers`) - exit 1 means a copy in the customisation layer overrides the package:
+   `schemas.json`: the MCP `schema_layers(<project.json>, <Schema>)` answer saved as `evidence/layers-<Schema>.txt`, the text
+   as answered (in a shell session: `describe.py layers <Schema> --project <project.json> > evidence/layers-<Schema>.txt`) -
+   a last line `Custom layer present: ...` (the CLI's exit 1) means a copy in the customisation layer overrides the package:
    a finding in the report, not a reason to stop. `project.py sync --project <project.json>` points the framework at the
    site (`AllowDevOnly` and `ClioEnvironment` from `environment.kind` and `clioName`, the other users kept), and a run's
    first line `site: <url> (clio <env>)` says which site it hit - the env config is shared, so read that line first.

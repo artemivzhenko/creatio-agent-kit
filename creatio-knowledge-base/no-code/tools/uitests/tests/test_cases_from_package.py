@@ -175,6 +175,44 @@ def test_the_coverage_report_counts_the_cases_per_schema_and_names_what_is_not_c
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_an_entity_event_listener_gets_the_integration_and_e2e_cases_of_its_object():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg, out = tmp / "UsrPkg", tmp / "out"
+        (pkg / "Files" / "cs").mkdir(parents=True)
+        (pkg / "Files" / "cs" / "UsrOrderEventListener.cs").write_text(
+            '[EntityEventListener(SchemaName = "UsrOrder")]\npublic class UsrOrderEventListener : BaseEntityEventListener {}', encoding="utf-8")
+        (pkg / "Files" / "cs" / "UsrOrderLabel.cs").write_text("public class UsrOrderLabel {}", encoding="utf-8")
+        (out / "UsrPkg" / "integration").mkdir(parents=True)
+        for k in range(4):
+            (out / "UsrPkg" / "integration" / f"UsrOrder{k}.act").write_text("# schema: UsrOrder\n", encoding="utf-8")
+        lines = coverage_report(pkg, out)
+        assert "UsrOrderEventListener (class, listens to UsrOrder): unit 0 | integration 4 | e2e 0" in lines, lines
+        assert "UsrOrderLabel (class): unit 0 | integration 0 | e2e 0" in lines
+        assert [l for l in lines if l.startswith("not covered")] == ["not covered: UsrOrderLabel (class)"] and lines[-1] == "covered 1 of 2"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_a_unit_test_file_counts_for_every_class_it_names_outside_obj_and_bin():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg, out = tmp / "UsrPkg", tmp / "out"
+        (pkg / "Files" / "cs").mkdir(parents=True)
+        for name in ("UsrOrderEventListener", "UsrOrderLabel"):
+            (pkg / "Files" / "cs" / (name + ".cs")).write_text("class " + name + " {}", encoding="utf-8")
+        unit = out / "UsrPkg" / "unit"
+        (unit / "obj" / "Debug").mkdir(parents=True)
+        (unit / "UsrOrderTests.cs").write_text("var l = new UsrOrderEventListener();", encoding="utf-8")
+        (unit / "obj" / "Debug" / "Generated.cs").write_text("UsrOrderEventListener UsrOrderLabel", encoding="utf-8")
+        lines = coverage_report(pkg, out)
+        assert "UsrOrderEventListener (class): unit 1 | integration 0 | e2e 0" in lines
+        assert "UsrOrderLabel (class): unit 0 | integration 0 | e2e 0" in lines
+        assert [l for l in lines if l.startswith("not covered")] == ["not covered: UsrOrderLabel (class)"] and lines[-1] == "covered 1 of 2"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_out_defaults_to_the_workspace_tests_folder_of_the_project():
     tmp = Path(tempfile.mkdtemp())
     try:

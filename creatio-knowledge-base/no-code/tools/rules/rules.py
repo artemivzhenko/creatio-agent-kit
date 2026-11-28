@@ -29,11 +29,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas import Clio, RuleEngine, RuleSchema  # noqa: E402
 from creatio_schemas.cli import CommandLine  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 from creatio_schemas.rules.engine import STATES  # noqa: E402
 
 
 def new(_, a):
-    print(RuleSchema.create(Path(a.package), a.target, a.parent_uid, a.target_uid, a.kind, a.version, a.caption).describe())
+    print(RuleSchema.create(Path(a.package), a.target, a.parent_uid, a.target_uid, a.kind, caption=a.caption, **stamp(a.version, a.project)).describe())
 
 
 def inspect(rs, a):
@@ -114,7 +115,8 @@ def build() -> CommandLine:
     p.add_argument("--parent-uid", help="UId of the base package's <Target>BusinessRule -> a replacing addon")
     p.add_argument("--target-uid", help="UId of a target that is not in the workspace")
     p.add_argument("--kind", choices=["entity", "page"], help="kind of a target that is not in the workspace")
-    p.add_argument("--version", default="8.2.3.1351", help="platform version written as CreatedInVersion")
+    p.add_argument("--version", help="platform version written as CreatedInVersion (default: the project's, else 8.2.3.1351)")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--caption", help="addon caption (default '<Target caption> (Business rules)')")
     c("inspect", inspect, "the rules, decoded, and the changes to base rules")
     c("validate", validate, "problems; exit code 1 on errors (warnings do not count)")

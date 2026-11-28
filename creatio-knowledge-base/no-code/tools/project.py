@@ -208,6 +208,28 @@ def _move_to_unit(ws: Path, pkg: str) -> None:
         solution.write_bytes(text.encode("utf-8"))
 
 
+def clio_call(run, args: list[str], cwd) -> None:
+    """One clio command through `run` (subprocess.run); a non-zero exit is a RuntimeError with the output's tail."""
+    done = run(["clio", *args], cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if done.returncode:
+        raise RuntimeError(f"clio {args[0]} exit {done.returncode}: {((done.stdout or '') + (done.stderr or '')).strip()[-300:]}")
+
+
+def write_package_project(files: Path, pkg: str, run=None) -> list[str]:
+    """Files/<pkg>.csproj and Directory.Build.targets from clio's own template (add-package in a scratch workspace) when
+    they are missing; the names written. Not Libs/*.dll: binaries do not belong in the package (two MSB3245 warnings at build)."""
+    run = run or subprocess.run
+    missing = [n for n in (f"{pkg}.csproj", "Directory.Build.targets") if not (files / n).is_file()]
+    if missing:
+        with tempfile.TemporaryDirectory() as tmp:
+            clio_call(run, ["create-workspace", "tmpws", "--empty", "--directory", tmp], tmp)
+            clio_call(run, ["add-package", pkg], Path(tmp) / "tmpws")
+            files.mkdir(parents=True, exist_ok=True)
+            for n in missing:
+                shutil.copyfile(Path(tmp) / "tmpws" / "packages" / pkg / "Files" / n, files / n)
+    return missing
+
+
 def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
     """Make the package's workspace run `dotnet test` (S46-T09, gaps 12/13): a clio workspace, the package project
     Files/<Pkg>.csproj, `clio new-test-project`, the binaries under .application/net-framework, an app.config of binding
@@ -227,9 +249,7 @@ def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
     lines = []
 
     def clio(args, cwd):
-        done = run(["clio", *args], cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if done.returncode:
-            raise RuntimeError(f"clio {args[0]} exit {done.returncode}: {((done.stdout or '') + (done.stderr or '')).strip()[-300:]}")
+        clio_call(run, args, cwd)
 
     settings = ws / ".clio" / "workspaceSettings.json"
     if settings.is_file():
@@ -246,16 +266,7 @@ def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
         settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     lines.append("workspace settings: " + (f"set {', '.join(changed)}" if changed else "exist"))
 
-    files = ws / "packages" / pkg / "Files"
-    names = (f"{pkg}.csproj", "Directory.Build.targets")
-    missing = [n for n in names if not (files / n).is_file()]
-    if missing:
-        with tempfile.TemporaryDirectory() as tmp:  # clio's own template: add-package in a scratch workspace
-            clio(["create-workspace", "tmpws", "--empty", "--directory", tmp], tmp)
-            clio(["add-package", pkg], Path(tmp) / "tmpws")
-            files.mkdir(parents=True, exist_ok=True)
-            for n in missing:  # not Libs/*.dll: binaries do not belong in the package (two MSB3245 warnings at build)
-                shutil.copyfile(Path(tmp) / "tmpws" / "packages" / pkg / "Files" / n, files / n)
+    missing = write_package_project(ws / "packages" / pkg / "Files", pkg, run)
     lines.append("package project: " + (f"wrote {', '.join('Files/' + n for n in missing)}" if missing else "exists"))
 
     legacy = ws / "tests" / pkg  # where clio new-test-project writes; the S51 layout keeps it in tests/<Pkg>/unit
@@ -272,6 +283,11 @@ def tests_init(project_file: Path, run=None) -> tuple[list[str], bool]:
         _move_to_unit(ws, pkg)
         lines.append(f"test project: created tests/{pkg}/unit")
     solution = next(iter(sorted((ws / "tests").glob("*.sln*"))), tests / f"{pkg}.Tests.csproj")
+    tiers = [t for t in ("integration", "e2e", "pages") if not (legacy / t).is_dir()]  # what `sync` writes lists for (S52-T05)
+    for t in tiers:
+        (legacy / t).mkdir()
+    if tiers:
+        lines.append(f"created tests/{pkg}/{{{','.join(tiers)}}}")
 
     # the test csproj and .build-props/env.dev-nf.props read the binaries from clio's layout; a copy, not a link: a clio
     # command that refreshes .application must never delete inside a platform install

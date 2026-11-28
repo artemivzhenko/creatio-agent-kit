@@ -163,6 +163,7 @@ def main(argv=None) -> int:
     d.add_argument("--rebuild", action="store_true")
     d.add_argument("--stats", action="store_true", help="also the store: size, format, rows per table, per package its build time")
     d.add_argument("--env", "-e", default=None, help="a clio environment: also the site's columns and schemas the workspace does not hold (read-only)")
+    d.add_argument("--project", default=None, help="project.json: its environment.platformVersion picks the stock catalogue (stored in the index)")
     rs = sub.add_parser("resolve", help="the workspace by what users call things: a caption (or a Usr name) -> objects, pages, columns, elements, parameters, lookup values, ranked")
     rs.add_argument("path")
     rs.add_argument("text")
@@ -378,7 +379,7 @@ def main(argv=None) -> int:
             from creatio_schemas.describe.uids import resolve
             print(resolve(args.path, args.text))
         elif args.command == "index":
-            print(index_workspace(args.path, args.rebuild, args.stats, args.env))
+            print(index_workspace(args.path, args.rebuild, args.stats, args.env, args.project))
         elif args.command == "find":
             print(find_schema(args.path, args.schema, args.limit, args.offset))
         elif args.command == "find-text":

@@ -35,6 +35,12 @@ under `no-code/tools/` write what clio cannot on 8.x - business processes, busin
 cases, user tasks, objects, pages, data bindings, SQL scripts - as package files, byte for byte,
 behind one front door (`python no-code/tools/creatio.py`).
 
+**Platform versions.** The site's version comes from `environment.platformVersion` of `project.json` (else the
+`paths.platformBin` binaries), never from a schema's `CreatedInVersion`: the writers that take `--project` stamp it,
+and the index picks the stock catalogue of that version (8.2.x: the 8.2.3 files, 8.3.x and unknown: 8.3.2; an 8.2.x
+project still reads the 8.3.2 stock columns). The metadata shape is the same from 8.2.2 to 8.3.4, so the readers have no
+version branch; 8.1 is unverified (no 8.1 package set was scanned).
+
 ## Quick start
 
 **Python launcher.** The commands in these pages say `python`. On Windows write `py -3` instead (a bare `python` there may be the Microsoft Store stub and answer `Permission denied`); on Linux and macOS `python3`. Every command line of the toolkits writes UTF-8 to stdout and stderr by itself, so `PYTHONIOENCODING` is not needed for a Cyrillic caption. The MCP server is registered with the interpreter of its own venv (`mcp-server/.venv`), never with `python`.

@@ -174,8 +174,9 @@ def _stat(path: Path) -> list[int]:
 class PackageIndex:
     """One package's index: load, check against the disk, answer."""
 
-    def __init__(self, package: Path | str, con: sqlite3.Connection | None = None):
-        """`con`: a reader of the store the caller holds for the whole call (`Indexed`); None opens one per read."""
+    def __init__(self, package: Path | str, con: sqlite3.Connection | None = None, platform: str | None = None):
+        """`con`: a reader of the store the caller holds for the whole call (`Indexed`); None opens one per read.
+        `platform`: the project's platform version (platform_version.py), which picks the stock catalogue; None keeps the stored one."""
         self.package = Path(package)
         self.path = index_path(self.package)
         self._con = con
@@ -192,6 +193,8 @@ class PackageIndex:
         self._format_mismatch = self._head.get("format") != INDEX_FORMAT
         self._names: dict[str, str] = {}  # lower-case name and uid -> schema name, whole workspace
         self._culture = self._head.get("culture") or "en-US"
+        self._platform_given = platform is not None and platform != self._head.get("platform", "")  # a new version re-resolves every stock edge
+        self.platform = self._head.get("platform", "") if platform is None else platform
 
     @property
     def data(self) -> dict:
@@ -276,7 +279,7 @@ class PackageIndex:
 
     def _load_names(self) -> None:
         ws = Workspace(self.package)
-        self._resolver = Resolver(ws)
+        self._resolver = Resolver(ws, self.platform)
         self._names = {}
         for s in ws.schemas:
             self._names[s["name"].lower()] = s["name"]
@@ -432,7 +435,7 @@ class PackageIndex:
         from .registry import KINDS  # the kinds and their order: a registry change must re-read every item (R01 finding 1)
 
         registry_fp = "|".join(k.name for k in KINDS)
-        rebuild = rebuild or self._format_mismatch or self.head.get("registry") != registry_fp
+        rebuild = rebuild or self._format_mismatch or self._platform_given or self.head.get("registry") != registry_fp
         on_disk, files_now, data_on_disk = self._on_disk()
         stored = self._stored_files()  # the store's `files` rows: an up-to-date package is not loaded
         stored_data = {n[len("Data/"):] for n in stored if n.startswith("Data/")}
@@ -480,7 +483,7 @@ class PackageIndex:
                 if name not in todo_data:
                     entry["refs"] = self._refs(entry["files"], name)
         desc = load_json(read_text(self.package / "descriptor.json")[0])["Descriptor"]
-        self.data = {"format": INDEX_FORMAT, "registry": registry_fp, "package": desc.get("Name", self.package.name), "version": desc.get("PackageVersion"),
+        self.data = {"format": INDEX_FORMAT, "registry": registry_fp, "package": desc.get("Name", self.package.name), "version": desc.get("PackageVersion"), "platform": self.platform,
                      "depends_on": [d["Name"] for d in desc.get("DependsOn", [])],
                      "culture": self._culture, "cultures": dict(sorted(counts.items())),
                      "built": time.strftime("%Y-%m-%dT%H:%M:%S"), "seconds": round(time.time() - t0, 2),
@@ -663,11 +666,12 @@ class Indexed:
         return [(p, k, n, Edge(tk, tn, tu, via, ref or "uid", load_json(d) if d else [])) for p, k, n, tk, tn, tu, via, ref, d in rows]
 
 
-def index_workspace(path: Path | str, rebuild: bool = False, stats: bool = False, env: str | None = None) -> str:
+def index_workspace(path: Path | str, rebuild: bool = False, stats: bool = False, env: str | None = None, project: str | None = None) -> str:
     """Refresh the index of every package under `path`; one line per package with what changed. A store file this
     toolkit cannot read (corrupt, foreign) or wrote in an older format is one line first: it is rebuilt, nothing else
     is tried. `stats` adds the store's rows per table, size, format and per package its build time (`store.stats`).
-    `env` (a clio environment name): then the site's columns and schemas the workspace does not hold, read-only (site.py, S31-T10/T11)."""
+    `env` (a clio environment name): then the site's columns and schemas the workspace does not hold, read-only (site.py, S31-T10/T11).
+    `project` (a project.json): its platform version picks the stock catalogue and is stored as the package's `platform` (S52-T04)."""
     out = []
     pkgs = packages_of(path)
     paths = list(dict.fromkeys(index_path(p) for p in pkgs))
@@ -678,9 +682,11 @@ def index_workspace(path: Path | str, rebuild: bool = False, stats: bool = False
             continue  # the package index below says it and rebuilds
         if was and was != store.STORE_FORMAT:
             out.append(f"{sp}: store format {was}, this toolkit writes {store.STORE_FORMAT}; every package rebuilt")
+    from ..platform_version import platform_version
+    version = (platform_version(project) or None) if project else None
     cultures, built = {"en-US"}, []
     for pkg in pkgs:
-        idx = PackageIndex(pkg)
+        idx = PackageIndex(pkg, platform=version)
         built.append(idx)
         if idx.reset:
             out.append(idx.reset)
@@ -733,7 +739,7 @@ def _site_pass(pkgs: list[Path], built: list, db: Path, env_name: str, path) -> 
         return [f"site {env_name}: {exc}"]
 
 
-from ..entity.catalog import STOCK_LOOKUPS  # noqa: E402  (stock_lookups_<version>.json: 8.3.2 when present, else 8.2.3)
+from ..entity.catalog import stock  # noqa: E402  (stock_lookups_<version>.json of the index's platform)
 
 
 def lookups(path: Path | str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> str:
@@ -743,6 +749,7 @@ def lookups(path: Path | str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> st
     cut([], limit, offset=offset)
     ws = Indexed(path)
     pkgs, indexes = ws.pkgs, ws.indexes
+    stock_lookups = stock(next((i.platform for i in indexes if i.platform), "")).lookups
     objects = ws.rows("select package, name, parent, caption, summary from nodes where {pkgs} and kind = 'object' order by name")
     parents = {n: parent for _, n, parent, _, _ in objects}
     users_of = ws.referrer_counts()
@@ -753,13 +760,13 @@ def lookups(path: Path | str, limit: int = DEFAULT_LIMIT, offset: int = 0) -> st
 
     def is_lookup(name: str, seen: frozenset = frozenset()) -> bool | None:
         """True / False, or None when the chain leaves the workspace into an object the stock list does not know."""
-        if name == "BaseLookup" or name in STOCK_LOOKUPS:
+        if name == "BaseLookup" or name in stock_lookups:
             return True
         if name == "BaseEntity" or name in seen:
             return False
         parent = parents.get(name)
         if parent is None:
-            return None if name in parents else (True if name in STOCK_LOOKUPS else None)
+            return None if name in parents else (True if name in stock_lookups else None)
         return is_lookup(parent, seen | {name})
 
     rows, unknown = [], []

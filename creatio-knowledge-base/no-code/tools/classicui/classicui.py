@@ -39,6 +39,7 @@ from creatio_schemas.classicui.write import DIFF_OPS  # noqa: E402
 from creatio_schemas.cli import CommandLine, parse_assignments  # noqa: E402
 from creatio_schemas.environment import open_environment  # noqa: E402
 from creatio_schemas import jscheck  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 from creatio_schemas.files import read_text  # noqa: E402
 
 CREATE = {"replace", "adopt", "new"}
@@ -102,14 +103,14 @@ def files_of(s) -> None:
 
 def replace(_, a):
     s = ClassicSchema.create_replacing(Path(a.package), a.schema, a.cultures.split(",") if a.cultures else None, a.parent_uid,
-                                       a.caption, a.entity or "", a.version, env_of(a))
+                                       a.caption, a.entity or "", env=env_of(a), **stamp(a.version, a.project))
     print(f"created {s.name} replacing {s.parent} ({s.descriptor.data['Parent']['UId']}):")
     files_of(s)
 
 
 def new(_, a):
     s = ClassicSchema.create_new(Path(a.package), a.schema, a.parent, a.entity or "", a.caption, a.cultures.split(",") if a.cultures else None,
-                                 a.parent_uid, env_of(a), a.version)
+                                 a.parent_uid, env_of(a), **stamp(a.version, a.project))
     print(f"created {s.name} ({s.kind}) with parent {s.parent} ({s.descriptor.data['Parent']['UId']}):")
     files_of(s)
 
@@ -178,7 +179,8 @@ def build() -> CommandLine:
     p.add_argument("--entity", help="entitySchemaName of the body")
     p.add_argument("--caption")
     p.add_argument("--cultures", help="comma-separated; default the package's")
-    p.add_argument("--version", default="8.2.3.1351")
+    p.add_argument("--version", help="CreatedInVersion / B8 (default: the project's platformVersion, else 8.2.3.1351)")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
 
     p = c.command("replace", replace, "a replacing schema of a client schema: descriptor, diff metadata, empty body, resources")
     p.add_argument("--parent-uid", help="the parent's UId when the workspace does not hold it")
@@ -186,7 +188,8 @@ def build() -> CommandLine:
     p.add_argument("--entity", help="entitySchemaName of the new body (default: the parent's)")
     p.add_argument("--caption")
     p.add_argument("--cultures", help="comma-separated; default the package's")
-    p.add_argument("--version", default="8.2.3.1351")
+    p.add_argument("--version", help="CreatedInVersion / B8 (default: the project's platformVersion, else 8.2.3.1351)")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p = c.command("adopt", adopt, "move a client schema pulled from another package into this one (new UId, A5, B6)")
     p.add_argument("--from", dest="source", required=True, help="the pulled package folder or the schema folder")
     p = c.command("add-string", add_string, "a localizable string: B2 metadata + resources; a key of the parent chain is overridden", writes=True)

@@ -39,6 +39,7 @@ public sealed class FrameworkConfiguration
     private readonly string _rootDirectory;
     private readonly ConfigurationPaths _paths;
     private readonly UiElementRegistry _registry;
+    private readonly List<string> _warnings;
 
     private FrameworkConfiguration(
         EnvironmentConfig environment,
@@ -50,8 +51,10 @@ public sealed class FrameworkConfiguration
         IReadOnlyDictionary<string, ProcessDefinition> processes,
         string rootDirectory,
         ConfigurationPaths paths,
-        UiElementRegistry registry)
+        UiElementRegistry registry,
+        List<string> warnings)
     {
+        _warnings = warnings;
         Environment = environment;
         Site = site;
         RunSettings = runSettings;
@@ -105,10 +108,17 @@ public sealed class FrameworkConfiguration
     /// Adds the process files of one more folder (a package run's <c>integration/</c>, whatever the env config names); a file
     /// already loaded is skipped, a name declared in another file is the duplicate error naming both.
     /// </summary>
-    public void LoadProcessesFrom(string folder) =>
+    public void LoadProcessesFrom(string folder)
+    {
+        var loader = new ConfigurationLoader(_rootDirectory);
         AddProcesses((Dictionary<string, ProcessDefinition>)Processes,
-            new ConfigurationLoader(_rootDirectory).LoadProcesses(Path.GetFullPath(folder, _rootDirectory))
+            loader.LoadProcesses(Path.GetFullPath(folder, _rootDirectory))
                 .Where(p => Processes.GetValueOrDefault(p.Name)?.SourceFile != p.SourceFile));
+        _warnings.AddRange(loader.Warnings.Except(_warnings));  // a second call over the same folder names a file once
+    }
+
+    /// <summary>The process files the loader skipped, one <c>skipped &lt;path&gt;: &lt;reason&gt;</c> line each.</summary>
+    public IReadOnlyList<string> Warnings => _warnings;
 
     private static void AddProcesses(Dictionary<string, ProcessDefinition> processes, IEnumerable<ProcessDefinition> loaded)
     {
@@ -183,6 +193,6 @@ public sealed class FrameworkConfiguration
 
         return new FrameworkConfiguration(
             environment, site, runSettings, catalog, staticValues, objects, processes,
-            rootDirectory, paths, registry);
+            rootDirectory, paths, registry, loader.Warnings.ToList());
     }
 }

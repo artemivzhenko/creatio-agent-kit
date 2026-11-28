@@ -7,6 +7,7 @@
         [--pages] [--cultures en-US,ru-RU] [--dry-run]
     python scaffold.py source <package> <Name> --caption "Order service" [--service] [--cultures ..]
     python scaffold.py module <package> <Name> [--caption ..] [--mixin] [--cultures ..]
+    python scaffold.py package <Package> --project project.json [--depends CrtCoreBase,..] [--env <clioName>] [--dry-run]
 
 Builds the object (BaseEntity), each lookup object it lacks (BaseLookup) with a data binding Data/<Lookup> of
 the listed names (new Ids), the lookup columns, and with --pages the form page <Object>_FormPage (every column
@@ -18,6 +19,12 @@ file, otherwise the files are copied into the package.
 `source` writes an empty source code schema (SourceCodeSchemaManager: full metadata, `.SourceCode` resources, a
 CRLF `.cs` laid out by the code style; `--service` the [ServiceContract] skeleton of the KB recipe), `module` a client
 module (ClassicSchema.create_module; `--mixin` the Ext.define mixin a Classic page lists in `mixins`).
+
+`package` starts an assembly package in the project's workspace (`package.workspace`): `packages/<Package>/` with
+descriptor.json (Type 1, ProjectPath `Files/<Package>.csproj`, DependsOn = `--depends` or `package.dependsOn`, each entry's UId
+and version read from that package's descriptor in the workspace, else from SysPackage of `--env` or `environment.clioName`;
+`stop:` when neither has it), empty Schemas, Data, Resources, SqlScripts, Files/cs, and the csproj and Directory.Build.targets
+of clio's template. No placeholder class. An existing folder is refused.
 """
 
 from __future__ import annotations
@@ -33,16 +40,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from creatio_schemas.classicui import ClassicSchema  # noqa: E402
 from creatio_schemas.classicui.write import MODULE_BASE_UID  # noqa: E402
 from creatio_schemas.cli import CommandLine  # noqa: E402
+from creatio_schemas.clio import Clio  # noqa: E402
 from creatio_schemas.describe.index import index_path  # noqa: E402
 from creatio_schemas.describe.site import pass_date, schema_clash, site_says  # noqa: E402
 from creatio_schemas.data import DataBinding  # noqa: E402
 from creatio_schemas.entity import EntitySchema  # noqa: E402
 from creatio_schemas.files import CRLF, dump_json, new_uid, read_text, write_text  # noqa: E402
+from creatio_schemas.platform_version import stamp  # noqa: E402
 from creatio_schemas.resources import Resources  # noqa: E402
 from creatio_schemas.schema import Descriptor  # noqa: E402
 from creatio_schemas.workspace import Package  # noqa: E402
 from creatio_schemas.page import PageSchema  # noqa: E402
 from creatio_schemas.workspace import Workspace  # noqa: E402
+from project import read_json, write_package_project  # noqa: E402
 
 
 def caption_of(name: str) -> str:
@@ -113,14 +123,14 @@ def scratch_copy(package: Path) -> Path:
     return root / package.name
 
 
-def build(package: Path, obj: str, caption: str, columns: list[dict], lookups: list[dict], pages: bool, cultures: list[str] | None) -> list:
+def build(package: Path, obj: str, caption: str, columns: list[dict], lookups: list[dict], pages: bool, cultures: list[str] | None, stamped: dict | None = None) -> list:
     """Every item, made in `package` by its toolkit; returns them (for validation and the round trip)."""
-    items = []
+    items, stamped = [], stamped or {}
     ws = Workspace(package)
     for lk in lookups:
         if not ws.find(lk["object"], "EntitySchemaManager") and not (package / "Schemas" / lk["object"]).exists():
-            items.append(EntitySchema.create(package, lk["object"], caption_of(lk["object"]), parent="BaseLookup", cultures=cultures))
-    ent = EntitySchema.create(package, obj, caption, parent="BaseEntity", cultures=cultures)
+            items.append(EntitySchema.create(package, lk["object"], caption_of(lk["object"]), parent="BaseLookup", cultures=cultures, **stamped))
+    ent = EntitySchema.create(package, obj, caption, parent="BaseEntity", cultures=cultures, **stamped)
     for col in columns:
         ent.add_column(col["name"], col["type"], caption_of(col["name"]), col["ref"], **{f: True for f in col["flags"]})
     for lk in lookups:
@@ -131,11 +141,11 @@ def build(package: Path, obj: str, caption: str, columns: list[dict], lookups: l
         if lk["rows"]:
             items.append(DataBinding.create(package, lk["object"], lk["object"], ["Id"], [{"Name": r} for r in lk["rows"]], cultures))
     if pages:
-        form = PageSchema.create(package, f"{obj}_FormPage", obj, "form", f"{caption} form page", cultures)
+        form = PageSchema.create(package, f"{obj}_FormPage", obj, "form", f"{caption} form page", cultures, **stamped)
         for name in [c["name"] for c in columns] + [lk["column"] for lk in lookups]:
             form.add_field(name)
         form.save()
-        items += [form, PageSchema.create(package, f"{obj}_ListPage", obj, "list", caption, cultures)]
+        items += [form, PageSchema.create(package, f"{obj}_ListPage", obj, "list", caption, cultures, **stamped)]
     return items
 
 
@@ -173,7 +183,7 @@ def entity(_, a) -> int:
         return 1
     scratch = scratch_copy(package)
     try:
-        items = build(scratch, a.object, a.caption, columns, lookups, a.pages, cultures)
+        items = build(scratch, a.object, a.caption, columns, lookups, a.pages, cultures, stamp(None, a.project))
         problems = [f"{item.name}: {p}" for item in items for p in item.errors()]
         if problems:
             raise ValueError("the toolkits refuse the result:\n  " + "\n  ".join(problems))
@@ -302,7 +312,7 @@ def source(_, a) -> int:
     package = Path(a.package).resolve()
     if stopped(package, [a.name], a.force):
         return 1
-    for f in create_source(package, a.name, a.caption, a.service, a.cultures.split(",") if a.cultures else None):
+    for f in create_source(package, a.name, a.caption, a.service, a.cultures.split(",") if a.cultures else None, **stamp(None, a.project)):
         print(f"  {f.relative_to(package).as_posix()}")
     return 0
 
@@ -311,10 +321,71 @@ def module(_, a) -> int:
     package = Path(a.package).resolve()
     if stopped(package, [a.name], a.force):
         return 1
-    s = ClassicSchema.create_module(package, a.name, a.caption, a.mixin, a.cultures.split(",") if a.cultures else None)
+    s = ClassicSchema.create_module(package, a.name, a.caption, a.mixin, a.cultures.split(",") if a.cultures else None, **stamp(None, a.project))
     for f in sorted(s.files()):
         print(f"  {f.relative_to(package).as_posix()}")
     print(f"  {(s.dir / (s.name + '.less')).relative_to(package).as_posix()}")
+    return 0
+
+
+def create_package(ws: Path, name: str, maintainer: str, depends: list[str], rows_of=None, run=None, dry_run: bool = False) -> list[str]:
+    """packages/<name>/ as an assembly package in the clio workspace `ws`; the relative paths written (nothing in a dry run).
+    `rows_of(sql)` runs a select on the site for a dependency the workspace does not hold; ValueError: `stop:` line."""
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", name):
+        raise ValueError(f"{name!r} is not a valid package name")
+    package = ws / "packages" / name
+    if package.exists():
+        raise FileExistsError(f"exists: {package}")
+    entries, site = [], None
+    for dep in depends:
+        if (ws / "packages" / dep / "descriptor.json").is_file():
+            d = Package(ws / "packages" / dep).descriptor
+            entries.append({"UId": d["UId"], "PackageVersion": d.get("PackageVersion", ""), "Name": d["Name"]})
+            continue
+        if rows_of is None:
+            raise ValueError(f"stop: dependency {dep} is not in {ws / 'packages'} and no environment is named (--env or environment.clioName)")
+        site = {str(r["Name"]): r for r in rows_of('select "Name", "UId", "Version" from "SysPackage" where "Name" in ('
+                                                    + ", ".join("'" + n.replace("'", "''") + "'" for n in depends) + ")")} if site is None else site
+        if dep not in site:
+            raise ValueError(f"stop: dependency {dep} is not in {ws / 'packages'} and not on the site")
+        entries.append({"UId": str(site[dep]["UId"]), "PackageVersion": str(site[dep]["Version"]), "Name": dep})
+    paths = ["descriptor.json", *(f"{d}/" for d in ("Schemas", "Data", "Resources", "SqlScripts", "Files/cs")),
+             f"Files/{name}.csproj", "Files/Directory.Build.targets"]
+    if dry_run:
+        return paths
+    try:
+        for d in ("Schemas", "Data", "Resources", "SqlScripts", "Files/cs"):
+            (package / d).mkdir(parents=True)
+        desc = Descriptor.new(package / "descriptor.json", {"UId": new_uid(), "Name": name, "PackageVersion": "7.8.0", "ModifiedOnUtc": "",
+                                                            "Maintainer": maintainer, "Type": 1, "ProjectPath": f"Files/{name}.csproj",
+                                                            "DependsOn": entries})
+        write_text(desc.path, desc.text, True)
+        write_package_project(package / "Files", name, run)
+    except BaseException:
+        shutil.rmtree(package, ignore_errors=True)  # the folder this call made, never one that was there
+        raise
+    return paths
+
+
+def package(_, a) -> int:
+    project = read_json(Path(a.project))
+    section = project.get("package") or {}
+    if not section.get("workspace"):
+        raise ValueError("project.json must contain package.workspace")
+    base = Path(a.project).resolve().parent
+    ws = Path(section["workspace"]) if Path(section["workspace"]).is_absolute() else base / section["workspace"]
+    depends = [d.strip() for d in a.depends.split(",") if d.strip()] if a.depends else list(section.get("dependsOn") or [])
+    env = a.env or (project.get("environment") or {}).get("clioName")
+    try:
+        paths = create_package(ws, a.name, section.get("maintainer") or "Customer", depends, Clio(env).execute_sql_rows if env else None,
+                               dry_run=a.dry_run)
+    except ValueError as e:
+        if not str(e).startswith("stop:"):
+            raise
+        print(e, file=sys.stderr)
+        return 1
+    for f in paths:
+        print(f"  {'would write ' if a.dry_run else ''}packages/{a.name}/{f}")
     return 0
 
 
@@ -329,12 +400,14 @@ def build_cli() -> CommandLine:
     p.add_argument("--pages", action="store_true", help="also <Object>_FormPage and <Object>_ListPage")
     p.add_argument("--cultures", help="comma-separated; default: the cultures the package's resources have")
     p.add_argument("--dry-run", action="store_true", help="print the diff of every file, write nothing")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p = c.command("source", source, "an empty source code schema (a class, or --service the web service skeleton)", target=False)
     p.add_argument("package")
     p.add_argument("name")
     p.add_argument("--caption", required=True)
     p.add_argument("--service", action="store_true", help="the [ServiceContract] skeleton of the KB recipe")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p.add_argument("--cultures", help="comma-separated; default the package's")
     p = c.command("module", module, "an empty client module (--mixin: the Ext.define mixin a Classic page lists)", target=False)
@@ -342,8 +415,15 @@ def build_cli() -> CommandLine:
     p.add_argument("name")
     p.add_argument("--caption")
     p.add_argument("--mixin", action="store_true")
+    p.add_argument("--project", help="project.json: its environment.platformVersion is the version written")
     p.add_argument("--force", action="store_true", help="create it although the last `index --env` pass found it on the site")
     p.add_argument("--cultures", help="comma-separated; default the package's")
+    p = c.command("package", package, "an assembly package: descriptor (Type 1, DependsOn with UIds), the folders, the csproj; no placeholder class", target=False)
+    p.add_argument("name", metavar="Package")
+    p.add_argument("--project", required=True, help="project.json: package.workspace, maintainer, dependsOn; environment.clioName")
+    p.add_argument("--depends", help="comma-separated package names; default package.dependsOn")
+    p.add_argument("--env", help="clio environment for a dependency the workspace does not hold; default environment.clioName")
+    p.add_argument("--dry-run", action="store_true", help="print the paths, write nothing")
     return c
 
 

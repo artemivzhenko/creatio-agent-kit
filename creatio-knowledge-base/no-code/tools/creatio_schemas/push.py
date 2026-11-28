@@ -510,6 +510,7 @@ def _source_text(value) -> str:
     except ValueError:
         return str(value or "")
 
+CLEAR_RETRY_S = 30  # a busy site (compiling) times the clio web call out: the clear step is tried once more after this long
 ISCHANGED_TABLES = ("SysSchema", "SysPackageSchemaData", "SysPackageSqlScript")
 # push-pkg does not overwrite a string whose SysLocalizableValue.IsChanged is true: only the package's own schemas are cleared
 LOCALIZABLE_CLEAR = ('update "SysLocalizableValue" set "IsChanged"=false where "SysSchemaId" in (select s."Id" from "SysSchema" s '
@@ -853,11 +854,19 @@ def _push(package: Path, env: str, clio: Clio, probe: bool, dry_run: bool, log, 
         return ", ".join(names) if names else "not needed"
 
     def clear():
-        for statement in statements:
-            if dry_run:
-                command(["execute-sql-script", statement, "-e", env])
-            else:
-                clio.execute_sql(statement)
+        for attempt in (1, 2):
+            try:
+                for statement in statements:
+                    if dry_run:
+                        command(["execute-sql-script", statement, "-e", env])
+                    else:
+                        clio.execute_sql(statement)
+                break
+            except (RuntimeError, OSError) as exc:
+                if attempt == 2 or not re.search(r"timeout|timed out", str(exc), re.I):
+                    raise
+                log(f"  clear IsChanged: web timeout, retry in {CLEAR_RETRY_S} s")
+                time.sleep(CLEAR_RETRY_S)
         return "dry run" if dry_run else "ok (" + ", ".join(ISCHANGED_TABLES) + ", SysLocalizableValue of the package's schemas)"
 
     def install():

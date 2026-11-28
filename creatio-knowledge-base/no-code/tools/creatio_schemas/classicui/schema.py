@@ -23,7 +23,8 @@ from .write import ClassicWriter
 _KEY_RE = re.compile(r'([A-Za-z_$][\w$]*|"[^"\n]*"|\'[^\'\n]*\')\s*:')
 _STRING_RE = re.compile(r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'')
 _PAIRS = {"{": "}", "[": "]", "(": ")"}
-_KINDS = {"EditViewModelSchema": "edit page", "ModuleViewModelSchema": "section", "GridDetailViewModelSchema": "detail", "Module": "module"}
+_KINDS = {"EditViewModelSchema": "edit page", "ModuleViewModelSchema": "section", "GridDetailViewModelSchema": "detail", "Module": "module",
+          "None": "dashboard or home page", "MobileSchema": "mobile page"}
 # diff value keys that bind to a method (click: {bindTo: "onSaveClick"}); visible / enabled bind to attributes as often
 HANDLER_KEYS = ("click", "change", "prepareList", "afterrender", "afterrerender", "linkclick", "rightIconClick", "activeRowAction")
 

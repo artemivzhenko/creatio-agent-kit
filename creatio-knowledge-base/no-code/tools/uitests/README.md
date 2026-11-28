@@ -185,7 +185,7 @@ Every generated case has a `# schema: <Name>` line under its header. `--report` 
 of the package (object, process, page) and per `Files/cs` class, `<Schema> (<kind>): unit <n> | integration <n> | e2e <n>`, then
 `not covered: <Schema> (<kind>)` for each with 0 and `covered N of M`; exit code 0. A case counts for a schema when its `# schema:` line
 (`// schema:` in a `.cs` file; comma-separated names allowed) or its file name names it, so a hand-written case counts with the header,
-and `<Class>Tests.cs` under `unit/` counts for `<Class>`. The merge campaign still uses the test utility's own root (`layout="root"` of the
+and `<Class>Tests.cs` under `unit/` counts for `<Class>`; a `.cs` file under `unit/` (not in `obj/` or `bin/`) also counts for every `Files/cs` class its text names as a whole word. A class whose `[EntityEventListener(SchemaName = "X")]` names schema `X` also gets the integration and e2e counts of `X` (its unit count stays its own): `UsrOrderEventListener (class, listens to UsrOrder): unit 0 | integration 4 | e2e 0`. The merge campaign still uses the test utility's own root (`layout="root"` of the
 library: `Cases/`, `ProcessCases/`, `Configuration/`).
 
 A value or a field the generator will not guess is a `# stop:` comment in the case (no commands after it) and a `stop <Schema>: ...`

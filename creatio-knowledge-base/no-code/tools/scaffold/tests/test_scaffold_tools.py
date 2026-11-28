@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -19,7 +20,7 @@ from creatio_schemas.data import DataBinding  # noqa: E402
 from creatio_schemas.describe import describe_item, describe_package  # noqa: E402
 from creatio_schemas.entity import EntitySchema  # noqa: E402
 from creatio_schemas.page import PageSchema  # noqa: E402
-from scaffold import caption_of, main, parse_column, parse_lookup  # noqa: E402
+from scaffold import caption_of, create_package, main, parse_column, parse_lookup  # noqa: E402
 
 PAGES = TOOLS / "pages" / "tests" / "fixtures" / "UsrPkg"
 SPEC = ["--caption", "Shipment", "--column", "UsrNumber:Integer:required", "--column", "UsrNotes:MediumText",
@@ -208,6 +209,70 @@ def test_new_schemas_stop_on_what_the_site_already_has():
         assert files(pkg) == before  # nothing written
         code, out = run("source", str(pkg), "UsrRegionCalc", "--caption", "Calc", "--force")
         assert code == 0 and "warning: UsrRegionCalc exists on the site (dev, 2026-11-21) as source in package UsrOtherPkg; --force given" in out, out
+
+
+def test_the_scaffold_stamps_the_projects_platform_version():
+    import json
+    with package() as pkg:
+        proj = pkg.parent / "project.json"
+        proj.write_text(json.dumps({"environment": {"platformVersion": "8.3.2.4199"}}), encoding="utf-8")
+        code, out = run("entity", str(pkg), "UsrBox", "--caption", "Box", "--pages", "--project", str(proj))
+        assert code == 0, out
+        for name in ("UsrBox", "UsrBox_FormPage"):
+            props = json.loads((pkg / "Schemas" / name / "properties.json").read_text(encoding="utf-8-sig"))["Properties"]
+            assert props["CreatedInVersion"] == "8.3.2.4199", (name, props)
+        code, out = run("source", str(pkg), "UsrSvc", "--caption", "Svc", "--project", str(proj))
+        assert code == 0 and '"B8": "8.3.2.4199"' in (pkg / "Schemas" / "UsrSvc" / "metadata.json").read_text(encoding="utf-8-sig"), out
+
+
+def fake_clio(cmd, cwd=None, **kwargs):
+    """clio's create-workspace and add-package: the csproj and the targets file of its template, and the placeholder class."""
+    if cmd[1] == "add-package":
+        files = Path(cwd) / "packages" / cmd[2] / "Files"
+        (files / "cs").mkdir(parents=True)
+        for n in (f"{cmd[2]}.csproj", "Directory.Build.targets", "cs/EmptyClass.cs"):
+            (files / n).write_text("<Project />", encoding="utf-8")
+    return subprocess.CompletedProcess(cmd, 0, "Done", "")
+
+
+def test_package_builds_an_assembly_package_and_refuses_an_existing_folder():
+    """S52-T05: Type 1, ProjectPath, the DependsOn entry read from the dependency's descriptor, the folders, the csproj, no placeholder."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = Path(tmp) / "ws"
+        shutil.copytree(PAGES, ws / "packages" / "CrtCoreBase")
+        dep = json.loads((ws / "packages" / "CrtCoreBase" / "descriptor.json").read_text(encoding="utf-8-sig"))["Descriptor"]
+        dep.update(UId="00000000-0000-4000-8000-000000000001", Name="CrtCoreBase", PackageVersion="7.8.0")
+        (ws / "packages" / "CrtCoreBase" / "descriptor.json").write_text(json.dumps({"Descriptor": dep}), encoding="utf-8")
+        assert create_package(ws, "UsrNew", "Customer", ["CrtCoreBase"], dry_run=True)[0] == "descriptor.json" and not (ws / "packages" / "UsrNew").exists()
+        create_package(ws, "UsrNew", "Customer", ["CrtCoreBase"], run=fake_clio)
+        pkg = ws / "packages" / "UsrNew"
+        raw = (pkg / "descriptor.json").read_bytes()
+        assert raw.startswith(b"\xef\xbb\xbf") and b"\r\n" in raw
+        d = json.loads(raw.decode("utf-8-sig"))["Descriptor"]
+        assert d["Type"] == 1 and d["ProjectPath"] == "Files/UsrNew.csproj" and d["Name"] == "UsrNew" and d["PackageVersion"] == "7.8.0", d
+        assert d["DependsOn"] == [{"UId": "00000000-0000-4000-8000-000000000001", "PackageVersion": "7.8.0", "Name": "CrtCoreBase"}], d
+        assert all((pkg / f).is_dir() for f in ("Schemas", "Data", "Resources", "SqlScripts", "Files/cs"))
+        assert (pkg / "Files" / "UsrNew.csproj").is_file() and (pkg / "Files" / "Directory.Build.targets").is_file()
+        assert not list(pkg.rglob("EmptyClass.cs")) and not list((pkg / "Files" / "cs").iterdir())
+        before = files(pkg)
+        try:
+            create_package(ws, "UsrNew", "Customer", [], run=fake_clio)
+            raise AssertionError("an existing folder must be refused")
+        except FileExistsError as e:
+            assert str(e).startswith("exists: ")
+        assert files(pkg) == before
+        # a dependency neither in the workspace nor on the site stops with its name and leaves no folder; the site answers the rest
+        for rows, why in ((None, "no environment"), (lambda sql: [], "not on the site")):
+            try:
+                create_package(ws, "UsrOther", "Customer", ["CrtBase"], rows, run=fake_clio)
+                raise AssertionError(why)
+            except ValueError as e:
+                assert str(e).startswith("stop: dependency CrtBase "), e
+        assert not (ws / "packages" / "UsrOther").exists()
+        site = lambda sql: [{"Name": "CrtBase", "UId": "00000000-0000-4000-8000-000000000002", "Version": "7.8.1"}]
+        create_package(ws, "UsrOther", "Customer", ["CrtBase"], site, run=fake_clio)
+        d = json.loads((ws / "packages" / "UsrOther" / "descriptor.json").read_bytes().decode("utf-8-sig"))["Descriptor"]
+        assert d["DependsOn"][0]["UId"].endswith("0002") and d["DependsOn"][0]["PackageVersion"] == "7.8.1"
 
 
 if __name__ == "__main__":

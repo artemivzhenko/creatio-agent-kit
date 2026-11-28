@@ -28,6 +28,7 @@ python scaffold.py entity <package> <Object> --caption "Shipment"
     [--pages] [--cultures en-US,ru-RU] [--dry-run]
 python scaffold.py source <package> <Name> --caption "Order service" [--service] [--cultures ..]
 python scaffold.py module <package> <Name> [--caption ..] [--mixin] [--cultures ..]
+python scaffold.py package <Package> --project project.json [--depends CrtCoreBase,..] [--env <clioName>] [--dry-run]
 ```
 
 | command | what it does |
@@ -35,6 +36,7 @@ python scaffold.py module <package> <Name> [--caption ..] [--mixin] [--cultures 
 | `entity` | an object with its columns, lookups with seed rows, form and list pages |
 | `source` | an empty source code schema (a class, or --service the web service skeleton) |
 | `module` | an empty client module (--mixin: the Ext.define mixin a Classic page lists) |
+| `package` | an assembly package: descriptor (Type 1, DependsOn with UIds), the folders, the csproj; no placeholder class |
 <!-- commands:end -->
 
 ## A source code schema and a client module

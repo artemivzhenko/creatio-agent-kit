@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..entity.catalog import STOCK_ENTITIES, stock_columns
+from ..entity.catalog import stock
 from ..files import is_uid
 from ..workspace import BASE_COLUMNS, Workspace
 
@@ -67,8 +67,9 @@ class Resolver:
     """Names and UIds of the workspace plus the stock objects (entity/catalog.py: 8.3.2); columns through the entity's
     effective schema, else the stock catalogue's columns."""
 
-    def __init__(self, workspace: Workspace):
+    def __init__(self, workspace: Workspace, platform: str = ""):
         self.ws = workspace
+        self.stock = stock(platform)  # the catalogue of the project's platform version ("" = the newest)
         self._columns: dict[str, dict[str, str | None] | None] = {}
 
     def schema(self, name_or_uid: str | None, manager: str) -> tuple[str, str | None]:
@@ -80,7 +81,7 @@ class Resolver:
             return hits[0]["name"], hits[0]["base"]
         if manager == "EntitySchemaManager":
             key = name_or_uid.lower()
-            for name, uid in STOCK_ENTITIES.items():
+            for name, uid in self.stock.entities.items():
                 if key in (name.lower(), uid):
                     return name, uid
         return name_or_uid, (name_or_uid.lower() if is_uid(name_or_uid) else None)
@@ -109,10 +110,10 @@ class Resolver:
                 from ..entity.hierarchy import load_base
                 cached = load_base(copies[0]["dir"].parent.parent, entity)
                 base = ({c["A2"]: (c.get("UId") or "").lower() or None for c in cached.get("schema", {}).get("D2", [])} if cached
-                        else stock_columns(entity) or {})  # no fetched base: the stock catalogue's columns
+                        else self.stock.columns(entity) or {})  # no fetched base: the stock catalogue's columns
                 out = {**{n: None for n in BASE_COLUMNS}, **base, **self.ws.column_uids(entity)}
-            if out is None and stock_columns(entity) is not None:  # no copy in the workspace: a stock object's columns from the catalogue
-                out = dict(stock_columns(entity))
+            if out is None and self.stock.columns(entity) is not None:  # no copy in the workspace: a stock object's columns from the catalogue
+                out = dict(self.stock.columns(entity))
             self._columns[entity] = out
         return self._columns[entity]
 
@@ -138,7 +139,7 @@ class Resolver:
         `exact`); None for any other word."""
         if not hasattr(self, "_objects"):  # built once: the text extractors ask for every string and table name
             self._own = {s["name"].lower(): (s["name"], s["base"]) for s in self.ws.schemas if s["manager"] == "EntitySchemaManager"}
-            self._objects = {**{n.lower(): (n, u) for n, u in STOCK_ENTITIES.items()}, **self._own}
+            self._objects = {**{n.lower(): (n, u) for n, u in self.stock.entities.items()}, **self._own}
         hit = (self._objects if stock else self._own).get(word.lower())
         return hit if hit and (not exact or hit[0] == word) else None
 
@@ -507,6 +508,17 @@ def dependencies(path: Path | str, name: str, direction: str = "both", kind: str
     return "\n".join(ws.stale + out + _unreadable_line(ws.indexes))
 
 
+class _NoPackages:
+    """What `impact` reads when the workspace has no package: no schema, no dependent."""
+    stale: list[str] = []
+
+    def rows(self, *_, **__) -> list:
+        return []
+
+    def dependents(self, _name: str) -> list:
+        return []
+
+
 def impact(path: Path | str, schemas: list[str], tasks: Path | str | None = None, current: str | None = None,
            md: bool = False, limit: int | None = None, kind: str = "") -> tuple[str, int]:
     """The dependents of the schemas a task changes, with the other active tasks that change or affect them.
@@ -519,7 +531,12 @@ def impact(path: Path | str, schemas: list[str], tasks: Path | str | None = None
     from .core import DEFAULT_LIMIT, cut
     from .index import Indexed
     limit = DEFAULT_LIMIT if limit is None else limit
-    ws = Indexed(path)
+    try:
+        ws = Indexed(path)
+    except FileNotFoundError:
+        if not (Path(path) / "packages").is_dir() and Path(path).name != "packages":
+            raise
+        ws = _NoPackages()  # a workspace that holds no package yet: every schema is new, nothing depends on it
     changes, affects = active_locks(tasks, current) if tasks else ({}, {})
     rows, conflicts, all_dependents = [], 0, []
     for schema in schemas:

@@ -32,6 +32,19 @@ public sealed class ReportWriterTests
     }
 
     [Test]
+    public void The_text_report_prints_each_warning_after_the_tier_lines()
+    {
+        var result = new RunResult { Cases = Array.Empty<TestCaseResult>() };
+        result.Head.Add("integration: 0 cases");
+        result.Head.Add("e2e: 0 cases");
+        result.Warnings.Add("skipped integration/notes.json: no name");
+
+        var lines = TextReportWriter.Render(result).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+        Assert.That(lines.Take(3), Is.EqualTo(new[] { "integration: 0 cases", "e2e: 0 cases", "warning: skipped integration/notes.json: no name" }));
+    }
+
+    [Test]
     public async Task JUnit_reports_cases_validation_failures_and_analysis_separately()
     {
         var result = Result();

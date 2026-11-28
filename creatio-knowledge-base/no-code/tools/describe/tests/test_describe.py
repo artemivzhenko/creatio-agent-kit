@@ -219,6 +219,7 @@ def test_find_and_lookup_limits():
             self.path = tmp / "index.sqlite"
             self.data = {"package": "UsrPkg", "data": {}}
             self.head = self._data = self.data
+            self.platform = ""
             self.schemas = {
                 f"UsrLookup{i}": {"kind": "object", "parent": "BaseLookup", "caption": "", "summary": "",
                                   "files": {}, "refs": ["UsrA", "UsrB", "UsrC"]}
@@ -1079,6 +1080,28 @@ def test_schema_diff_names_the_added_column_against_head_and_a_folder():
             raise AssertionError("an unknown revision must be refused")
         except QueryError as e:
             assert "no-such-rev" in str(e)
+
+
+def test_impact_on_a_workspace_without_the_schema_answers_its_row():
+    """S52-T05: an empty packages/, and a package that does not hold the schema: the row, no dependents, no refusal."""
+    import shutil
+    import tempfile
+    from creatio_schemas.describe.deps import impact
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = Path(tmp) / "ws"
+        (ws / "packages").mkdir(parents=True)
+        for text, conflicts in (impact(ws, ["UsrNewThing"]), impact(ws, ["UsrNewThing"], md=True)):
+            assert conflicts == 0 and "affects: (none)" in text, text
+        assert "UsrNewThing  (not in the workspace)" in impact(ws, ["UsrNewThing"])[0]
+        assert "| `UsrNewThing` | none typed | - |" in impact(ws, ["UsrNewThing"], md=True)[0]
+        shutil.copytree(PAGES, ws / "packages" / "UsrPkg")
+        text, conflicts = impact(ws, ["UsrNewThing"], md=True)
+        assert conflicts == 0 and "| `UsrNewThing` | none typed | - |" in text and "affects: (none)" in text, text
+    try:
+        impact(Path(tmp) / "missing", ["UsrNewThing"])
+        raise AssertionError("a folder that is not there must still be refused")
+    except FileNotFoundError:
+        pass
 
 
 def test_impact_filters_dependents_by_kind():
@@ -3522,6 +3545,109 @@ def test_descriptor_touch_keeps_the_date_form_the_file_has():
         d.touch()
         new = d.text.split('"ModifiedOnUtc": "')[1].split('"')[0]
         assert new != old and new.startswith("\/" if old.startswith("\\") else "/") and new.endswith(")\/" if old.startswith("\\") else ")/"), (old, new)
+
+
+def test_platform_version_comes_from_the_project():
+    import json
+    import shutil
+    import tempfile
+    from unittest.mock import patch
+    from creatio_schemas.platform_version import platform_version, stamp
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        def project(**data):
+            (tmp / "project.json").write_text(json.dumps(data), encoding="utf-8")
+            return tmp / "project.json"
+
+        assert platform_version(project(environment={"platformVersion": "8.3.2.4199"})) == "8.3.2.4199"
+        assert platform_version(project(environment={"platformVersion": "8.3.2"})) == "8.3.2"
+        assert platform_version(None) == "" and platform_version(project(environment={})) == ""
+        # no version named: the binaries of paths.platformBin (relative to project.json), never a schema's CreatedInVersion
+        with patch("creatio_schemas.describe.platform.version_of", return_value="8.2.3.1351") as seen:
+            assert platform_version(project(paths={"platformBin": "bin"})) == "8.2.3.1351"
+            assert seen.call_args.args[0] == tmp / "bin"
+        with patch("creatio_schemas.describe.platform.version_of", return_value=None):
+            assert platform_version(project(paths={"platformBin": "bin"})) == ""
+        # a short version takes the bin's full one when the bin matches, else stays short
+        short = project(environment={"platformVersion": "8.3.2"}, paths={"platformBin": "bin"})
+        with patch("creatio_schemas.describe.platform.version_of", return_value="8.3.2.4199"):
+            assert platform_version(short) == "8.3.2.4199"
+        with patch("creatio_schemas.describe.platform.version_of", return_value="8.2.3.1351"):
+            assert platform_version(short) == "8.3.2"
+        # the writers' keyword: explicit wins, short is padded, nothing known leaves the writer's default
+        assert stamp("8.3.4.1", project(environment={"platformVersion": "8.3.2"})) == {"version": "8.3.4.1"}
+        assert stamp(None, project(environment={"platformVersion": "8.3.2"})) == {"version": "8.3.2.0"}
+        assert stamp(None, None) == {}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_the_stock_catalogue_follows_the_platform_version():
+    import json
+    from creatio_schemas.entity.catalog import ASSETS, STOCK_ENTITIES, stock, stock_columns
+
+    old, new = stock("8.2.3.1351"), stock("8.3.2")
+    assert old.entities == json.loads((ASSETS / "entities_8.2.3.json").read_text(encoding="utf-8"))["entities"]
+    assert stock("8.2.9").entities is old.entities and stock("8.2.2").entities is old.entities  # same file; older than every file: the oldest
+    assert new.entities is STOCK_ENTITIES and stock("").entities is STOCK_ENTITIES and stock("8.3").entities is STOCK_ENTITIES
+    assert stock("8.3.4.2753").entities is new.entities and stock("garbage").entities is new.entities  # nearest lower; unknown: the newest
+    assert stock("8.2.3") is stock("8.2.3.1351")  # cached per file set
+    assert old.lookups != new.lookups and old.columns("Contact") == new.columns("Contact") == stock_columns("Contact")  # columns: the one file there is
+
+
+def test_the_index_stores_the_platform_and_picks_the_catalogue_by_it():
+    import json
+    import shutil
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(PAGES, pkg)
+        proj = tmp / "project.json"
+        for version in ("8.3.2.4199", "8.2.3"):
+            proj.write_text(json.dumps({"environment": {"platformVersion": version}}), encoding="utf-8")
+            index_workspace(pkg, project=str(proj))
+            assert PackageIndex(pkg).head["platform"] == version
+        index_workspace(pkg)  # no project: the stored version stays
+        assert PackageIndex(pkg).head["platform"] == "8.2.3"
+        assert PackageIndex(pkg).platform == "8.2.3"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_a_replacing_dependency_entry_keeps_the_install_behavior_of_the_replaced_one():
+    from creatio_schemas.describe.package_merge import _entry
+
+    parent = {"UId": "p", "PackageVersion": "1.0", "Name": "UsrBase", "Type": 0, "InstallBehavior": 4}
+    assert _entry(parent, {"Name": "UsrChild", "InstallBehavior": 1}) == {"UId": "p", "PackageVersion": "1.0", "Name": "UsrBase", "Type": 0, "InstallBehavior": 1}
+    assert "InstallBehavior" not in _entry(parent, {"Name": "UsrChild"}) and "InstallBehavior" not in _entry(parent)
+
+
+def test_the_8_3_kinds_are_named():
+    import json
+    import shutil
+    import tempfile
+    from creatio_schemas.classicui import ClassicSchema
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        pkg = tmp / "UsrPkg"
+        shutil.copytree(PAGES, pkg)
+        svc = pkg / "Schemas" / "UsrApi"
+        svc.mkdir()
+        (svc / "descriptor.json").write_text(json.dumps({"Descriptor": {"UId": "u-1", "Name": "UsrApi", "ManagerName": "ServiceSchemaManager", "Caption": "Api"}}), encoding="utf-8")
+        (svc / "properties.json").write_text(json.dumps({"Properties": {"BaseUri": "https://example.invalid/api", "Type": "Rest"}}), encoding="utf-8")
+        assert "  service   UsrApi" in describe_package(pkg) and "service Rest https://example.invalid/api" in describe_package(pkg, "service")
+        classic = TOOLS / "classicui" / "tests" / "fixtures" / "UsrPkg"
+        shutil.copytree(classic, tmp / "UsrClassic")
+        props = tmp / "UsrClassic" / "Schemas" / "UsrOrderPage" / "properties.json"
+        for schema_type, label in (("None", "dashboard or home page"), ("MobileSchema", "mobile page")):
+            props.write_text(json.dumps({"Properties": {"SchemaType": schema_type}}), encoding="utf-8")
+            assert ClassicSchema(tmp / "UsrClassic", "UsrOrderPage").kind == label
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

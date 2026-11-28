@@ -36,7 +36,8 @@ def resolve_package(name: str, project: Path | None = None) -> Path:
     for base in bases:
         if (base / "packages" / name).is_dir():
             return base / "packages" / name
-    raise FileNotFoundError(f"no package folder named {name}; give its path (packages/{name})")
+    looked = ", ".join(dict.fromkeys(str(b / "packages") for b in reversed(bases)))  # the project's workspace first
+    raise FileNotFoundError(f"no package folder named {name}: looked under {looked}; give its path (packages/{name})")
 
 
 def finish(schema: Schema, dry_run: bool) -> int:

@@ -68,6 +68,24 @@ public sealed class ConfigurationLoaderTests
     }
 
     [Test]
+    public void A_stray_json_among_the_process_files_is_skipped_and_named()
+    {
+        var folder = Path.Combine(_fixtureDirectory, "integration");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "UsrOrder_Process.json"), "{\"name\":\"UsrOrder_Process\"}");
+        File.WriteAllText(Path.Combine(folder, "notes.json"), "just a note");
+        File.WriteAllText(Path.Combine(folder, "fixture.json"), "{\"rows\":[]}");
+        var loader = new ConfigurationLoader(_fixtureDirectory);
+
+        var processes = loader.LoadProcesses("integration");
+
+        Assert.That(processes.Select(p => p.Name), Is.EqualTo(new[] { "UsrOrder_Process" }));
+        Assert.That(loader.Warnings, Has.Count.EqualTo(2));
+        Assert.That(loader.Warnings[0], Does.StartWith("skipped " + Path.Combine("integration", "fixture.json") + ": no name"));
+        Assert.That(loader.Warnings[1], Does.StartWith("skipped " + Path.Combine("integration", "notes.json") + ": not valid JSON: "));
+    }
+
+    [Test]
     public void Static_values_flatten_all_supported_scalar_types()
     {
         File.WriteAllText(Path.Combine(_fixtureDirectory, "values.json"),

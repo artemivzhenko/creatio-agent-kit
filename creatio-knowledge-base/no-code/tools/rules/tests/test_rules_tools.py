@@ -238,6 +238,27 @@ def test_command_line():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_the_new_schema_is_stamped_with_the_projects_platform_version():
+    """S52-T04: --project stamps environment.platformVersion (padded to four parts), --version beats it, none keeps the default."""
+    import contextlib, io, json, shutil, tempfile
+    import rules
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        project = tmp / "project.json"
+        project.write_text(json.dumps({"environment": {"platformVersion": "8.3.2"}}), encoding="utf-8")
+        stamps = []
+        for extra in ([], ["--project", str(project)], ["--project", str(project), "--version", "8.3.4.2753"]):
+            pkg = tmp / f"p{len(stamps)}" / "UsrPkg"
+            shutil.copytree(FIXTURES, pkg)
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert rules.main(["new", str(pkg), "Contact", "--target-uid", "16be3651-8fe2-4159-8dd0-a803d4683dd3", "--kind", "entity"] + extra) == 0
+            props = json.loads((pkg / "Schemas" / "ContactBusinessRule" / "properties.json").read_text(encoding="utf-8-sig"))["Properties"]
+            stamps.append(props["CreatedInVersion"])
+        assert stamps == ["8.2.3.1351", "8.3.2.0", "8.3.4.2753"], stamps
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

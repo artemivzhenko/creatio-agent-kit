@@ -264,11 +264,52 @@ def test_tests_init_bootstraps_a_bare_package_and_a_second_run_says_what_exists(
         assert data["paths"]["unitTests"] == str(unit) and data["paths"]["solution"] == str(ws / "tests" / "UnitTests.slnx")
         assert data["commands"]["unitTests"] == f'dotnet test "{ws / "tests" / "UnitTests.slnx"}" -c dev-nf' and data["paths"]["unitTestBin"]
         assert lines[-1].startswith("run the unit tests: dotnet test ") and "push.py --build" in lines[-1]
+        # S52-T05: the three tier folders exist beside unit/, and the first `sync` writes all three lists with no `skipped` line
+        assert "created tests/UsrPkg/{integration,e2e,pages}" in lines, lines
+        assert all((ws / "tests" / "UsrPkg" / t).is_dir() for t in ("integration", "e2e", "pages"))
+        (root / "framework" / "Configuration").mkdir(parents=True)
+        data["environment"] = {"url": "https://dev.example.com", "login": "Supervisor", "password": "p"}
+        data["paths"]["testFramework"] = "framework"
+        source.write_text(json.dumps(data), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert project.main(["sync", "--project", str(source)]) == 0
+        written = json.loads((root / "framework" / "Configuration" / "creatio.env.config.json").read_text(encoding="utf-8"))
+        assert "skipped" not in out.getvalue() and all(written[k] for k in ("CasesFolders", "ProcessCasesFolders", "PagesFolders")), out.getvalue()
         calls.clear()
         lines, ok = project.tests_init(source, run)
         assert ok and calls == [] and lines[:-1] == ["workspace: exists", "workspace settings: exist", "package project: exists",
                                                      "test project: exists", "test binaries: exist", "app.config: exists",
                                                      "project.json: up to date"], lines
+
+
+def test_tests_init_finds_the_project_files_of_a_scaffolded_package():  # S52-T05
+    scaffold = load("scaffold_tool", ROOT / "no-code" / "tools" / "scaffold" / "scaffold.py")
+
+    def fake_clio(cmd, cwd=None, **kwargs):
+        if cmd[1] == "add-package":
+            files = Path(cwd) / "packages" / cmd[2] / "Files"
+            files.mkdir(parents=True)
+            for n in (f"{cmd[2]}.csproj", "Directory.Build.targets"):
+                (files / n).write_text("<Project />", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, "Done", "")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ws = root / "ws"
+        scaffold.create_package(ws, "UsrPkg", "Customer", [], run=fake_clio)
+        (ws / ".clio").mkdir()
+        (ws / ".clio" / "workspaceSettings.json").write_text('{"Packages": ["UsrPkg"], "ApplicationVersion": "8.3.2"}', encoding="utf-8")
+        (ws / ".application" / "net-framework" / "core-bin").mkdir(parents=True)
+        (ws / ".application" / "net-framework" / "core-bin" / "Terrasoft.Core.dll").write_bytes(b"MZ")
+        unit = ws / "tests" / "UsrPkg" / "unit"
+        unit.mkdir(parents=True)
+        (unit / "UsrPkg.Tests.csproj").write_text("<Project />", encoding="utf-8")
+        (unit / "app.config").write_text("<configuration />", encoding="utf-8")
+        source = root / "project.json"
+        source.write_text(json.dumps({"environment": {"platformVersion": "8.3.2"}, "package": {"name": "UsrPkg", "workspace": "ws"}}), encoding="utf-8")
+        calls = []
+        lines, ok = project.tests_init(source, lambda cmd, **kwargs: calls.append(cmd))
+        assert ok and calls == [] and "package project: exists" in lines, (lines, calls)
 
 
 def test_tests_init_uses_a_project_at_the_legacy_location_and_says_to_move_it():  # S51-T01

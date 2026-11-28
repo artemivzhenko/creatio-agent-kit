@@ -63,6 +63,7 @@ _KIND_LABEL = {
     "ProcessUserTaskSchemaManager": "user-task",
     "PageSchemaManager": "page-v1",
     "DcmSchemaManager": "dcm",
+    "ServiceSchemaManager": "service",
     "ImageListSchemaManager": "images",
 }
 

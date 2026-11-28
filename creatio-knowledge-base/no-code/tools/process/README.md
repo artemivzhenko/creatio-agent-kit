@@ -56,6 +56,7 @@ python proc.py fill-captions <package> <Process> [--from en-US]
 python proc.py param     <package> <Process> add <Name> --type Text [--direction In|Out|Variable] [--caption ..] [--default ..] [--ref-schema Contact]
 python proc.py param     <package> <Process> rename <Old> <New> | remove <Name>
 python proc.py element   <package> <Process> add <Name> --kind readData --after X [--before Y] [--caption ..] [--entity UsrOrder [--env dev]] [--set Param=value ..]
+python proc.py element   <package> <Process> add <Name> --kind startTimer --cron "0 0 0 * * ? *"   a timer start; the CRON expression
 python proc.py element   <package> <Process> rename <Old> <New> | remove <Name> | set <Name> Param=value .. [--expr]
 python proc.py element   <package> <Process> formula <Name> "<expression>" --result <ProcessParam>
 python proc.py element   <package> <Process> values <Name> Column=value .. [--expr]     Add / Modify data: the columns it writes

@@ -17,6 +17,10 @@ public sealed class ConfigurationLoader
     };
 
     private readonly string _rootDirectory;
+    private readonly List<string> _warnings = new();
+
+    /// <summary>One <c>skipped &lt;relative path&gt;: &lt;reason&gt;</c> line per process file the loader left out (not JSON, or no name).</summary>
+    public IReadOnlyList<string> Warnings => _warnings;
 
     /// <summary>Initializes configuration loading relative to a required root directory.</summary>
     public ConfigurationLoader(string rootDirectory)
@@ -127,7 +131,7 @@ public sealed class ConfigurationLoader
 
     /// <summary>
     /// Reads every process file from a directory, one process per file. The directory is optional:
-    /// a project without process cases has none.
+    /// a project without process cases has none. A file that is not valid JSON or has no name is skipped and named in <see cref="Warnings"/>.
     /// </summary>
     public IReadOnlyList<ProcessDefinition> LoadProcesses(string relativeDirectory)
     {
@@ -140,20 +144,22 @@ public sealed class ConfigurationLoader
         var processes = new List<ProcessDefinition>();
         foreach (var file in Directory.GetFiles(directory, "*.json", SearchOption.AllDirectories).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
         {
-            ProcessDefinition process;
+            ProcessDefinition? process;
+            var skipped = "skipped " + Path.GetRelativePath(_rootDirectory, file) + ": ";
             try
             {
-                process = JsonSerializer.Deserialize<ProcessDefinition>(File.ReadAllText(file), SerializerOptions)
-                          ?? throw new InvalidOperationException("Process file '" + file + "' deserialized to null.");
+                process = JsonSerializer.Deserialize<ProcessDefinition>(File.ReadAllText(file), SerializerOptions);
             }
             catch (JsonException ex)
             {
-                throw new InvalidOperationException("Process file '" + file + "' is not valid JSON: " + ex.Message, ex);
+                _warnings.Add(skipped + "not valid JSON: " + ex.Message);
+                continue;
             }
 
-            if (string.IsNullOrWhiteSpace(process.Name))
+            if (process is null || string.IsNullOrWhiteSpace(process.Name))
             {
-                throw new InvalidOperationException("Process file '" + file + "' has no name.");
+                _warnings.Add(skipped + "no name");
+                continue;
             }
 
             process.SourceFile = Path.GetFullPath(file);
